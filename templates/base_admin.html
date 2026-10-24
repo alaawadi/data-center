@@ -1,0 +1,46 @@
+{% load static_v %}
+{% load static %}<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light" data-brand-palette="{{ site_settings.brandPalette }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}لوحة التحكم — مركز داتا{% endblock %}</title>
+  <meta name="description" content="{% block description %}لوحة تحكم متكاملة لإدارة المنصة والمستخدمين والمدربين والدورات والدروس والمشاريع واليوميات{% endblock %}">
+  <link rel="icon" href="{% static_v 'images/logo.svg' %}" type="image/svg+xml">
+  {% include "partials/fonts.html" %}
+  <link rel="stylesheet" href="{% static_v 'css/base.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/admin.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/workshops.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/account-menu.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/brand-palettes.css' %}">
+  {% include "partials/pwa_head.html" %}
+</head>
+<body data-page="admin">
+  {% block content %}{% endblock %}
+
+  {% include "partials/roots.html" %}
+
+  {{ trainers_json|json_script:"admin-trainers-data" }}
+  {{ platform_settings|json_script:"admin-platform-settings" }}
+  {{ settings_summary|json_script:"admin-settings-summary" }}
+  {{ students_json|json_script:"admin-students-data" }}
+  {{ courses_json|json_script:"admin-courses-data" }}
+  {{ course_progress_json|json_script:"admin-course-progress-data" }}
+  {{ admin_projects_json|json_script:"admin-projects-data" }}
+  {{ admin_student_certificates_json|json_script:"admin-student-certificates-data" }}
+  {{ point_redemptions_json|json_script:"admin-point-redemptions-data" }}
+  {{ point_redemption_courses_json|json_script:"admin-point-redemption-courses-data" }}
+  {{ admin_workshops_json|json_script:"admin-workshops-data" }}
+  {% include "partials/js_urls.html" %}
+  {% block scripts %}
+    <script src="{% static_v 'js/store.js' %}"></script>
+    <script src="{% static_v 'js/i18n.js' %}"></script>
+    <script src="{% static_v 'js/ui.js' %}"></script>
+    <script src="{% static_v 'js/admin-data.js' %}"></script>
+    <script src="{% static_v 'js/admin.js' %}"></script>
+    <script src="{% static_v 'js/account-menu.js' %}"></script>
+    <script src="{% static_v 'js/admin-sections.js' %}"></script>
+  {% endblock %}
+  <script src="{% static_v 'js/pwa.js' %}"></script>
+</body>
+</html>

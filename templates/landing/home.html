@@ -1,0 +1,201 @@
+{% extends "base_marketing.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block title %}{{ site_settings.name }}{% endblock %}
+{% block description %}{{ site_settings.tagline }}{% endblock %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'css/landing.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/plat-nav.css' %}">
+{% endblock %}
+
+{% block content %}
+  <!-- شاشة التحميل -->
+  <div class="site-loader" id="siteLoader" aria-hidden="true">
+    <img src="{% static_v 'images/loader-img.gif' %}" alt="">
+  </div>
+
+  <!-- ============ شريط التنقل السفلي (موبايل) ============ -->
+  <nav class="bottom-navbar" id="bottomNavbar">
+    <span class="tab-ind" id="bottomTabIndicator" aria-hidden="true"></span>
+    <a href="#home"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span>الرئيسية</span></a>
+    <a href="{% url 'courses:list' %}"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/></svg><span>الدورات</span></a>
+    <button type="button" class="tab-fab" id="coursesFabBtn" aria-label="كل الدورات">
+      <svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+    </button>
+    <a href="{% url 'projects:list' %}"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span>المشاريع</span></a>
+    <a href="{% url 'accounts:list' %}"><svg class="ic" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>المستقلين</span></a>
+  </nav>
+
+  <!-- ============ الرئيسية ============ -->
+  <section class="home-section" id="home">
+    <div class="container">
+      {% include "partials/hero_banner.html" with hero_class="home-hero" hero_floating_image=True hero_title=site_settings.name hero_sub=site_settings.tagline hero_cta_template="partials/hero_cta_landing.html" %}
+    </div>
+  </section>
+
+  <!-- ============ الخدمات ============ -->
+  <section class="services-sec" id="feature">
+    <h2 class="heading"> خدماتنا <span>التعليمية</span> </h2>
+    <p class="sec-sub">كل ما تحتاجه لتبدأ رحلتك التعليمية في مكان واحد</p>
+
+    <div class="svc-grid">
+      <article class="svc-card">
+        <span class="svc-icon"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></span>
+        <div><h3>دورات أونلاين</h3><p>محتوى مرئي ومسجّل عالي الجودة تتابعه في أي وقت ومن أي جهاز.</p></div>
+      </article>
+      <article class="svc-card">
+        <span class="svc-icon"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg></span>
+        <div><h3>مسارات تعلّم متدرّجة</h3><p>مسارات منظّمة من المستوى المبتدئ إلى الاحتراف مع أهداف واضحة.</p></div>
+      </article>
+      <article class="svc-card">
+        <span class="svc-icon"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span>
+        <div><h3>مشاريع تطبيقية</h3><p>تطبّق ما تتعلمه على مشاريع واقعية تعزّز ملفك المهني.</p></div>
+      </article>
+      <article class="svc-card">
+        <span class="svc-icon"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg></span>
+        <div><h3>شهادات معتمدة</h3><p>شهادة موثّقة عند إتمام كل دورة يمكنك مشاركتها في سيرتك الذاتية.</p></div>
+      </article>
+      <article class="svc-card">
+        <span class="svc-icon"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg></span>
+        <div><h3>متابعة التقدّم</h3><p>لوحة تقدّم تفاعلية تُظهر إنجازاتك ومستوى إتقانك للمهارات.</p></div>
+      </article>
+      <article class="svc-card">
+        <span class="svc-icon"><svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <div><h3>مجتمع المستقلين</h3><p>شارك إنجازاتك مع فريق المستقلين ونساعدك للوصول إلى فرص عمل في السوق المحلي والعالمي.</p></div>
+      </article>
+    </div>
+
+    <div class="freelancer-cta">
+      <span class="fc-icon"><svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+      <div class="fc-text">
+        <h3>وظّف مستقل</h3>
+        <p>جاهز لتنفيذ مشروعك؟ تصفّح ملفات المستقلين، تابع أعمالهم ومهاراتهم وتقييماتهم، وتواصل معهم مباشرة لتوظيف الأنسب لمهامك.</p>
+      </div>
+      <a href="{% url 'accounts:list' %}" class="cd-cta ghost">⭐ وظّف مستقل</a>
+    </div>
+  </section>
+
+  <!-- ============ التنقل (من المنصة) ============ -->
+  <section class="plat-nav" id="nav" aria-label="التنقل"></section>
+
+  <!-- ============ التقييمات ============ -->
+  <section class="reviews" id="reviews">
+    <h2 class="heading"> تقييمات <span>الطلاب</span> </h2>
+
+    <div class="reviews-track">
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-1.svg' %}" alt="صورة كرتونية لطالب">
+        <p>كل يوم فيه تحدّي جديد، حسّيت حالي بشتغل مع فريق محترف</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-2.svg' %}" alt="صورة كرتونية لطالبة">
+        <p>كل شي عملي وفعلي، حسّيت حالي بتعلم من أول يوم وأنصح أي حد حاب يتطوّر</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-3.svg' %}" alt="صورة كرتونية لطالبة">
+        <p>تجربة مختلفة، حسّيت حالي بتعلم مهارات قيمة للسوق، وأنصح أي شخص يجرب بالكورس</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-4.svg' %}" alt="صورة كرتونية لطالب">
+        <p>صراحة بعد ما خلصت الكورس، حسّيت حالي جاهز للسوق، كل مهارة تعلمتها حقيقية وبإمكاني أطبقها مباشرة</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-5.svg' %}" alt="صورة كرتونية لطالبة">
+        <p>الكورس أعطاني دفعة قوية وحسّيت حالي صرت متمكن، والمدرب ممتاز وبيعطي وقته لكل طالب</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-6.svg' %}" alt="صورة كرتونية لطالب">
+        <p>الكورس مركز على التطبيق والممارسة، وحسّيت النتائج مباشرة بعد كل درس</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-1.svg' %}" alt="صورة كرتونية لطالب">
+        <p>الدورة منظّمة بشكل ممتاز، المحتوى مبسط والتطبيق بعد كل محاضرة ساعدني أثبّت المعلومات</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-2.svg' %}" alt="صورة كرتونية لطالبة">
+        <p>أفضل شي عجبني التركيز على المشاريع العملية، خرجت ببورتفوليو حقيقي أقدر أعرضه</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-3.svg' %}" alt="صورة كرتونية لطالبة">
+        <p>المدرب شرح بأسلوب بسيط ودائمًا كان جاهز يساعد، فرقت فعلًا معاه</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-4.svg' %}" alt="صورة كرتونية لطالب">
+        <p>من أول أسبوع حسّيت بإنجاز، والشهادة بعد الدورة فتحت لي فرص مقابلات كثيرة</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-5.svg' %}" alt="صورة كرتونية لطالبة">
+        <p>البيئة داخل التدريب محفّزة، تعرّفت على زملاء وشبكة علاقات جديدة</p>
+        <div class="stars"></div>
+      </div>
+      <div class="review-slide">
+        <img src="{% static_v 'images/avatar-6.svg' %}" alt="صورة كرتونية لطالب">
+        <p>المحتوى محدّث ومواكب لسوق العمل، والتمارين العملية هي الفرق الحقيقي</p>
+        <div class="stars"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ التواصل والتسجيل ============ -->
+  <section class="contact" id="contact">
+    <h2 class="heading"> عنوان <span>مركز داتا</span> </h2>
+
+    <div class="box-container">
+      <div class="box">
+        <span class="ic-wrap">
+          <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+        </span>
+        <h3>العنوان</h3>
+        <p>السرايا - مقابل شركة جوال - عمارة عنان - الطابق الاول</p>
+        <p class="contact-location-note">(بجوار حلويات ابو بكر ساق الله)</p>
+      </div>
+    </div>
+<div class="about-center">
+      <h3>عن مركز داتا للتدريب والتطوير</h3>
+      <p>تُعدّ مؤسسة داتا للتدريب والتطوير من أبرز المؤسسات التعليمية والتدريبية في قطاع غزة، وقد تأسست عام 2007. وهي أول مركز يحصل على الترخيص والاعتماد من وزارتي التربية والتعليم والعمل. كما تحظى باعتماد الأكاديمية العالمية البريطانية للتدريب والتطوير (GATD)، وتتمتع بعضوية اتحاد المدربين الفلسطينيين، والاتحاد العربي للتدريب، والبرلمان العربي للتدريب، ونقابة المدربين الفلسطينية.</p>
+      <a class="cd-cta" href="https://www.smartindex.ps/company/%D8%B4%D8%B1%D9%83%D8%A9-%D8%AF%D8%A7%D8%AA%D8%A7-%D9%84%D9%84%D8%AA%D8%AF%D8%B1%D9%8A%D8%A8-%D9%88%D8%A7%D9%84%D8%AA%D8%B7%D9%88%D9%8A%D8%B1-17854.html" target="_blank" rel="noopener noreferrer">شركة داتا للتدريب والتطوير | سمارت اندكس</a>
+    </div>
+  </section>
+
+  <!-- ============ الشركاء ============ -->
+  <section class="brand-container">
+    <h2 class="heading"> الشركاء <span>والداعمين</span> </h2>
+    <div class="brand-marquee"></div>
+  </section>
+
+  <!-- قائمة الدورات المنبثقة -->
+  <div class="sheet-overlay" id="coursesSheetOverlay" aria-hidden="true">
+    <div class="courses-sheet" role="dialog" aria-modal="true" aria-label="كل الدورات">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head">
+        <h3 class="sheet-title">دورات مركز داتا</h3>
+        <button class="sheet-close" id="coursesSheetClose" type="button" aria-label="إغلاق">
+          <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+      <div id="coursesSheetList"></div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static_v 'js/landing-data.js' %}"></script>
+  <script src="{% static_v 'js/landing.js' %}"></script>
+  <script src="{% static_v 'js/store.js' %}"></script>
+  <script src="{% static_v 'js/i18n.js' %}"></script>
+  <script src="{% static_v 'js/ui.js' %}"></script>
+  <script src="{% static_v 'js/landing-nav.js' %}"></script>
+{% endblock %}

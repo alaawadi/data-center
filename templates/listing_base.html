@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block content %}
+  <main class="container page">
+    {% block hero %}{% include "partials/hero_banner.html" %}{% endblock %}
+    {% block listing_tools %}{% endblock %}
+    <section class="card-grid listing" id="{% block grid_id %}{% endblock %}" aria-label="{% block grid_label %}{% endblock %}"></section>
+    {% block listing_pagination %}{% endblock %}
+    {% block data_json %}{% endblock %}
+  </main>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% load static_v %}
+{% load static %}<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}مركز داتا للتدريب والتطوير{% endblock %}</title>
+  <meta name="description" content="{% block description %}{% endblock %}">
+  <link rel="icon" href="{% static_v 'images/logo.svg' %}" type="image/svg+xml">
+  <script>(function(){try{if(localStorage.getItem('dc-theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();</script>
+  {% include "partials/fonts.html" %}
+  <link rel="stylesheet" href="{% static_v 'css/base.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/site-chrome.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/errors.css' %}">
+</head>
+<body>
+
+  {% include "partials/marketing_header.html" %}
+
+  <main class="err-wrap" role="main">
+    <div class="err-bg" aria-hidden="true">
+      <span class="err-blob b1"></span>
+      <span class="err-blob b2"></span>
+      <span class="err-blob b3"></span>
+    </div>
+
+    <section class="err-card">
+      <div class="err-visual" aria-hidden="true">
+        <span class="err-orbit arc"></span>
+        <span class="err-orbit"><span></span></span>
+        <span class="err-circle"><span class="err-code">{% block error_code %}404{% endblock %}</span></span>
+        <span class="err-ic">{% block error_icon %}{% endblock %}</span>
+      </div>
+
+      <h1 class="err-title">{% block error_title %}{% endblock %}</h1>
+      <p class="err-text">{% block error_message %}{% endblock %}</p>
+
+      <div class="err-actions">
+        {% block error_actions %}
+          <a class="err-btn primary" href="{% url 'landing:home' %}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+            العودة للرئيسية
+          </a>
+          <button type="button" class="err-btn ghost" data-history-back>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="19" x2="5" y1="12" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            الرجوع للخلف
+          </button>
+        {% endblock %}
+      </div>
+
+      {% block error_links %}
+      <nav class="err-links" aria-label="روابط سريعة">
+        <a href="{% url 'courses:list' %}">الدورات</a>
+        <a href="{% url 'projects:list' %}">المشاريع</a>
+        <a href="{% url 'accounts:list' %}">المستقلين</a>
+      </nav>
+      {% endblock %}
+
+      {% block error_ref %}{% endblock %}
+    </section>
+  </main>
+
+  {% include "partials/footer.html" %}
+
+  <script>
+    (function () {
+      var themeBtn = document.getElementById('theme-btn');
+      if (themeBtn) {
+        themeBtn.addEventListener('click', function () {
+          var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', next);
+          try { localStorage.setItem('dc-theme', next); } catch (e) {}
+        });
+      }
+      Array.prototype.forEach.call(document.querySelectorAll('[data-history-back]'), function (btn) {
+        btn.addEventListener('click', function () {
+          if (window.history.length > 1) { window.history.back(); }
+          else { window.location.href = '{% url "landing:home" %}'; }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

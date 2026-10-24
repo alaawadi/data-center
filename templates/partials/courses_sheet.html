@@ -1,0 +1,13 @@
+{% load static %}
+      <div class="sheet-overlay" id="coursesSheetOverlay" aria-hidden="true">
+        <div class="courses-sheet" role="dialog" aria-modal="true" aria-label="كل الدورات">
+          <div class="sheet-handle"></div>
+          <div class="sheet-head">
+            <h3 class="sheet-title">دورات مركز داتا</h3>
+            <button class="sheet-close" id="coursesSheetClose" type="button" aria-label="إغلاق">
+              <svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+          <div id="coursesSheetList"></div>
+        </div>
+      </div>

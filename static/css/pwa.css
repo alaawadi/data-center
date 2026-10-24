@@ -1,0 +1,53 @@
+.pwa-launcher {
+  position: fixed;
+  z-index: 4900;
+  inset-inline-end: 18px;
+  bottom: 22px;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #2563eb, #4f46e5);
+  border: 0;
+  border-radius: 50%;
+  box-shadow: 0 8px 24px rgba(37, 99, 235, .32);
+  font-size: 23px;
+  cursor: pointer;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.pwa-launcher:hover { transform: translateY(-2px); box-shadow: 0 11px 28px rgba(37, 99, 235, .4); }
+.pwa-android-logo { display: block; width: 25px; height: 25px; fill: currentColor; }
+.pwa-launcher .pwa-android-logo { width: 29px; height: 29px; fill: #fff; }
+.pwa-launcher[hidden],
+.pwa-prompt[hidden] { display: none; }
+
+.pwa-prompt {
+  position: fixed;
+  z-index: 4901;
+  inset-inline-end: 18px;
+  bottom: 84px;
+  width: min(350px, calc(100vw - 28px));
+  padding: 17px;
+  color: var(--ink, #172033);
+  background: var(--card, #fff);
+  border: 1px solid var(--line, #dbe6f3);
+  border-radius: 18px;
+  box-shadow: 0 16px 44px rgba(15, 23, 42, .2);
+  font-family: 'Cairo', 'Segoe UI', system-ui, sans-serif;
+  animation: pwa-prompt-in .2s ease-out;
+}
+.pwa-prompt-head { display: flex; align-items: flex-start; gap: 11px; }
+.pwa-prompt-icon { flex: 0 0 40px; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 13px; color: #3ddc84; background: #eaf2ff; }
+.pwa-prompt-copy { flex: 1; min-width: 0; }
+.pwa-prompt-copy h2 { margin: 0 0 4px; color: var(--ink, #172033); font-size: 15px; font-weight: 800; }
+.pwa-prompt-copy p { margin: 0; color: var(--muted, #64748b); font-size: 12.5px; line-height: 1.65; }
+.pwa-prompt-close { flex: 0 0 30px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; color: var(--muted, #64748b); background: transparent; border: 0; border-radius: 9px; font-size: 19px; cursor: pointer; }
+.pwa-prompt-close:hover { background: var(--line-2, #f1f5f9); }
+.pwa-install-button { width: 100%; margin-top: 14px; padding: 10px 14px; color: #fff; background: linear-gradient(100deg, #2563eb, #4f46e5); border: 0; border-radius: 11px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.pwa-install-button:disabled { opacity: .6; cursor: wait; }
+@keyframes pwa-prompt-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 640px) {
+  .pwa-launcher { inset-inline-end: 14px; bottom: 82px; width: 46px; height: 46px; font-size: 20px; }
+  .pwa-prompt { inset-inline: 14px; bottom: 138px; width: auto; }
+}

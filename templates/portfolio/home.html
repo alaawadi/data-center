@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load static_v %}
+
+{% block title %}بورتفوليو — أحمد خالد الحسن{% endblock %}
+{% block description %}بورتفوليو احترافي لعرض الشهادات والمشاريع{% endblock %}
+{% block body_attrs %}data-page="home"{% endblock %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'css/workshops.css' %}">
+{% endblock %}
+
+{% block content %}
+  <main class="container page">
+    <section class="card profile-card" id="profileCard" aria-label="الملف الشخصي"></section>
+    <section class="card skills-card" id="skillsCard" aria-label="المهارات"></section>
+    <nav class="profile-tabs" id="profileTabs" role="tablist" aria-label="أقسام الملف الشخصي"></nav>
+    <div id="panels">
+      <section class="panel" id="panel-certificates" role="tabpanel"></section>
+      <section class="panel" id="panel-projects" role="tabpanel"></section>
+      <section class="panel" id="panel-saved" role="tabpanel"></section>
+    </div>
+  </main>
+
+  <button class="fab" id="fab" aria-label="إضافة جديد"></button>
+  <div class="fab-menu" id="fabMenu"></div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static_v 'vendor/jsQR.js' %}"></script>
+  <script src="{% static_v 'js/workshop-scanner.js' %}"></script>
+  {{ block.super }}
+{% endblock %}

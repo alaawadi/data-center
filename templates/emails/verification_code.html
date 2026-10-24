@@ -1,0 +1,92 @@
+{% autoescape off %}<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light only">
+  <title>رمز تفعيل حسابك — مركز داتا</title>
+</head>
+<body style="margin:0;padding:0;background-color:#eef2f8;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;font-size:1px;line-height:1px;color:#eef2f8;">
+    رمز تفعيل حسابك في مركز داتا هو {{ code }} — صالح لمدة {{ minutes }} دقائق.
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eef2f8;">
+    <tr>
+      <td align="center" style="padding:28px 12px;">
+
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 14px 34px rgba(15,23,42,.10);font-family:'Tajawal','Cairo','Segoe UI',Tahoma,Arial,sans-serif;direction:rtl;">
+
+          <tr>
+            <td style="background-color:#2563eb;background-image:linear-gradient(135deg,#2563eb,#4f46e5);padding:28px 30px;text-align:center;">
+              <div style="font-size:21px;font-weight:800;color:#ffffff;line-height:1.4;">مركز داتا للتدريب والتطوير</div>
+              <div style="font-size:12.5px;font-weight:600;color:#dbeafe;margin-top:5px;letter-spacing:.4px;direction:ltr;">Data Center &middot; Training &amp; Development</div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:36px 32px 6px;">
+              <h1 style="margin:0 0 6px;font-size:21px;font-weight:800;color:#0f172a;">تأكيد البريد الإلكتروني</h1>
+              <p style="margin:0 0 18px;font-size:14.5px;line-height:1.9;color:#334155;">
+                {% if full_name %}مرحباً {{ full_name }}،{% else %}مرحباً،{% endif %}
+              </p>
+              <p style="margin:0 0 22px;font-size:14.5px;line-height:1.9;color:#334155;">
+                شكراً لتسجيلك في مركز داتا للتدريب والتطوير. لإكمال إنشاء حسابك، أدخل رمز التحقق التالي في صفحة التأكيد:
+              </p>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" style="border:1.5px dashed #2563eb;border-radius:14px;background-color:#eff6ff;padding:22px 16px;">
+                    <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#1d4ed8;font-family:'Courier New',Courier,monospace;direction:ltr;">{{ code }}</div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:18px 0 0;font-size:13px;line-height:1.8;color:#64748b;text-align:center;">
+                الرمز صالح لمدة <strong style="color:#1d4ed8;">{{ minutes }} دقائق</strong> فقط.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:26px 32px 8px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f7fb;border:1px solid #e4e9f2;border-radius:12px;">
+                <tr>
+                  <td style="padding:16px 18px;">
+                    <p style="margin:0 0 8px;font-size:13px;font-weight:800;color:#0f172a;">نصائح أمنية</p>
+                    <p style="margin:0;font-size:12.5px;line-height:1.9;color:#475569;">
+                      &bull; لا تشارك هذا الرمز مع أي شخص.<br>
+                      &bull; فريقنا لا يطلب منك الرمز أبداً عبر الهاتف أو الرسائل.<br>
+                      &bull; إذا لم تطلب إنشاء حساب، يمكنك تجاهل هذه الرسالة.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:22px 32px 30px;">
+              <hr style="border:0;border-top:1px solid #e4e9f2;margin:0 0 16px;">
+              <p style="margin:0 0 6px;font-size:12px;line-height:1.8;color:#94a3b8;text-align:center;">
+                هذه رسالة آلية من نظام التسجيل — لا تُرسل ردود إلى هذا العنوان.
+              </p>
+              <p style="margin:0;font-size:12px;line-height:1.8;color:#94a3b8;text-align:center;">
+                &copy; {{ year }} مركز داتا للتدريب والتطوير. جميع الحقوق محفوظة.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+
+        <div style="max-width:600px;width:100%;margin:14px auto 0;font-family:'Tajawal','Cairo','Segoe UI',Tahoma,Arial,sans-serif;font-size:11.5px;color:#94a3b8;text-align:center;direction:rtl;">
+          إن لم تكن أنت من طلب هذا الحساب، يمكنك تجاهل هذه الرسالة بأمان.
+        </div>
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+{% endautoescape %}

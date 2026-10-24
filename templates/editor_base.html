@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'css/editor.css' %}">
+{% endblock %}
+
+{% block content %}
+  <div class="editor-bar">
+    <div class="container editor-bar-inner">
+      <a class="btn-icon" href="{% url 'portfolio:home' %}{% block back_section %}{% endblock %}" title="رجوع" id="edBack"></a>
+      <div class="editor-status" id="edStatus"><span class="dot dot-ok"></span><span></span></div>
+      <span class="spacer"></span>
+      <div class="editor-bar-actions">
+        <button class="btn btn-ghost btn-sm" id="edPreviewBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+        <button class="btn btn-soft btn-sm" id="edDraftBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+        <button class="btn btn-primary btn-sm" id="edPublishBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+      </div>
+    </div>
+  </div>
+
+  <main class="container editor-page">
+    {% block editor_main %}{% endblock %}
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  {{ block.super }}
+  <script src="{% static_v 'js/editor.js' %}"></script>
+{% endblock %}

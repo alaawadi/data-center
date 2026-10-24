@@ -1,0 +1,46 @@
+{% load static_v %}
+{% load static %}<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light" data-brand-palette="{{ site_settings.brandPalette }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}{{ site_settings.name }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{% endblock %}">
+  {% block favicon %}
+    <link rel="icon" href="{% static_v 'images/logo.svg' %}" type="image/svg+xml">
+  {% endblock %}
+  {% include "partials/fonts.html" %}
+  {% block css %}
+    <link rel="stylesheet" href="{% static_v 'css/base.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/hero.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/app.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/site-chrome.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/account-menu.css' %}">
+  {% endblock %}
+  <link rel="stylesheet" href="{% static_v 'css/brand-palettes.css' %}">
+  {% include "partials/pwa_head.html" %}
+</head>
+<body {% block body_attrs %}data-page=""{% endblock %}>
+
+  {% include "partials/header.html" %}
+
+  {% block content %}{% endblock %}
+
+  {% include "partials/footer.html" %}
+  {% include "partials/bottom_nav.html" %}
+  {% include "partials/courses_sheet.html" %}
+  {% include "partials/roots.html" %}
+  {{ site_settings|json_script:"site-settings-data" }}
+
+  {% include "partials/js_urls.html" %}
+  {% block scripts %}
+    <script src="{% static_v 'js/store.js' %}"></script>
+    <script src="{% static_v 'js/i18n.js' %}"></script>
+    <script src="{% static_v 'js/ui.js' %}"></script>
+    <script src="{% static_v 'js/site-chrome.js' %}"></script>
+    <script src="{% static_v 'js/account-menu.js' %}"></script>
+    <script src="{% static_v 'js/app.js' %}"></script>
+  {% endblock %}
+  <script src="{% static_v 'js/pwa.js' %}"></script>
+</body>
+</html>

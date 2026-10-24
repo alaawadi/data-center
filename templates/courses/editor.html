@@ -1,0 +1,115 @@
+{% extends "editor_base.html" %}
+
+{% block title %}محرر الدورة — بورتفوليو{% endblock %}
+{% block body_attrs %}data-page="edit-course"{% endblock %}
+{% block back_section %}#certificates{% endblock %}
+
+{% block editor_main %}
+    <div class="editor-grid">
+      <div class="editor-main">
+        <div>
+          <input class="title-input" id="edTitle" autocomplete="off">
+          <div class="slug-row"><span dir="ltr">/courses/<b id="edSlug">…</b></span></div>
+        </div>
+
+        <div id="edCoverHost"></div>
+
+        <div class="rich-editor">
+          <div class="editor-toolbar" id="edToolbar"></div>
+          <div class="editable" id="edContent" contenteditable="true" spellcheck="false"></div>
+        </div>
+
+        <div class="editor-foot-meta" id="edMeta"></div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="gallery-edit-grid" id="edGallery"></div>
+        </div>
+
+        <div class="side-card-box" id="edSyllabusBox">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
+            <button class="btn btn-soft btn-sm" type="button" id="edSecAdd"></button></h3>
+          <div class="syllabus-list" id="edSyllabus"></div>
+        </div>
+      </div>
+
+      <aside class="editor-side">
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" id="edProgressPct">0%</span></h3>
+          <div class="checklist-bar"><i id="edProgressBar" style="width:0%"></i></div>
+          <div class="checklist-items" id="edChecklist"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2"></textarea></div>
+          <div class="field-row">
+            <div class="field"><label class="label" id="lblCategory"></label><input class="input" id="edCategory"></div>
+            <div class="field">
+              <label class="label" id="lblRole"></label>
+              {% if is_admin_editor %}
+              <select class="select" id="edRole" required>
+                <option value="" data-trainer-placeholder>اختر مدرباً</option>
+                {% for trainer in admin_trainers %}
+                <option value="{{ trainer.pk }}">{{ trainer.display_name }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <input class="input" id="edRole">
+              {% endif %}
+            </div>
+          </div>
+          <div class="field"><label class="label" id="lblDate"></label><input type="date" class="input" id="edDate"></div>
+          <div class="field"><label class="label">GitHub</label><input class="input" id="edGithub" dir="ltr" placeholder="https://github.com/..."></div>
+          <div class="field"><label class="label" id="lblDemo"></label><input class="input" id="edDemo" dir="ltr" placeholder="https://..."></div>
+        </div>
+
+        <div class="side-card-box" id="edCourseMetaBox">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="field-row">
+            <div class="field"><label class="label" id="lblPrice"></label><input class="input" id="edPrice" dir="auto" placeholder="₪180"></div>
+            <div class="field"><label class="label" id="lblDuration"></label><input class="input" id="edDuration" dir="auto" placeholder="36 ساعة"></div>
+          </div>
+          <div class="field-row">
+            <div class="field"><label class="label" id="lblPeriod"></label><input class="input" id="edPeriod" dir="auto" placeholder="12 لقاءات"></div>
+            <div class="field"><label class="label" id="lblCredId"></label><input class="input" id="edCredId" dir="ltr"></div>
+          </div>
+          <div class="field"><label class="label" id="lblVerifyUrl2"></label><input class="input" id="edVerifyUrl" dir="ltr" placeholder="https://..."></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="chips-input" id="edTagsBox">
+            <input id="edTagsInput" autocomplete="off">
+          </div>
+          <div class="chips-suggest" id="edTagsSuggest"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="dropzone" id="edFilesDrop">
+            <input type="file" multiple id="edFilesInput">
+            <span class="dz-ic"></span>
+            <span class="dz-label"></span>
+          </div>
+          <div class="files-list" id="edFilesList"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="tpl-list" id="edTemplates"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
+            <button class="btn-icon sm" id="edIdeaRefresh" title="فكرة أخرى"></button></h3>
+          <div class="ideas-list" id="edIdeas"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="social-preview" id="edSocialPreview"></div>
+        </div>
+      </aside>
+    </div>
+{% endblock %}

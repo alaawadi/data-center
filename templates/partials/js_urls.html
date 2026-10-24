@@ -1,0 +1,70 @@
+{% load static %}
+  {% load static_v %}
+<script>
+    window.SITE_URLS = {
+      landing: "{% url 'landing:home' %}",
+      portfolio: "{% url 'portfolio:home' %}",
+      courses: "{% url 'courses:list' %}",
+      course: "{% url 'courses:detail' pk='__ID__' %}",
+      certificate: "{% url 'courses:certificate' pk='__ID__' %}",
+      playlist: "{% url 'courses:playlist' pk='__ID__' %}",
+      courseCreate: "{% url 'courses:create' %}",
+      courseEdit: "{% url 'courses:edit' pk='__ID__' %}",
+      courseSave: "{% url 'courses:save' %}",
+      courseDelete: "{% url 'courses:delete' %}",
+      manualCertificateSubmit: "{% url 'courses:manual-certificate-submit' %}",
+      courseProgress: "{% url 'courses:progress' %}",
+      courseQuizStart: "{% url 'courses:quiz_start' %}",
+      courseQuizSubmit: "{% url 'courses:quiz_submit' %}",
+      projects: "{% url 'projects:list' %}",
+      project: "{% url 'projects:detail' pk='__ID__' %}",
+      projectCreate: "{% url 'projects:create' %}",
+      projectEdit: "{% url 'projects:edit' pk='__ID__' %}",
+      projectSave: "{% url 'projects:save' %}",
+      projectDelete: "{% url 'projects:delete' %}",
+      projectInteraction: "{% url 'projects:interaction' %}",
+      users: "{% url 'accounts:list' %}",
+      profile: "{% url 'accounts:profile' handle='HANDLE' %}",
+      panel: "{% url 'dashboard:home' %}",
+      trainerSave: "{% url 'dashboard:trainer-save' %}",
+      studentSave: "{% url 'dashboard:student-save' %}",
+      studentStatus: "{% url 'dashboard:student-status' pk='__ID__' %}",
+      studentResetReferralPoints: "{% url 'dashboard:student-reset-referral-points' pk='__ID__' %}",
+      studentRedeemReferralPoints: "{% url 'dashboard:student-redeem-referral-points' pk='__ID__' %}",
+      trainerStatus: "{% url 'dashboard:trainer-status' pk='__ID__' %}",
+      courseStatus: "{% url 'dashboard:course-status' pk='__ID__' %}",
+      projectStatus: "{% url 'dashboard:project-status' pk='__ID__' %}",
+      certificateStatus: "{% url 'dashboard:certificate-status' certificate_key='__ID__' %}",
+      courseStudentRemove: "{% url 'dashboard:course-student-remove' pk=0 %}",
+      courseStudents: "{% url 'dashboard:course-students' pk='__ID__' %}",
+      courseLessonSave: "{% url 'dashboard:course-lesson-save' %}",
+      workshopSave: "{% url 'dashboard:workshop-save' %}",
+      workshopAttendanceStatus: "{% url 'dashboard:workshop-attendance-status' pk='__ID__' %}",
+      workshopRegenerateQr: "{% url 'dashboard:workshop-regenerate-qr' pk='__ID__' %}",
+      workshopDelete: "{% url 'dashboard:workshop-delete' pk='__ID__' %}",
+      workshopAttendanceScan: "{% url 'dashboard:workshop-attendance-scan' %}",
+      platformSettings: "{% url 'dashboard:platform-settings' %}",
+      databaseBackup: "{% url 'dashboard:database-backup' %}",
+      login: "{% url 'users:login' %}",
+      signup: "{% url 'users:signup' %}",
+      logout: "{% url 'users:logout' %}",
+      authenticated: {{ user.is_authenticated|yesno:"true,false" }},
+      phoneCheck: "{% url 'users:phone-check' %}",
+      profileEdit: "{% url 'users:profile-edit' %}",
+      profileUpdate: "{% url 'users:profile-update' %}",
+      assets: "{% static '' %}"
+    };
+    window.CSRF_TOKEN = "{{ csrf_token }}";
+  </script>
+  <script src="{% static_v 'js/site-urls.js' %}"></script>
+  {% if server_profile %}{{ server_profile|json_script:"my-profile-data" }}{% endif %}
+  {% if projects_json != "" %}{{ projects_json|json_script:"projects-data" }}{% endif %}
+  {% if saved_projects_json != "" %}{{ saved_projects_json|json_script:"saved-projects-data" }}{% endif %}
+  {% if posts_json != "" %}{{ posts_json|json_script:"posts-data" }}{% endif %}
+  {% if courses_json != "" %}{{ courses_json|json_script:"courses-data" }}{% endif %}
+  {% if my_courses_json != "" %}{{ my_courses_json|json_script:"my-courses-data" }}{% endif %}
+  {% if my_certs_json != "" %}{{ my_certs_json|json_script:"my-certs-data" }}{% endif %}
+  {% if profile_certs_json != "" %}{{ profile_certs_json|json_script:"profile-certs-data" }}{% endif %}
+  {% if progress_json %}{{ progress_json|json_script:"course-progress" }}{% endif %}
+  {% if quiz_json != "" %}{{ quiz_json|json_script:"course-quiz" }}{% endif %}
+  {% if trainer_projects_json != "" %}{{ trainer_projects_json|json_script:"trainer-projects-data" }}{% endif %}

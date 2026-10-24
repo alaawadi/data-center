@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% load static_v %}
+
+{% block title %}تفاصيل الشهادة — بورتفوليو{% endblock %}
+{% block body_attrs %}data-page="course"{% endblock %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'vendor/plyr/plyr.css' %}">
+{% endblock %}
+
+{% block content %}
+  <main class="container detail-page" id="detailHost"></main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
+  {{ block.super }}
+{% endblock %}

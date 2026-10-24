@@ -1,0 +1,404 @@
+/* ============================================================
+   site-chrome.css — هيدر وفوتر اللاندنج (هوية مركز داتا البرتقالية)
+   مشترك بين كل صفحات المشروع عدا landing.html
+   مُنطّق (scoped) تحت .header/.footer ولا يلمس باقي الأنماط.
+   الوحدة --u تحاكي حجم خط الجذر في اللاندنج (16px * 58.5% = 9.36px)
+   ============================================================ */
+/* الخط Cairo يُحمّل عبر <link> غير حاجب في head القوالب لتفادي تأخر تطبيق أنماط الهيدر */
+
+.header,
+.footer,
+.bottom-navbar,
+.sheet-overlay,
+.courses-sheet {
+  --u: 9.36px;
+  --main: #ff9f1a;
+  --main-2: #ff7300;
+  --main-soft: rgba(255, 159, 26, .12);
+  --main-soft-2: rgba(255, 159, 26, .2);
+  --danger: #e5484d;
+  --bg-1: #eef1f5;
+  --bg-2: #ffffff;
+  --text-1: #3d3d3d;
+  --text-2: #6b7280;
+  --line: rgba(0, 0, 0, .09);
+  --shadow: 0 calc(.5 * var(--u)) calc(1.5 * var(--u)) rgba(0, 0, 0, .1);
+  font-family: 'Cairo', 'Segoe UI', system-ui, sans-serif;
+}
+
+[data-theme='dark'] .header,
+[data-theme='dark'] .footer,
+[data-theme='dark'] .bottom-navbar,
+[data-theme='dark'] .sheet-overlay,
+[data-theme='dark'] .courses-sheet {
+  --bg-1: #1c1f24;
+  --bg-2: #262b31;
+  --text-1: #f2f4f7;
+  --text-2: #b7bfca;
+  --line: rgba(255, 255, 255, .12);
+  --shadow: 0 calc(.5 * var(--u)) calc(1.5 * var(--u)) rgba(0, 0, 0, .35);
+}
+
+.header .ic,
+.footer .ic { display: block; flex: none; }
+
+.header a,
+.footer a { text-decoration: none; }
+
+/* ---------- HEADER ---------- */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(1 * var(--u));
+  padding: calc(1.5 * var(--u)) 9%;
+  background: var(--bg-2);
+  box-shadow: var(--shadow);
+}
+
+.header .logo {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: calc(.8 * var(--u));
+  font-size: calc(2.5 * var(--u));
+  font-weight: 900;
+  color: var(--text-1);
+}
+
+.header .logo img { width: calc(5 * var(--u)); }
+.header .logo i { color: var(--main); font-style: normal; }
+.header .logo .logo-text { color: var(--main); }
+.header .logo .logo-text { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+
+.header .navbar { display: flex; align-items: center; }
+
+.header .navbar a {
+  margin: 0 calc(1.5 * var(--u));
+  padding: calc(.55 * var(--u)) calc(1.5 * var(--u));
+  border-radius: 999px;
+  font-size: calc(1.8 * var(--u));
+  font-weight: 700;
+  color: var(--text-1);
+  transition: color .25s ease, background .25s ease, transform .2s ease;
+}
+
+.header .navbar a:hover { color: var(--main); }
+.header .navbar a.active { color: var(--main); background: var(--main-soft); }
+.header .navbar a:active { transform: scale(.94); }
+
+.header .icons { display: flex; align-items: center; }
+
+.header .icons button,
+.header .icons a.i-account {
+  width: calc(4.5 * var(--u));
+  height: calc(4.5 * var(--u));
+  display: grid;
+  place-items: center;
+  margin-inline-start: calc(.5 * var(--u));
+  border-radius: 50%;
+  font-size: calc(1.9 * var(--u));
+  color: var(--text-1);
+  background: var(--bg-1);
+  transition: background .2s ease, color .2s ease, transform .15s ease;
+}
+
+.header .icons button:hover,
+.header .icons a.i-account:hover { background: var(--main); color: #fff; }
+.header .icons button:active,
+.header .icons a.i-account:active { transform: scale(.92); }
+.header .icons .i-login { color: #16a34a; }
+.header .icons .i-logout { color: var(--danger); }
+.header .icons .i-user { background: transparent; padding: 0; overflow: hidden; }
+.header .icons .i-user:hover { background: transparent; transform: scale(1.06); }
+.header .icons .i-user .hdr-user-av { width: 100%; height: 100%; display: block; border-radius: 50%; object-fit: cover; }
+.header .icons .i-account { overflow: hidden; padding: 0; }
+.header .icons .i-account .account-av {
+  width: 74%;
+  height: 74%;
+  display: block;
+  border-radius: 50%;
+  border: calc(.15 * var(--u)) solid var(--line);
+  object-fit: cover;
+  transition: transform .18s ease, border-color .2s ease;
+}
+.header .icons .i-account:hover .account-av { transform: scale(1.06); border-color: #fff; }
+.header .icons .logout-form { display: flex; margin: 0; }
+
+/* ---------- FOOTER ---------- */
+.footer {
+  text-align: center;
+  padding: calc(3 * var(--u)) 9% calc(4 * var(--u));
+}
+
+.footer .icons {
+  padding: calc(3 * var(--u)) 0 calc(2 * var(--u));
+  display: flex;
+  justify-content: center;
+  gap: calc(.6 * var(--u));
+}
+
+.footer .icons a {
+  width: calc(4.5 * var(--u));
+  height: calc(4.5 * var(--u));
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--main);
+  border: calc(.2 * var(--u)) solid var(--main);
+  transition: background .2s ease, color .2s ease;
+}
+
+.footer .icons a:hover { background: var(--main); color: #fff; }
+
+.footer .credit {
+  width: 90%;
+  margin: 0 auto;
+  padding: calc(1 * var(--u)) 0;
+  border-top: calc(.1 * var(--u)) solid var(--line);
+  font-size: calc(1.8 * var(--u));
+  color: var(--text-2);
+}
+
+.footer .credit span { color: var(--main); }
+
+/* ---------- BOTTOM TAB BAR (موبايل — نفس تاب بار اللاندنج) ---------- */
+.bottom-navbar {
+  display: none;
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 140;
+  padding: calc(.7 * var(--u)) calc(1.2 * var(--u)) calc(.7 * var(--u) + env(safe-area-inset-bottom));
+  background: var(--bg-2);
+  border-top: calc(.1 * var(--u)) solid var(--line);
+  box-shadow: 0 calc(-.6 * var(--u)) calc(1.8 * var(--u)) rgba(0, 0, 0, .14);
+}
+
+.bottom-navbar a {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(.3 * var(--u));
+  padding: calc(.6 * var(--u)) calc(.3 * var(--u));
+  border-radius: calc(1.1 * var(--u));
+  font-size: calc(1.3 * var(--u));
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: color .2s ease, background .2s ease;
+}
+
+.bottom-navbar a.active { color: var(--main); }
+.bottom-navbar a:active { background: var(--main-soft); }
+
+.bottom-navbar .tab-fab {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  width: calc(5.6 * var(--u));
+  height: calc(5.6 * var(--u));
+  display: grid;
+  place-items: center;
+  margin-top: calc(-3.4 * var(--u));
+  border: calc(.4 * var(--u)) solid var(--bg-1);
+  border-radius: 50%;
+  background: var(--main);
+  color: #fff;
+  font-size: calc(2.2 * var(--u));
+  box-shadow: 0 8px 18px rgba(255, 159, 26, .45);
+  transition: transform .16s cubic-bezier(.34, 1.56, .64, 1), background .15s ease;
+}
+
+.bottom-navbar .tab-fab:active { transform: scale(.88); background: var(--main-2); }
+
+/* ---------- COURSES SHEET (نفس ورقة اللاندنج) ---------- */
+.sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(16, 26, 36, .55);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .22s ease;
+}
+
+.sheet-overlay.open { opacity: 1; pointer-events: auto; }
+
+.courses-sheet {
+  position: relative;
+  width: 100%;
+  max-width: calc(60 * var(--u));
+  max-height: 85vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: calc(1.4 * var(--u)) calc(1.8 * var(--u)) calc(2 * var(--u) + env(safe-area-inset-bottom));
+  background: var(--bg-2);
+  border-radius: calc(2.4 * var(--u)) calc(2.4 * var(--u)) 0 0;
+  transform: translateY(100%);
+  transition: transform .32s cubic-bezier(.3, 1.25, .5, 1);
+  user-select: none;
+}
+
+.sheet-overlay.open .courses-sheet { transform: translateY(0); }
+
+.sheet-handle { width: calc(4.2 * var(--u)); height: calc(.5 * var(--u)); margin: 0 auto calc(1.4 * var(--u)); border-radius: 999px; background: var(--text-2); opacity: .35; }
+
+.courses-sheet .sheet-head { position: static; display: flex; align-items: center; justify-content: space-between; gap: calc(1 * var(--u)); margin-bottom: calc(.8 * var(--u)); padding: calc(.6 * var(--u)) 0 calc(1.2 * var(--u)); }
+.courses-sheet .sheet-title { font-size: calc(2 * var(--u)); font-weight: 800; color: var(--text-1); }
+
+.sheet-close {
+  position: absolute;
+  top: calc(1.1 * var(--u));
+  left: calc(1.1 * var(--u));
+  z-index: 4;
+  width: calc(3.4 * var(--u));
+  height: calc(3.4 * var(--u));
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--danger);
+  background: var(--main-soft);
+  transition: transform .15s ease, background .15s ease;
+}
+
+.sheet-close:hover svg { transform: rotate(90deg); }
+.sheet-close:active { transform: scale(.88); }
+
+.course-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: calc(1.2 * var(--u));
+  padding: calc(1.2 * var(--u)) calc(.4 * var(--u));
+  border-radius: calc(1.2 * var(--u));
+  border-bottom: calc(.1 * var(--u)) solid var(--line);
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.courses-sheet img { -webkit-user-drag: none; }
+
+.csi-empty { padding: calc(2.6 * var(--u)) calc(1 * var(--u)); text-align: center; color: var(--text-2); font-size: calc(1.5 * var(--u)); }
+
+.course-sheet-item:last-child { border-bottom: none; }
+.course-sheet-item:active { background: var(--bg-1); }
+
+.csi-thumb { width: calc(5.8 * var(--u)); height: calc(5.8 * var(--u)); border-radius: calc(1.4 * var(--u)); object-fit: cover; background: var(--bg-1); flex: none; }
+.csi-main { flex: 1; min-width: 0; }
+
+.csi-title {
+  font-size: calc(1.5 * var(--u));
+  font-weight: 700;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.csi-sub { display: flex; gap: calc(1 * var(--u)); margin-top: calc(.4 * var(--u)); font-size: calc(1.22 * var(--u)); color: var(--text-2); }
+.csi-sub svg { color: var(--main); }
+.csi-sub span { display: inline-flex; align-items: center; gap: calc(.3 * var(--u)); }
+.csi-price { font-size: calc(1.35 * var(--u)); font-weight: 800; color: var(--main); flex: none; }
+.csi-chev { color: var(--text-2); flex: none; }
+
+/* صفوف الدروس داخل الورقة (على صفحة البلاي ليست) */
+.csi-lesson {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  font: inherit;
+  cursor: pointer;
+  transition: background .12s ease;
+}
+
+.csi-lesson:hover { background: var(--bg-1); }
+.csi-lesson.is-active { background: rgba(255, 159, 26, .12); }
+.csi-lesson.is-active .csi-chev { color: var(--main); }
+
+.csi-lnum {
+  width: calc(3.4 * var(--u));
+  height: calc(3.4 * var(--u));
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  flex: none;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  font-size: calc(1.3 * var(--u));
+  font-weight: 800;
+  color: var(--text-2);
+}
+
+.csi-lesson.is-active .csi-lnum { background: var(--main); border-color: var(--main); color: #fff; }
+.csi-lesson.is-done .csi-lnum { background: rgba(5, 150, 105, .14); border-color: rgba(5, 150, 105, .35); color: #059669; }
+.csi-lesson.is-done .csi-title { color: var(--text-2); }
+
+body.no-scroll { overflow: hidden; }
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 991px) {
+  .header,
+  .footer,
+  .bottom-navbar,
+  .sheet-overlay,
+  .courses-sheet { --u: 8.8px; }
+  .header { padding: calc(1.5 * var(--u)) 4%; }
+  .footer { padding-inline: 4%; }
+}
+
+@media (max-width: 768px) {
+  .header,
+  .footer,
+  .bottom-navbar,
+  .sheet-overlay,
+  .courses-sheet { --u: 8.32px; }
+  .header {
+    padding: calc(1.1 * var(--u)) 5%;
+    border-radius: 0 0 calc(2 * var(--u)) calc(2 * var(--u));
+  }
+  .header .navbar { display: none; }
+  .header .icons button,
+  .header .icons a.i-account {
+    width: calc(3.9 * var(--u));
+    height: calc(3.9 * var(--u));
+    font-size: calc(1.7 * var(--u));
+  }
+  .header .logo { font-size: calc(2 * var(--u)); }
+  .header .logo img { width: calc(3.8 * var(--u)); }
+  .footer { padding-inline: 5%; }
+
+  .bottom-navbar { display: flex; justify-content: space-around; }
+  body.has-tabbar { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  body.has-tabbar .fab { bottom: 78px; }
+  body.has-tabbar .fab-menu { bottom: 144px; }
+}
+
+@media (max-width: 480px) {
+  .header,
+  .footer,
+  .bottom-navbar,
+  .sheet-overlay,
+  .courses-sheet { --u: 8px; }
+}
+
+@media (max-width: 450px) {
+  .header,
+  .footer,
+  .bottom-navbar,
+  .sheet-overlay,
+  .courses-sheet { --u: 7.68px; }
+}

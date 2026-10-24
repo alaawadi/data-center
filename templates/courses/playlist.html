@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block title %}قائمة الدروس — بورتفوليو{% endblock %}
+{% block body_attrs %}data-page="playlist"{% endblock %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'vendor/plyr/plyr.css' %}">
+{% endblock %}
+
+{% block content %}
+  <main class="container pl-page" id="plHost"></main>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
+  {{ block.super }}
+  <script src="{% static_v 'js/playlist.js' %}"></script>
+{% endblock %}

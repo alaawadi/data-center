@@ -1,0 +1,32 @@
+{% load static_v %}
+{% comment %}
+  بانر الهيرو المشترك — نفس التصميم في كل الصفحات:
+  صفحة كل الدورات، المشاريع، المستقلين، وهوم اللاندنج.
+
+  المتغيّرات (كلها اختيارية):
+    hero_image        رابط صورة الخلفية (الافتراضي: images/home-bg3.webp)
+    hero_class        أصناف إضافية على عنصر البانر
+    hero_crumb        نص المسارbreadcrumb (مثال: «الدورات»)
+    hero_badge        نص الشارة فوق العنوان
+    hero_title        عنوان البانر
+    hero_sub          الوصف تحت العنوان
+    hero_cta_template مسار قالب يحتوي أزرار البانر (اختياري)
+{% endcomment %}
+<section class="cd-hero{% if hero_class %} {{ hero_class }}{% endif %}" style="background-image:url('{% if hero_image %}{{ hero_image }}{% else %}{% static_v 'images/home-bg3.webp' %}{% endif %}')">
+  {% if hero_floating_image %}<img class="cd-hero-float" src="{% static_v 'images/home-img.webp' %}" alt="" aria-hidden="true">{% endif %}
+  <div class="cd-hero-overlay"><div class="cd-hero-inner">
+    {% if hero_crumb %}
+      <nav class="cd-crumb">
+        <a href="{% url 'landing:home' %}">الرئيسية</a>
+        <span class="cd-crumb-sep">›</span>
+        <span>{{ hero_crumb }}</span>
+      </nav>
+    {% endif %}
+    {% if hero_badge %}<span class="cd-badge">{{ hero_badge }}</span>{% endif %}
+    <h1 class="cd-title">{{ hero_title }}</h1>
+    {% if hero_sub %}<p class="cd-sub">{{ hero_sub }}</p>{% endif %}
+    {% if hero_cta_template %}
+      <div class="cd-hero-actions">{% include hero_cta_template %}</div>
+    {% endif %}
+  </div></div>
+</section>

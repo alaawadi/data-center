@@ -1,0 +1,47 @@
+{% extends "users/auth_base.html" %}
+
+{% block title %}تأكيد البريد الإلكتروني — مركز داتا للتدريب والتطوير{% endblock %}
+{% block description %}أدخل رمز التفعيل المُرسل إلى بريدك الإلكتروني لإكمال إنشاء الحساب.{% endblock %}
+
+{% block auth_content %}
+  <main class="auth-wrap">
+    <section class="auth-card" aria-label="تأكيد البريد الإلكتروني">
+
+      <div class="auth-head">
+        <h1>تأكيد البريد الإلكتروني</h1>
+        <p>أرسلنا رمز تفعيل مكوّناً من 6 أرقام إلى بريدك</p>
+      </div>
+
+      <div class="auth-note">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v16H4z"/><path d="m4 6 8 6 8-6"/></svg>
+        <span>{{ pending_email }}</span>
+      </div>
+
+      <form id="verifyForm" method="post" novalidate>
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+          <div class="auth-alert" role="alert" aria-live="polite">{{ form.non_field_errors.0 }}</div>
+        {% endif %}
+
+        <div class="field">
+          <label class="label" for="vcCode">رمز التحقق <span class="req">*</span></label>
+          <input class="input code-input" id="vcCode" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="······" value="{{ form.code.value|default:'' }}" required autofocus>
+          {% if form.code.errors %}<span class="hint error">{{ form.code.errors.0 }}</span>{% else %}<span class="hint">الرمز صالح لمدة {{ ttl_minutes }} دقائق</span>{% endif %}
+        </div>
+
+        <button type="submit" class="btn btn-grad btn-lg btn-block">تأكيد وإنشاء الحساب</button>
+      </form>
+
+      <form id="resendForm" method="post" action="{% url 'users:verify-signup' %}">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="resend">
+        <button type="submit" class="btn btn-ghost btn-block" id="resendBtn"{% if resend_after %} disabled data-wait="{{ resend_after }}"{% endif %}>
+          إعادة إرسال الرمز{% if resend_after %} ({{ resend_after }}){% endif %}
+        </button>
+      </form>
+
+      <p class="auth-foot">رقم أو بريد خاطئ؟ <a href="{% url 'users:signup' %}">ابدأ من جديد</a></p>
+
+    </section>
+  </main>
+{% endblock %}

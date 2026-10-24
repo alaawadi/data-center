@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block title %}تعديل البروفايل — مركز داتا{% endblock %}
+{% block description %}تعديل بيانات ملفك الشخصي على منصة مركز داتا{% endblock %}
+{% block body_attrs %}data-page="profile-edit"{% endblock %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'css/profile.css' %}">
+{% endblock %}
+
+{% block content %}
+  <main class="container page">
+    <form class="card pf-form" method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+
+      <div class="pf-head">
+        <h1>تعديل البروفايل</h1>
+        <p class="muted small">حدّث بياناتك — تظهر مباشرة في ملفك الشخصي وفي صفحة المستقلين.</p>
+      </div>
+
+      {% if form.non_field_errors %}
+        <div class="pf-alert">{{ form.non_field_errors }}</div>
+      {% endif %}
+
+      <section class="pf-section">
+        <h2>الهوية والصورة</h2>
+        <div class="pf-grid">
+          {% include "users/_field.html" with field=form.full_name %}
+          {% include "users/_field.html" with field=form.headline %}
+        </div>
+        {% include "users/_field.html" with field=form.bio %}
+        <div class="pf-grid">
+          {% include "users/_field.html" with field=form.avatar %}
+          {% include "users/_field.html" with field=form.cover %}
+        </div>
+      </section>
+
+      <section class="pf-section">
+        <h2>معلومات شخصية</h2>
+        <div class="pf-grid">
+          {% include "users/_field.html" with field=form.city %}
+          {% include "users/_field.html" with field=form.country %}
+        </div>
+        <div class="pf-grid">
+          {% include "users/_field.html" with field=form.date_of_birth %}
+          {% include "users/_field.html" with field=form.gender %}
+        </div>
+      </section>
+
+      <section class="pf-section">
+        <h2>التواصل</h2>
+        <div class="pf-grid">
+          {% include "users/_field.html" with field=form.email %}
+          {% include "users/_field.html" with field=form.whatsapp %}
+        </div>
+        {% include "users/_field.html" with field=form.website %}
+      </section>
+
+      <section class="pf-section">
+        <h2>المهارات</h2>
+        <p class="hint">أضف حتى 8 مهارات كحد أقصى</p>
+        <div id="skills-list" class="skills-list">
+          {% for field in form.visible_fields %}
+            {% if field.name|slice:":6" == "skill_" %}
+              {% include "users/_field.html" with field=field %}
+            {% endif %}
+          {% endfor %}
+        </div>
+        <div class="pf-actions" style="justify-content:flex-start;margin-top:1rem">
+          <button class="btn btn-soft" type="button" id="add-skill-btn">إضافة مهارة جديدة</button>
+        </div>
+        {{ form.skills_count }}
+      </section>
+
+      <section class="pf-section">
+        <h2>روابط التواصل الاجتماعي</h2>
+        {{ socials.management_form }}
+        {% for row in socials %}
+          <div class="pf-social-row">
+            {{ row.id }}
+            <div class="field">{{ row.platform }}{% for error in row.platform.errors %}<p class="hint error">{{ error }}</p>{% endfor %}</div>
+            <div class="field">{{ row.url }}{% for error in row.url.errors %}<p class="hint error">{{ error }}</p>{% endfor %}</div>
+            <div class="field">{% if row.instance.pk %}<label class="label">{{ row.DELETE }} حذف</label>{% endif %}</div>
+          </div>
+        {% endfor %}
+        <p class="hint">اترك أي صف فارغاً لتجاهله — وحدّد مربع الحذف لإزالة رابط موجود.</p>
+      </section>
+
+      {# بيانات المدرب تم إزالتها حسب طلب المستخدم #}
+
+      <section class="pf-section">
+        <h2>بيانات الطالب</h2>
+        <div class="pf-grid">
+          {% include "users/_field.html" with field=form.education_stage %}
+          {% include "users/_field.html" with field=form.school %}
+        </div>
+        {% include "users/_field.html" with field=form.grade %}
+        {% include "users/_field.html" with field=form.learning_goals %}
+      </section>
+
+      <section class="pf-section">
+        <h2>الإعدادات</h2>
+        {% include "users/_field.html" with field=form.is_public %}
+      </section>
+
+      <div class="pf-actions">
+        <button class="btn btn-primary" type="submit">حفظ التعديلات</button>
+        <a class="btn btn-ghost" href="{% url 'portfolio:home' %}">إلغاء</a>
+      </div>
+    </form>
+  </main>
+{% endblock %}
+
+{% block scripts %}
+  {{ block.super }}
+  <script>
+    (function(){
+      const addBtn = document.getElementById('add-skill-btn');
+      const list = document.getElementById('skills-list');
+      const countInput = document.querySelector('input[name="skills_count"]');
+      if (!addBtn || !list) return;
+      addBtn.addEventListener('click', function(){
+        let count = parseInt(countInput.value || '0') + 1;
+        if (count > 8) return;
+        const idx = count;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'field';
+        const label = document.createElement('label');
+        label.className = 'label';
+        label.setAttribute('for', 'id_skill_' + idx);
+        label.textContent = 'المهارة ' + idx;
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'input';
+        input.name = 'skill_' + idx;
+        input.id = 'id_skill_' + idx;
+        input.placeholder = 'مثال: تصميم UI/UX';
+        wrapper.appendChild(label);
+        wrapper.appendChild(input);
+        list.appendChild(wrapper);
+        countInput.value = count;
+        if (count >= 8) {
+          addBtn.disabled = true;
+        }
+      });
+      // initial state on page load
+      if (parseInt(countInput.value || '0') >= 8) {
+        addBtn.disabled = true;
+      }
+    })();
+  </script>
+{% endblock %}

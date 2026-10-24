@@ -1,0 +1,12 @@
+{% extends "errors/base_error.html" %}
+
+{% block title %}لا تملك صلاحية الوصول (403) — مركز داتا للتدريب والتطوير{% endblock %}
+{% block description %}لا تملك الصلاحية اللازمة لعرض هذه الصفحة.{% endblock %}
+
+{% block error_code %}403{% endblock %}
+{% block error_icon %}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+{% endblock %}
+
+{% block error_title %}لا تملك صلاحية الوصول{% endblock %}
+{% block error_message %}هذه الصفحة محجوبة للحساب الحالي أو تتطلّب صلاحيات خاصة. إن كنت تعتقد أن هذا خطأ، جرّب تسجيل الدخول من جديد أو تواصل مع فريق الدعم.{% endblock %}

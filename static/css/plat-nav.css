@@ -1,0 +1,474 @@
+/* ============================================================
+   plat-nav.css — قسم "التنقل" المستورد من منصة الدورات
+   داخل صفحة الهبوط. جميع الأنماط محصورة تحت .plat-nav
+   لمنع أي تعارض مع landing.css.
+   ============================================================ */
+
+@keyframes pnFadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- تحويل رموز المنصة إلى نظام ألوان اللاندنج ---------- */
+.plat-nav {
+  --brand: var(--main);
+  --brand-2: var(--main-2);
+  --brand-3: var(--main);
+  --brand-soft: var(--main-soft);
+  --brand-soft-2: var(--main-soft-2);
+  --verified: #1d9bf0;
+  --bg: var(--bg-1);
+  --card: var(--bg-2);
+  --ink: var(--text-1);
+  --ink-2: var(--text-1);
+  --muted: var(--text-2);
+  --faint: var(--text-2);
+  --soft: var(--bg-1);
+  --line-2: var(--line);
+  --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, .12);
+  --r-sm: 10px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --grad: linear-gradient(135deg, var(--main), var(--main-2));
+  --grad-soft: linear-gradient(135deg, var(--main-soft), var(--main-soft-2));
+  --ease: cubic-bezier(.2, .8, .25, 1);
+}
+
+/* ---------- أدوات مساعدة ---------- */
+.plat-nav .ic { flex: none; display: block; }
+.plat-nav .ic-fill { stroke-width: 0; }
+.plat-nav .grow { flex: 1; min-width: 0; }
+.plat-nav .avatar { border-radius: 50%; object-fit: cover; background: var(--brand-soft); flex: none; }
+.plat-nav .verified-badge { flex: none; display: inline-block; vertical-align: -3px; }
+
+.plat-nav .card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+
+.plat-nav .nav-card { max-width: 1040px; margin-inline: auto; animation: pnFadeUp .5s var(--ease) both; }
+
+/* ---------- رأس القسم ---------- */
+.plat-nav .sec-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.plat-nav .sec-head h2 {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.plat-nav .sec-head h2 .ic { color: var(--brand); }
+.plat-nav .sec-head p { font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+
+/* ---------- التبويبات ---------- */
+.plat-nav .nav-tabs {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 6px;
+}
+.plat-nav .tabbar {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  box-shadow: var(--shadow);
+  width: fit-content;
+  margin-inline: auto;
+}
+.plat-nav .tab-btn {
+  position: relative;
+  width: 58px; height: 46px;
+  border-radius: 99px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  background: none;
+  transition: all .2s var(--ease);
+}
+.plat-nav .tab-btn:hover { color: var(--brand); background: var(--brand-soft); }
+.plat-nav .tab-btn.is-active {
+  color: #fff;
+  background: var(--grad);
+  box-shadow: 0 8px 18px -8px rgba(255, 115, 0, .75);
+}
+.plat-nav .tab-btn .tab-count {
+  position: absolute;
+  top: 5px;
+  inset-inline-end: 7px;
+  min-width: 17px; height: 17px;
+  border-radius: 99px;
+  background: var(--card);
+  color: var(--brand);
+  font-size: 10.5px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--card);
+  line-height: 1;
+}
+.plat-nav .tab-btn.is-active .tab-count { background: #fff; color: var(--main-2); }
+.plat-nav .tab-btn::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--ink);
+  color: var(--bg-2);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: all .18s var(--ease);
+}
+.plat-nav .tab-btn:hover::after { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.plat-nav .nav-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 14px 0 4px;
+}
+.plat-nav .nav-hint b { color: var(--ink); font-weight: 700; }
+
+/* ---------- الألواح ---------- */
+.plat-nav .nav-panels { padding: 8px 20px 20px; }
+.plat-nav .nav-panel { display: none; }
+.plat-nav .nav-panel.active { display: block; animation: pnFadeUp .3s var(--ease) both; }
+
+.plat-nav a.cert-card,
+.plat-nav a.proj-card { text-decoration: none; color: inherit; }
+.plat-nav a.cert-card,
+.plat-nav a.proj-card { display: flex; flex-direction: column; }
+.plat-nav .post + .post { margin-top: 16px; }
+
+.plat-nav .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+
+/* ---------- كارد الشهادة ---------- */
+.plat-nav .cert-card {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .22s;
+  display: flex;
+  flex-direction: column;
+}
+.plat-nav .cert-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--brand-3); }
+.plat-nav .cert-thumb {
+  height: 118px;
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px;
+}
+.plat-nav .cert-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(2, 6, 23, .35), transparent 55%);
+}
+.plat-nav .cert-cat {
+  position: relative;
+  z-index: 1;
+  background: rgba(255, 255, 255, .92);
+  color: #1e3a8a;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+.plat-nav .cert-seal {
+  position: relative;
+  z-index: 1;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .95);
+  display: grid;
+  place-items: center;
+  color: var(--verified);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+}
+.plat-nav .cert-price-tag {
+  position: relative;
+  z-index: 1;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 800;
+  padding: 3px 11px;
+  border-radius: 99px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .25);
+  white-space: nowrap;
+}
+.plat-nav .cert-body { padding: 14px 16px 15px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
+.plat-nav .cert-body h3 {
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plat-nav .cert-issuer { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; font-weight: 600; min-width: 0; }
+.plat-nav .issuer-dot {
+  width: 22px; height: 22px;
+  border-radius: 7px;
+  background: var(--grad-soft);
+  color: var(--brand);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex: none;
+}
+.plat-nav .cert-issuer span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plat-nav .cert-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; margin-top: auto; padding-top: 4px; }
+.plat-nav .cert-foot time { color: var(--faint); font-size: 11.5px; font-weight: 600; }
+.plat-nav .verified-mini { display: inline-flex; align-items: center; gap: 4px; color: var(--verified); font-size: 11px; font-weight: 800; }
+.plat-nav .cert-foot .verified-mini { margin-inline-start: auto; }
+.plat-nav .cert-meta { display: inline-flex; align-items: center; gap: 5px; color: var(--faint); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.plat-nav .cert-meta svg { color: var(--muted); flex: none; }
+
+/* ---------- كارد المشروع ---------- */
+.plat-nav .proj-card {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  transition: transform .22s var(--ease), box-shadow .22s var(--ease), border-color .22s;
+}
+.plat-nav .proj-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--brand-3); }
+.plat-nav .proj-cover { position: relative; aspect-ratio: 16 / 9; background: var(--line-2); }
+.plat-nav .proj-cover img { width: 100%; height: 100%; object-fit: cover; }
+.plat-nav .proj-cover .no-cover {
+  width: 100%; height: 100%;
+  display: grid;
+  place-items: center;
+  background: var(--grad-soft);
+  color: var(--brand);
+}
+.plat-nav .proj-tags { position: absolute; bottom: 10px; inset-inline-start: 10px; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 20px); }
+.plat-nav .proj-tags .chip {
+  background: rgba(2, 6, 23, .62);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  font-size: 11.5px;
+  padding: 3px 9px;
+}
+.plat-nav .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 99px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.7;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.plat-nav .proj-body { padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.plat-nav .proj-body h3 { font-size: 16px; color: var(--ink); }
+.plat-nav .proj-body p {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plat-nav .proj-meta { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12px; font-weight: 600; flex-wrap: wrap; }
+.plat-nav .proj-meta .pm { display: inline-flex; align-items: center; gap: 5px; }
+.plat-nav .proj-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.plat-nav .proj-foot .stat { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 8px; }
+.plat-nav .proj-foot .spacer { flex: 1; }
+
+/* ---------- كارد اليوميات (نمط انستجرام) ---------- */
+.plat-nav .post {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+  overflow: hidden;
+  animation: pnFadeUp .35s var(--ease) both;
+}
+.plat-nav .post-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.plat-nav .post-author { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 14px; color: var(--ink); }
+.plat-nav .post-sub { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.plat-nav .post-sub .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--faint); }
+.plat-nav .post-media { position: relative; background: #0a0a0a; }
+.plat-nav .post-media .mc-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.plat-nav .post-media .mc-track::-webkit-scrollbar { display: none; }
+.plat-nav .mc-slide { min-width: 100%; scroll-snap-align: center; position: relative; }
+.plat-nav .mc-slide img, .plat-nav .mc-slide video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.plat-nav .ratio-1-1 .mc-slide { aspect-ratio: 1 / 1; }
+.plat-nav .ratio-4-5 .mc-slide { aspect-ratio: 4 / 5; }
+.plat-nav .ratio-191 .mc-slide { aspect-ratio: 1.91 / 1; }
+.plat-nav .post-actions { display: flex; align-items: center; gap: 4px; padding: 8px 10px 2px; }
+.plat-nav .post-actions .pa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 38px;
+  padding-inline: 8px;
+  border-radius: 99px;
+  color: var(--ink);
+  transition: transform .12s var(--ease), color .15s, background .15s;
+}
+.plat-nav .post-actions .pa-btn.liked { color: #e11d48; }
+.plat-nav .post-actions .pa-btn.liked svg { fill: currentColor; }
+.plat-nav .post-actions .pa-n { font-size: 12.5px; font-weight: 800; color: inherit; line-height: 1; }
+.plat-nav .post-actions .pa-save { margin-inline-start: auto; }
+.plat-nav .post-likes { padding: 4px 16px 2px; font-size: 13.5px; font-weight: 800; color: var(--ink); }
+.plat-nav .post-caption { padding: 2px 16px 10px; font-size: 14px; color: var(--ink-2); line-height: 1.65; }
+.plat-nav .post-caption .cap-name { font-weight: 800; color: var(--ink); margin-inline-end: 6px; }
+.plat-nav .post-caption .post-tags { padding: 8px 0 0; }
+.plat-nav .post-caption .cap-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plat-nav .post-tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.plat-nav .post-tags .tag { color: var(--brand); font-size: 13px; font-weight: 700; }
+
+/* ---------- أسفل اللوحة + زر العرض ---------- */
+.plat-nav .panel-foot { display: flex; justify-content: center; padding: 22px 0 4px; }
+.plat-nav .pn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 18px;
+  border-radius: var(--r-sm);
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all .18s var(--ease);
+}
+.plat-nav .pn-btn-soft { background: var(--brand-soft); color: var(--brand); }
+.plat-nav .pn-btn-soft:hover { background: var(--brand-soft-2); transform: translateY(-1px); }
+.plat-nav .pn-btn:active { transform: scale(.97); }
+
+/* ---------- الفوتر ---------- */
+.plat-nav .plat-footer {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--faint);
+  padding-top: 14px;
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+/* ---------- استجابة ---------- */
+@media (max-width: 640px) {
+  .plat-nav .nav-panels { padding: 8px 12px 16px; }
+  .plat-nav .card-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .plat-nav .cert-card { min-width: 0; }
+  .plat-nav .cert-thumb { height: clamp(150px, 48vw, 190px); }
+  .plat-nav .cert-body { min-width: 0; padding: 13px 14px 14px; gap: 8px; }
+  .plat-nav .cert-body h3 { font-size: 15px; }
+  .plat-nav .tab-btn { width: 52px; height: 44px; }
+  .plat-nav .sec-head h2 { font-size: 18px; }
+  .plat-nav .cert-foot { flex-wrap: wrap; justify-content: flex-start; gap: 6px 10px; }
+  .plat-nav .cert-meta { font-size: 11px; gap: 4px; }
+  .plat-nav .cert-meta svg { width: 11px; height: 11px; }
+  .plat-nav .verified-mini { font-size: 10.5px; gap: 4px; margin-inline-start: 0; }
+  .plat-nav .verified-mini svg { width: 11px; height: 11px; flex: none; }
+}
+.cert-desc {
+  color: var(--muted);
+  font-size: 13.3px;
+  line-height: 1.75;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cert-skills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cert-skill {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand-2);
+  padding: 3px 9px;
+  font-size: 11px;
+}
+.plat-nav .cert-desc {
+  color: var(--muted);
+  font-size: 13.3px;
+  line-height: 1.75;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.plat-nav .cert-skills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.plat-nav .cert-skill {
+  background: var(--brand-soft);
+  color: var(--brand);
+  border-color: var(--brand-2);
+  padding: 3px 9px;
+  font-size: 11px;
+}

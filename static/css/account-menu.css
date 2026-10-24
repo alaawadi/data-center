@@ -1,0 +1,95 @@
+.account-menu {
+  --menu-bg: #fff;
+  --menu-text: #3d3d3d;
+  --menu-muted: #6b7280;
+  --menu-line: rgba(0, 0, 0, .09);
+  position: fixed;
+  z-index: 5200;
+  display: grid;
+  gap: 3px;
+  width: min(224px, calc(100vw - 16px));
+  padding: 7px;
+  color: var(--menu-text);
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-line);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .17);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px) scale(.98);
+  transform-origin: top right;
+  transition: opacity .16s ease, transform .16s ease, visibility .16s ease;
+  font-family: 'Cairo', 'Segoe UI', system-ui, sans-serif;
+}
+
+[data-theme='dark'] .account-menu {
+  --menu-bg: #262b31;
+  --menu-text: #f2f4f7;
+  --menu-muted: #b7bfca;
+  --menu-line: rgba(255, 255, 255, .12);
+}
+
+.account-menu::before {
+  position: absolute;
+  top: -6px;
+  left: var(--menu-arrow-offset, 28px);
+  width: 11px;
+  height: 11px;
+  content: '';
+  background: var(--menu-bg);
+  border-top: 1px solid var(--menu-line);
+  border-left: 1px solid var(--menu-line);
+  transform: rotate(45deg);
+}
+
+.account-menu.opens-up {
+  transform-origin: bottom right;
+  transform: translateY(4px) scale(.98);
+}
+
+.account-menu.opens-up::before {
+  top: auto;
+  bottom: -6px;
+  border: 0;
+  border-right: 1px solid var(--menu-line);
+  border-bottom: 1px solid var(--menu-line);
+}
+
+.account-menu.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.account-menu form { margin: 0; }
+
+.account-menu-item {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--menu-text);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  text-align: right;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.account-menu-item:hover,
+.account-menu-item:focus-visible {
+  color: #b96c00;
+  background: rgba(255, 159, 26, .12);
+  outline: none;
+}
+
+.account-menu-item .ic { flex: none; color: #e99a13; }
+.account-menu-logout .ic { color: #e5484d; }
+.account-menu-theme-state { margin-inline-start: auto; color: var(--menu-muted); font-size: 12px; }

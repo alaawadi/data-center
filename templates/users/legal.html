@@ -1,0 +1,35 @@
+{% extends "users/auth_base.html" %}
+
+{% block title %}{{ page_title }} — مركز داتا للتدريب والتطوير{% endblock %}
+{% block description %}{{ page_title }} لمركز داتا للتدريب والتطوير.{% endblock %}
+
+{% block auth_content %}
+  <main class="auth-wrap">
+    <article class="auth-card legal-card">
+      <div class="auth-head">
+        <h1>{{ page_title }}</h1>
+        <p>مركز داتا للتدريب والتطوير</p>
+      </div>
+
+      <div class="legal-content">
+        {% for heading, paragraphs in sections %}
+          <section>
+            <h2>{{ heading }}</h2>
+            {% for paragraph in paragraphs %}
+              <p>{{ paragraph }}</p>
+            {% endfor %}
+          </section>
+        {% endfor %}
+      </div>
+
+      <nav class="legal-links" aria-label="روابط قانونية">
+        {% if page_title == 'شروط الاستخدام' %}
+          <a href="{% url 'users:privacy' %}">سياسة الخصوصية</a>
+        {% else %}
+          <a href="{% url 'users:terms' %}">شروط الاستخدام</a>
+        {% endif %}
+        <a href="{% url 'users:signup' %}">العودة لإنشاء الحساب</a>
+      </nav>
+    </article>
+  </main>
+{% endblock %}

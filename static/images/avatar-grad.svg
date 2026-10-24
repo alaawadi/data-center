@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="حساب المستخدم">
+  <defs>
+    <clipPath id="acClip"><circle cx="60" cy="60" r="58"/></clipPath>
+    <linearGradient id="acBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff7ea"/>
+      <stop offset="1" stop-color="#ffe6bf"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#acClip)">
+    <rect width="120" height="120" fill="url(#acBg)"/>
+    <path d="M20 126 C20 97 37 86 60 86 C83 86 100 97 100 126 Z" fill="#ff9f1a"/>
+    <path d="M51 86 L60 100 L69 86 Z" fill="#ffffff"/>
+    <rect x="54" y="66" width="12" height="18" rx="6" fill="#e0ac82"/>
+    <circle cx="41" cy="55" r="4.5" fill="#f2c299"/>
+    <circle cx="79" cy="55" r="4.5" fill="#f2c299"/>
+    <ellipse cx="60" cy="53" rx="19" ry="21" fill="#f2c299"/>
+    <circle cx="53.5" cy="55" r="2.6" fill="#33272a"/>
+    <circle cx="66.5" cy="55" r="2.6" fill="#33272a"/>
+    <path d="M54.5 63 Q60 68.5 65.5 63" fill="none" stroke="#a4643c" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="47" cy="61.5" r="3.2" fill="#f5a297" opacity=".7"/>
+    <circle cx="73" cy="61.5" r="3.2" fill="#f5a297" opacity=".7"/>
+    <path d="M45 35 Q60 29 75 35 L73 45 Q60 50 47 45 Z" fill="#1e2b46"/>
+    <path d="M60 17 L93 28 L60 39 L27 28 Z" fill="#26344f"/>
+    <circle cx="60" cy="28" r="3" fill="#ffc043"/>
+    <path d="M60 28 Q86 25 92 32 Q97 46 91 56" fill="none" stroke="#ffc043" stroke-width="2.6" stroke-linecap="round"/>
+    <rect x="87.5" y="54" width="7" height="12" rx="3.5" fill="#ffc043"/>
+  </g>
+  <circle cx="60" cy="60" r="57.2" fill="none" stroke="#ff9f1a" stroke-width="2.4" opacity=".5"/>
+</svg>

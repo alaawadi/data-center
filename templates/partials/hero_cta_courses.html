@@ -1,0 +1,3 @@
+{% if request.user.is_authenticated and request.user.is_trainer %}
+  <a class="cd-cta" href="{% url 'courses:create' %}">إنشاء دورة جديدة</a>
+{% endif %}

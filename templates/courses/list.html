@@ -1,0 +1,31 @@
+{% extends "listing_base.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block title %}كل الدورات — بورتفوليو{% endblock %}
+{% block body_attrs %}data-page="all-courses"{% endblock %}
+
+{% block hero %}
+  {% include "partials/hero_banner.html" with hero_crumb="الدورات" hero_title="الدورات التدريبية المعتمدة" hero_sub="شهادات احترافية معتمدة في مختلف المجالات — تعلّم من خبراء واحصل على شهادتك بعد إتمام كل دورة." hero_cta_template="partials/hero_cta_courses.html" %}
+{% endblock %}
+{% block listing_tools %}
+  <div class="freelancers-search-wrap">
+    <label class="freelancers-search" for="coursesSearch">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+      <input id="coursesSearch" type="search" data-i18n-ph="coursesSearchPlaceholder" autocomplete="off">
+    </label>
+    <p class="freelancers-result-count" id="coursesResultCount" aria-live="polite"></p>
+  </div>
+{% endblock %}
+{% block grid_id %}allCertsGrid{% endblock %}
+{% block grid_label %}قائمة الشهادات{% endblock %}
+{% block listing_pagination %}
+  <div class="freelancers-more-wrap" id="coursesMoreWrap" hidden>
+    <button class="btn btn-soft" id="coursesMore" type="button" data-i18n="showMoreCourses"></button>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  {{ block.super }}
+  <script src="{% static_v 'js/all-courses.js' %}"></script>
+{% endblock %}

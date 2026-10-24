@@ -1,0 +1,103 @@
+{% extends "editor_base.html" %}
+
+{% block title %}محرر المشروع — بورتفوليو{% endblock %}
+{% block body_attrs %}data-page="edit-project"{% endblock %}
+{% block back_section %}#projects{% endblock %}
+
+{% block editor_main %}
+    <div class="editor-grid">
+      <div class="editor-main">
+        <div>
+          <input class="title-input" id="edTitle" autocomplete="off">
+          <div class="slug-row"><span dir="ltr">/projects/<b id="edSlug">…</b></span></div>
+        </div>
+
+        <div id="edCoverHost"></div>
+
+        <div class="rich-editor">
+          <div class="editor-toolbar" id="edToolbar"></div>
+          <div class="editable" id="edContent" contenteditable="true" spellcheck="false"></div>
+        </div>
+
+        <div class="editor-foot-meta" id="edMeta"></div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="gallery-edit-grid" id="edGallery"></div>
+        </div>
+      </div>
+
+      <aside class="editor-side">
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" id="edProgressPct">0%</span></h3>
+          <div class="checklist-bar"><i id="edProgressBar" style="width:0%"></i></div>
+          <div class="checklist-items" id="edChecklist"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2"></textarea></div>
+          {% if is_admin_project_editor %}
+          <div class="field">
+            <label class="label" id="lblProjectOwner">صاحب المشروع</label>
+            <input class="input" type="search" id="edOwnerSearch" list="edOwnerOptions"
+                   data-selected-owner="{{ admin_project_owner_id }}"
+                   placeholder="ابحث بالاسم أو المعرّف أو الهاتف" autocomplete="off">
+            <datalist id="edOwnerOptions"></datalist>
+            <input type="hidden" id="edOwnerId" value="{{ admin_project_owner_id }}">
+          </div>
+          {{ admin_project_owners|json_script:"admin-project-owners-data" }}
+          {% endif %}
+          <div class="field-row">
+            <div class="field"><label class="label" id="lblCategory"></label><input class="input" id="edCategory"></div>
+            <div class="field"><label class="label" id="lblRole"></label><input class="input" id="edRole"></div>
+          </div>
+          <div class="field"><label class="label" id="lblDate"></label><input type="date" class="input" id="edDate"></div>
+          <div class="field" id="edVisibilityField" style="display:none">
+            <label class="label" id="lblVisibility"></label>
+            <select class="input" id="edVisibility">
+              <option value="public"></option>
+              <option value="courses"></option>
+            </select>
+            <span class="tiny muted" id="edVisibilityHint"></span>
+          </div>
+          <div class="field"><label class="label">GitHub</label><input class="input" id="edGithub" dir="ltr" placeholder="https://github.com/..."></div>
+          <div class="field"><label class="label" id="lblDemo"></label><input class="input" id="edDemo" dir="ltr" placeholder="https://..."></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="chips-input" id="edTagsBox">
+            <input id="edTagsInput" autocomplete="off">
+          </div>
+          <div class="chips-suggest" id="edTagsSuggest"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="dropzone" id="edFilesDrop">
+            <input type="file" multiple id="edFilesInput">
+            <span class="dz-ic"></span>
+            <span class="dz-label"></span>
+          </div>
+          <div class="files-list" id="edFilesList"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="tpl-list" id="edTemplates"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
+            <button class="btn-icon sm" id="edIdeaRefresh" title="فكرة أخرى"></button></h3>
+          <div class="ideas-list" id="edIdeas"></div>
+        </div>
+
+        <div class="side-card-box">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="social-preview" id="edSocialPreview"></div>
+        </div>
+      </aside>
+    </div>
+{% endblock %}

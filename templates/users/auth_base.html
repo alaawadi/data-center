@@ -1,0 +1,26 @@
+{% extends "base_marketing.html" %}
+{% load static_v %}
+{% load static %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'css/auth.css' %}">
+{% endblock %}
+
+{% block body_attrs %}class="auth-body"{% endblock %}
+
+{% block content %}
+  {% if messages %}
+    <div class="auth-flash">
+      {% for message in messages %}
+        <div class="auth-alert auth-alert-{{ message.tags }}" role="alert" aria-live="polite">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+  {% block auth_content %}{% endblock %}
+  <div id="toastRoot" class="toast-root"></div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static_v 'js/auth.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% load static_v %}
+
+{% block title %}تفاصيل الدورة — بورتفوليو{% endblock %}
+{% block body_attrs %}data-page="course"{% endblock %}
+
+{% block css %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static_v 'vendor/plyr/plyr.css' %}">
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
+  {{ block.super }}
+{% endblock %}
+
+{% block content %}
+  {{ is_course_enrolled|json_script:"course-enrollment-data" }}
+  {{ course_rewards_json|json_script:"course-rewards-data" }}
+  <main class="container detail-page" id="detailHost"></main>
+{% endblock %}

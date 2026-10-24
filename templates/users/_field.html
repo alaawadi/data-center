@@ -1,0 +1,13 @@
+{% if field.field.widget.input_type == 'checkbox' %}
+  <div class="field field-inline">
+    <label class="label" for="{{ field.id_for_label }}">{{ field }} <span>{{ field.label }}</span></label>
+    {% for error in field.errors %}<p class="hint error">{{ error }}</p>{% endfor %}
+  </div>
+{% else %}
+  <div class="field">
+    <label class="label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% if field.help_text %}<p class="hint">{{ field.help_text }}</p>{% endif %}
+    {% for error in field.errors %}<p class="hint error">{{ error }}</p>{% endfor %}
+  </div>
+{% endif %}

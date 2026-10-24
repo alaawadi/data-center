@@ -1,0 +1,39 @@
+{% load static_v %}
+{% load static %}<!DOCTYPE html>
+<html lang="ar" dir="rtl" data-theme="light" data-brand-palette="{{ site_settings.brandPalette }}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}مركز داتا للتدريب والتطوير{% endblock %}</title>
+  <meta name="description" content="{% block description %}{% endblock %}">
+  {% block favicon %}
+    <link rel="icon" href="{% static_v 'images/logo.svg' %}" type="image/svg+xml">
+  {% endblock %}
+  {% include "partials/fonts.html" %}
+  {% block css %}
+    <link rel="stylesheet" href="{% static_v 'css/base.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/hero.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/site-chrome.css' %}">
+    <link rel="stylesheet" href="{% static_v 'css/account-menu.css' %}">
+  {% endblock %}
+  <link rel="stylesheet" href="{% static_v 'css/brand-palettes.css' %}">
+  {% include "partials/pwa_head.html" %}
+</head>
+<body {% block body_attrs %}{% endblock %}>
+
+  {% block header %}
+    {% include "partials/marketing_header.html" %}
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+
+  {% block footer %}
+    {% include "partials/footer.html" %}
+  {% endblock %}
+
+  {% include "partials/js_urls.html" %}
+  <script src="{% static_v 'js/account-menu.js' %}"></script>
+  <script src="{% static_v 'js/pwa.js' %}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
