@@ -107,21 +107,6 @@
     });
   }
 
-  function workshopCertificateCard(certificate) {
-    return '<article class="workshop-certificate-card" aria-label="' +
-      e(profileText('شهادة حضور ورشة', 'Workshop attendance certificate')) + '">' +
-      '<div class="workshop-certificate-mark">' + UI.icon('award', 25) + '</div>' +
-      '<div class="workshop-certificate-label">' +
-      e(profileText('شهادة حضور ورشة وجاهية', 'In-person workshop attendance certificate')) + '</div>' +
-      '<h3>' + e(certificate.title) + '</h3>' +
-      '<p>' + e(certificate.studentName) + '</p>' +
-      '<div class="workshop-certificate-meta"><span>' +
-      e(profileText('التاريخ', 'Date')) + ': ' + e(UI.formatDate(certificate.date)) + '</span><span>' +
-      e(profileText('المدة', 'Duration')) + ': ' + e(certificate.duration) + ' ' +
-      e(profileText('دقيقة', 'minutes')) + '</span></div>' +
-      '<small dir="ltr">' + e(certificate.code) + '</small></article>';
-  }
-
   function renderPanels(items) {
     var certs = items.certs;
     var projs = items.projs;
@@ -147,7 +132,7 @@
         certHost.innerHTML = certs.length
           ? '<div class="card-grid profile-certificate-grid">' + certs.map(function (c) {
               if (!window.AppPage) return '';
-              if (c.workshop) return workshopCertificateCard(c);
+              if (c.workshop) return AppPage.workshopCertificateCard(c);
               if (c.manual) return AppPage.certCard(c, { manualImage: true });
               return AppPage.certCard(c, c.earned
                 ? { returnTo: profileReturn, imageOnly: true }

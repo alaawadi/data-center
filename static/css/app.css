@@ -445,6 +445,18 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   min-width: 0;
   overflow: hidden;
 }
+.workshop-certificate-preview { position: relative; }
+.workshop-certificate-code {
+  position: absolute;
+  inset-inline-end: 12px;
+  bottom: 17px;
+  max-width: calc(100% - 66px);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cert-card-uploaded {
   position: relative;
   min-width: 0;

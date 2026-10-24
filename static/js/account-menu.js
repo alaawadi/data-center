@@ -99,7 +99,7 @@
 
   function isProfilePage() {
     var page = document.body.getAttribute('data-page');
-    return page === 'home' || page === 'user-profile';
+    return page === 'home';
   }
 
   document.addEventListener('click', function (event) {

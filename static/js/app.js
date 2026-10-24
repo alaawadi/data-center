@@ -53,7 +53,10 @@
   /* ---------- shared cards ---------- */
 
   function earnedCertificateSheet(c, studentName, compact) {
-    var instructor = c.instructor || c.issuer || '';
+    var instructor = c.workshop
+      ? t('certPageWorkshopType')
+      : (c.instructor || c.issuer || '');
+    var trainerLabel = c.workshop ? t('certPageWorkshopLabel') : t('certPageTrainer');
     var issued = c.date ? UI.formatDate(c.date) : '—';
     return '<div class="cert-sheet' + (compact ? ' cert-sheet-preview' : '') + '">' +
       '<img class="cert-sheet-stamp" src="' + SITE.assets('images/cert-stamp.jpeg') + '" alt="' + e(t('certPageStamp')) + '">' +
@@ -63,10 +66,13 @@
       '<h2 class="cert-sheet-title">' + e(c.title) + '</h2>' +
       '<div class="cert-sheet-to">' + e(t('certPageAwarded')) + '</div>' +
       '<div class="cert-sheet-name">' + e(studentName || '—') + '</div>' +
-      '<div class="cert-sheet-course">' + e(t('certPageCompleted')) + ' «' + e(c.title) + '»</div>' +
+      '<div class="cert-sheet-course">' + e(c.workshop ? t('certPageWorkshopCompleted') : t('certPageCompleted')) + ' «' + e(c.title) + '»</div>' +
       '<div class="cert-sheet-meta">' +
       '<div>' + e(t('certPageIssued')) + '<b>' + e(issued) + '</b></div>' +
-      '<div>' + e(t('certPageTrainer')) + '<b>' + e(instructor || '—') + '</b></div>' +
+      '<div>' + e(trainerLabel) + '<b>' + e(instructor || '—') + '</b></div>' +
+      (c.workshop && c.duration
+        ? '<div>' + e(t('certPageWorkshopDuration')) + '<b>' + e(c.duration) + ' ' + e(t('certPageWorkshopMinutes')) + '</b></div>'
+        : '') +
       '<div>' + e(t('certPageStatus')) + '<b>' + e(t('certPageStatusValid')) + '</b></div>' +
       '</div></div>';
   }
@@ -487,19 +493,15 @@
   }
 
   function workshopCertificateCard(certificate) {
-    var isEnglish = I18n.getLang() === 'en';
-    return '<article class="workshop-certificate-card" aria-label="' +
-      e(isEnglish ? 'Workshop attendance certificate' : 'شهادة حضور ورشة') + '">' +
-      '<div class="workshop-certificate-mark">' + UI.icon('award', 25) + '</div>' +
-      '<div class="workshop-certificate-label">' +
-      e(isEnglish ? 'In-person workshop attendance certificate' : 'شهادة حضور ورشة وجاهية') + '</div>' +
-      '<h3>' + e(certificate.title) + '</h3>' +
-      '<p>' + e(certificate.studentName) + '</p>' +
-      '<div class="workshop-certificate-meta"><span>' +
-      e(isEnglish ? 'Date' : 'التاريخ') + ': ' + e(UI.formatDate(certificate.date)) + '</span><span>' +
-      e(isEnglish ? 'Duration' : 'المدة') + ': ' + e(certificate.duration) + ' ' +
-      e(isEnglish ? 'minutes' : 'دقيقة') + '</span></div>' +
-      '<small dir="ltr">' + e(certificate.code) + '</small></article>';
+    return '<article class="cert-card cert-card-preview workshop-certificate-preview" aria-label="' +
+      e(t('certPageWorkshopLabel')) + '">' +
+      earnedCertificateSheet(
+        certificate,
+        certificate.studentName || (SERVER_PROFILE && SERVER_PROFILE.fullName) || '',
+        true
+      ) +
+      (certificate.code ? '<small class="workshop-certificate-code" dir="ltr">' + e(certificate.code) + '</small>' : '') +
+      '</article>';
   }
 
   /* Project and saved-project panels on the personal portfolio. */
@@ -2273,7 +2275,7 @@
     else if (page === 'project') { mountChrome({}); renderProjectDetail(); }
   }, 60));
 
-  window.AppPage = { renderHome: renderHome, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, projCard: projCard, initCaptions: initCaptions };
+  window.AppPage = { renderHome: renderHome, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, workshopCertificateCard: workshopCertificateCard, projCard: projCard, initCaptions: initCaptions };
 
   boot();
 })();

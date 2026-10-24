@@ -35,12 +35,7 @@ SECRET_KEY = os.environ.get(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _env_bool('DJANGO_DEBUG', True)
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',')
-    if host.strip()
-]
-
+ALLOWED_HOSTS = ['alaawadi99998.pythonanywhere.com', '127.0.0.1', 'localhost']
 
 # Application definition
 
@@ -158,7 +153,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Media (uploaded files: avatars, covers)
-MEDIA_URL = 'media/'
+MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # The project editor posts base64 images/files as JSON, so allow a larger body.
