@@ -40,7 +40,8 @@ BRAND_PALETTES = {
 }
 
 DEFAULT_PLATFORM_SETTINGS = {
-    'name': 'مركز داتا للتدريب والتطوير',
+    'name': 'Data Center',
+    'homepageTitle': 'مركز داتا للتدريب والتطوير',
     'tagline': 'بوابة التعلّم والتطوير المهني',
     'email': 'datacenteracademy1@gmail.com',
     'phone': '0594810786',
@@ -56,6 +57,8 @@ DEFAULT_PLATFORM_SETTINGS = {
 def get_platform_settings():
     data = PlatformSettings.get_solo().data
     settings = {**DEFAULT_PLATFORM_SETTINGS, **(data if isinstance(data, dict) else {})}
+    if not settings.get('homepageTitle'):
+        settings['homepageTitle'] = DEFAULT_PLATFORM_SETTINGS['homepageTitle']
     if not isinstance(settings['brandPalette'], str) or settings['brandPalette'] not in BRAND_PALETTES:
         settings['brandPalette'] = DEFAULT_PLATFORM_SETTINGS['brandPalette']
     return settings
@@ -97,6 +100,9 @@ def server_profile(request):
     if profile is None:
         return {}
     data = profile.to_public_dict()
+    data['fullNameArabic'] = user.full_name_ar
+    data['fullNameEnglish'] = user.full_name_en
+    data['trainerNameEnglish'] = user.trainer_name_en or user.full_name_en
     data['skills'] = [
         {'id': f'sk{link.pk}', 'name': link.skill.name, 'level': link.level}
         for link in profile.profile_skills.select_related('skill')

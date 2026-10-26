@@ -5,6 +5,7 @@
   var PAGE_SIZE = 9;
   var visibleLimit = INITIAL_LIMIT;
   var searchQuery = '';
+  var isLoadingMore = false;
 
   function normalizeSearchText(value) {
     return String(value || '').toLowerCase()
@@ -70,11 +71,16 @@
   }
 
   var moreButton = document.getElementById('projectsMore');
+  function loadMore() {
+    if (isLoadingMore) return;
+    isLoadingMore = true;
+    visibleLimit += PAGE_SIZE;
+    renderProjects();
+    isLoadingMore = false;
+  }
   if (moreButton) {
-    moreButton.addEventListener('click', function () {
-      visibleLimit += PAGE_SIZE;
-      renderProjects();
-    });
+    moreButton.addEventListener('click', loadMore);
+    UI.observeNearViewport(document.getElementById('projectsMoreWrap'), loadMore);
   }
 
   document.addEventListener('i18n:change', UI.debounce(function () {

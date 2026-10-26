@@ -5,6 +5,7 @@
   var PAGE_SIZE = 18;
   var visibleLimit = INITIAL_LIMIT;
   var searchQuery = '';
+  var isLoadingMore = false;
 
   function addPerson(map, p) {
     if (!p || !p.handle) return;
@@ -190,11 +191,16 @@
   }
 
   var moreButton = document.getElementById('freelancersMore');
+  function loadMore() {
+    if (isLoadingMore) return;
+    isLoadingMore = true;
+    visibleLimit += PAGE_SIZE;
+    renderUsers();
+    isLoadingMore = false;
+  }
   if (moreButton) {
-    moreButton.addEventListener('click', function () {
-      visibleLimit += PAGE_SIZE;
-      renderUsers();
-    });
+    moreButton.addEventListener('click', loadMore);
+    UI.observeNearViewport(document.getElementById('freelancersMoreWrap'), loadMore);
   }
 
   document.addEventListener('click', function (ev) {

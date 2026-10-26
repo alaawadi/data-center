@@ -154,7 +154,7 @@
     list.innerHTML = certs.map(function (c) {
       return '' +
         '<a class="course-sheet-item" href="' + SITE.u('course', esc(c.id)) + '">' +
-          '<img class="csi-thumb" src="' + esc(c.image) + '" alt="' + esc(c.title) + '" loading="lazy">' +
+          '<img class="csi-thumb" src="' + esc(c.image) + '" alt="' + esc(c.title) + '" loading="lazy" decoding="async">' +
           '<div class="csi-main">' +
             '<div class="csi-title">' + esc(c.title) + '</div>' +
             '<div class="csi-sub">' +

@@ -38,6 +38,12 @@
 
 .editor-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .editor-side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: calc(var(--topbar-h) + 70px); }
+.period-input-wrap { display: flex; align-items: center; gap: 8px; direction: rtl; }
+.period-input-wrap .input { flex: 1; min-width: 0; }
+.period-input-wrap span { flex: none; color: var(--muted); font-size: 13px; font-weight: 700; }
+.price-input-wrap { display: flex; align-items: center; gap: 8px; direction: ltr; }
+.price-input-wrap .input { flex: 1; min-width: 0; }
+.price-input-wrap span { flex: none; color: var(--muted); font-size: 13px; font-weight: 700; }
 
 .title-input {
   width: 100%;
@@ -424,9 +430,17 @@ html[dir='ltr'] .slug-row { justify-content: flex-start; }
 
 .mobile-editor-tabs { display: none; }
 
+.editor-templates-mobile { display: none; }
+.editor-checklist-mobile { display: none; }
+
 @media (max-width: 940px) {
   .editor-grid { grid-template-columns: 1fr; }
   .editor-side { position: static; }
+  .editor-templates-desktop { display: none; }
+  .editor-templates-mobile { display: block; }
+  .editor-checklist-box { order: 99; }
+  .editor-checklist-desktop { display: none; }
+  .editor-checklist-mobile { display: block; order: 0; }
 }
 
 @media (max-width: 640px) {

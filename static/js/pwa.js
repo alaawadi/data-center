@@ -8,8 +8,17 @@
   var descriptionEl;
 
   function isInstalled() {
-    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-      window.navigator.standalone === true;
+    var displayModes = ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay'];
+    var installedDisplayMode = window.matchMedia && displayModes.some(function (mode) {
+      return window.matchMedia('(display-mode: ' + mode + ')').matches;
+    });
+    var previouslyInstalled = false;
+    try {
+      previouslyInstalled = window.localStorage.getItem('pwa-installed') === '1';
+    } catch (error) {
+      previouslyInstalled = false;
+    }
+    return installedDisplayMode || window.navigator.standalone === true || previouslyInstalled;
   }
 
   function isIOS() {
@@ -44,10 +53,8 @@
     }
   }
 
-  function androidLogo() {
-    return '<svg class="pwa-android-logo" viewBox="0 0 48 48" aria-hidden="true" focusable="false">' +
-      '<path d="M13.3 16.2 10.7 11.7a1 1 0 0 1 1.7-1l2.8 4.8a16.2 16.2 0 0 1 18 0l2.8-4.8a1 1 0 1 1 1.7 1l-2.6 4.5A14.7 14.7 0 0 1 42 28H6a14.7 14.7 0 0 1 7.3-11.8ZM13 21a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm22 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM9 30h30v3a4 4 0 0 1-4 4h-1v5a2 2 0 0 1-4 0v-5H18v5a2 2 0 0 1-4 0v-5h-1a4 4 0 0 1-4-4Zm-5-1a2 2 0 0 1 4 0v6a2 2 0 0 1-4 0Zm36 0a2 2 0 0 1 4 0v6a2 2 0 0 1-4 0Z"/>' +
-      '</svg>';
+  function appLogo() {
+    return '<span class="pwa-logo-box"><img class="pwa-app-logo" src="/static/images/logo.svg" alt=""></span>';
   }
 
   function hideIfInstalled() {
@@ -58,6 +65,11 @@
 
   function handleAppInstalled() {
     deferredInstallPrompt = null;
+    try {
+      window.localStorage.setItem('pwa-installed', '1');
+    } catch (error) {
+      console.warn('Could not persist installed app state:', error);
+    }
     hideIfInstalled();
   }
 
@@ -66,14 +78,14 @@
     document.body.insertAdjacentHTML('beforeend',
       '<section class="pwa-prompt" id="pwaPrompt" role="dialog" aria-labelledby="pwaPromptTitle" aria-describedby="pwaPromptDescription" hidden>' +
       '<div class="pwa-prompt-head">' +
-      '<span class="pwa-prompt-icon" aria-hidden="true">' + androidLogo() + '</span>' +
-      '<div class="pwa-prompt-copy"><h2 id="pwaPromptTitle">ثبّت تطبيق مركز داتا</h2>' +
+      '<span class="pwa-prompt-icon" aria-hidden="true">' + appLogo() + '</span>' +
+      '<div class="pwa-prompt-copy"><h2 id="pwaPromptTitle">Install Data Center</h2>' +
       '<p id="pwaPromptDescription"></p></div>' +
       '<button class="pwa-prompt-close" id="pwaPromptClose" type="button" aria-label="إغلاق">×</button>' +
       '</div>' +
       '<button class="pwa-install-button" id="pwaInstallButton" type="button"></button>' +
       '</section>' +
-      '<button class="pwa-launcher" id="pwaLauncher" type="button" aria-label="اقتراح تثبيت تطبيق مركز داتا" aria-expanded="false">' + androidLogo() + '</button>');
+      '<button class="pwa-launcher" id="pwaLauncher" type="button" aria-label="Install Data Center app" aria-expanded="false">' + appLogo() + '</button>');
 
     promptEl = document.getElementById('pwaPrompt');
     launcherEl = document.getElementById('pwaLauncher');

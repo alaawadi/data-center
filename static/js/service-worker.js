@@ -1,7 +1,7 @@
 'use strict';
 
 var CACHE_PREFIX = 'data-center-pwa-';
-var CACHE_NAME = CACHE_PREFIX + 'v1';
+var CACHE_NAME = CACHE_PREFIX + 'v13';
 var PRECACHE_ASSETS = __PRECACHE_ASSETS__;
 var STATIC_PREFIX = __STATIC_PREFIX__;
 var OFFLINE_URL = __OFFLINE_URL__;

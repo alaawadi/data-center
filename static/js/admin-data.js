@@ -71,6 +71,7 @@
   function defaultSettings() {
     return {
       name: 'مركز داتا للتدريب والتطوير',
+      homepageTitle: 'مركز داتا للتدريب والتطوير',
       tagline: 'بوابة التعلّم والتطوير المهني',
       email: 'datacenteracademy1@gmail.com',
       phone: '0594810786',

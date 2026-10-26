@@ -2,7 +2,7 @@
 {% load static_v %}
 
 {% block title %}تفاصيل الشهادة — بورتفوليو{% endblock %}
-{% block body_attrs %}data-page="course"{% endblock %}
+{% block body_attrs %}data-page="certificate"{% endblock %}
 
 {% block css %}
   {{ block.super }}
@@ -14,6 +14,6 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
+  <script defer src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
   {{ block.super }}
 {% endblock %}

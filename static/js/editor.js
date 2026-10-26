@@ -4,6 +4,13 @@
   var page = document.body.getAttribute('data-page');
   function t(k) { return I18n.t(k); }
   function e(s) { return UI.esc(s); }
+  function durationHours(value, fallback) {
+    var raw = String(value || fallback || '')
+      .replace(/[٠-٩]/g, function (digit) { return String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)); })
+      .replace(/[۰-۹]/g, function (digit) { return String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)); });
+    var match = raw.match(/\d+(?:[.,]\d+)?/);
+    return match ? match[0].replace(',', '.') : '';
+  }
 
   function csrfToken() {
     if (window.CSRF_TOKEN) return window.CSRF_TOKEN;
@@ -40,16 +47,58 @@
 
   var TEMPLATES = [
     {
-      icon: 'layers', label: 'قالب مراجعة مشروع',
-      html: '<h2>نظرة عامة</h2><p>……</p><h2>المشكلة</h2><p>……</p><h2>الحل</h2><p>……</p><h2>التقنيات المستخدمة</h2><ul><li>……</li></ul><h2>ما تعلّمته</h2><p>……</p><h2>الخطوة القادمة</h2><p>……</p>'
+      icon: 'layers', label: 'عرض المشروع',
+      labelEn: 'Project overview',
+      html: '<h2>نبذة عن المشروع</h2><p>ما المشروع؟ وما فكرته أو مجاله؟</p>' +
+        '<h2>الهدف</h2><p>ما الحاجة أو الهدف الذي يسعى المشروع إلى تلبيته؟</p>' +
+        '<h2>الفئة المستفيدة</h2><p>من سيستفيد من هذا المشروع؟</p>' +
+        '<h2>طريقة العمل</h2><p>اشرح الخطوات أو الأنشطة الرئيسية في تنفيذه.</p>' +
+        '<h2>النتائج والأثر</h2><p>ما الذي تحقق؟ اذكر نتائج أو مؤشرات ملموسة إن توفرت.</p>'
     },
     {
-      icon: 'sparkles', label: 'قالب دراسة حالة',
-      html: '<h2>الخلفية</h2><p>……</p><h2>التحدي</h2><p>……</p><h2>البحث والأبحاث</h2><p>……</p><h2>التصميم والتنفيذ</h2><p>……</p><h2>النتائج</h2><p>……</p>'
+      icon: 'sparkles', label: 'دراسة حالة',
+      labelEn: 'Case study',
+      html: '<h2>الخلفية والسياق</h2><p>ما الظروف أو الاحتياج الذي أدى إلى بدء المشروع؟</p>' +
+        '<h2>التحدي</h2><p>ما أبرز التحديات أو القيود؟</p>' +
+        '<h2>النهج المتبع</h2><p>كيف درست الخيارات واخترت طريقة التنفيذ؟</p>' +
+        '<h2>التنفيذ</h2><p>صف مراحل العمل والقرارات المهمة.</p>' +
+        '<h2>النتائج والدروس المستفادة</h2><p>ما النتائج؟ وما الذي تعلمته؟</p>'
     },
     {
-      icon: 'briefcase', label: 'قالب تقرير تدريب',
-      html: '<h2>الجهة والمدة</h2><p>……</p><h2>المهام التي أدوّيها</h2><ol><li>……</li></ol><h2>المخرجات</h2><p>……</p><h2>المهارات التي طوّرتها</h2><p>……</p>'
+      icon: 'briefcase', label: 'خطة ومراحل المشروع',
+      labelEn: 'Project plan and stages',
+      html: '<h2>الرؤية والأهداف</h2><p>ما الرؤية والنتائج التي تريد الوصول إليها؟</p>' +
+        '<h2>المراحل الرئيسية</h2><ol><li>المرحلة الأولى: ……</li><li>المرحلة الثانية: ……</li><li>المرحلة الثالثة: ……</li></ol>' +
+        '<h2>الموارد والشركاء</h2><p>ما الموارد أو الخبرات أو الجهات المشاركة؟</p>' +
+        '<h2>قياس النجاح</h2><p>كيف ستقيّم تقدم المشروع وأثره؟</p>'
+    }
+  ];
+
+  var COURSE_TEMPLATES = [
+    {
+      icon: 'file-text',
+      label: 'وصف تعريفي للدورة',
+      labelEn: 'Course overview',
+      html: '<h2>نبذة عن الدورة</h2><p>اكتب وصفاً موجزاً يوضح موضوع الدورة وأهميتها.</p>' +
+        '<h2>ماذا ستتعلم؟</h2><ul><li>المهارة أو المفهوم الأول</li><li>المهارة أو المفهوم الثاني</li></ul>' +
+        '<h2>لمن هذه الدورة؟</h2><p>حدد الفئة المناسبة ومستواها.</p>' +
+        '<h2>المتطلبات السابقة</h2><p>اذكر المعارف أو الأدوات التي يحتاجها المتدرب.</p>'
+    },
+    {
+      icon: 'award',
+      label: 'مخرجات التعلم',
+      labelEn: 'Learning outcomes',
+      html: '<h2>أهداف الدورة</h2><p>بنهاية الدورة سيكون المتدرب قادراً على:</p>' +
+        '<ul><li>تطبيق …</li><li>إنشاء …</li><li>تحليل …</li></ul>' +
+        '<h2>المشروع التطبيقي</h2><p>صف المشروع أو التطبيق العملي الذي سينفذه المتدرب.</p>'
+    },
+    {
+      icon: 'list',
+      label: 'خطة ومحتوى الدورة',
+      labelEn: 'Course outline',
+      html: '<h2>محاور الدورة</h2><ol><li><b>المحور الأول:</b> الموضوعات والمهارات.</li>' +
+        '<li><b>المحور الثاني:</b> الموضوعات والمهارات.</li><li><b>المحور الثالث:</b> التطبيق العملي.</li></ol>' +
+        '<h2>طريقة التدريب</h2><p>اشرح أسلوب الشرح والتطبيق والواجبات أو التقييم.</p>'
     }
   ];
 
@@ -158,7 +207,30 @@
 
   function fillChrome(opts) {
     var dirRtl = document.documentElement.dir === 'rtl';
-    document.getElementById('edBack').innerHTML = UI.icon(dirRtl ? 'arrow-right' : 'arrow-left', 18);
+    var backLink = document.getElementById('edBack');
+    backLink.innerHTML = UI.icon(dirRtl ? 'arrow-right' : 'arrow-left', 18);
+    backLink.addEventListener('click', function (event) {
+      var previousPage;
+      try {
+        previousPage = document.referrer ? new URL(document.referrer) : null;
+      } catch (error) {
+        return;
+      }
+      var isEditorPage = previousPage &&
+        (/\/courses\/edit(?:\/|$)/.test(previousPage.pathname) ||
+          /\/projects\/edit(?:\/|$)/.test(previousPage.pathname));
+      var isLoginPage = previousPage && /\/(?:login|accounts\/login)\/?$/.test(previousPage.pathname);
+      if (!previousPage || previousPage.origin !== window.location.origin ||
+          isEditorPage || isLoginPage || window.history.length <= 1) return;
+
+      event.preventDefault();
+      try {
+        window.sessionStorage.removeItem('dc-page-transition');
+      } catch (error) {
+        console.warn('Page transition state could not be cleared.', error);
+      }
+      window.history.back();
+    });
     var btns = [
       { id: 'edPreviewBtn', icon: 'eye', label: t('preview') },
       { id: 'edDraftBtn', icon: 'save', label: t('saveDraft') },
@@ -170,12 +242,32 @@
       el.querySelector('.lbl').textContent = b.label;
     });
     if (opts && opts.titles) {
-      var labels = document.querySelectorAll('.h3-label');
-      var icons = document.querySelectorAll('.h3-ic');
+      var mobileTemplateBox = document.querySelector('.editor-templates-mobile');
+      var mobileChecklistBox = document.querySelector('.editor-checklist-mobile');
+      var labels = Array.prototype.slice.call(document.querySelectorAll('.h3-label')).filter(function (label) {
+        return (!mobileTemplateBox || !mobileTemplateBox.contains(label)) &&
+          (!mobileChecklistBox || !mobileChecklistBox.contains(label));
+      });
+      var icons = Array.prototype.slice.call(document.querySelectorAll('.h3-ic')).filter(function (icon) {
+        return (!mobileTemplateBox || !mobileTemplateBox.contains(icon)) &&
+          (!mobileChecklistBox || !mobileChecklistBox.contains(icon));
+      });
       opts.titles.forEach(function (item, i) {
         if (labels[i]) labels[i].textContent = item.title;
         if (icons[i]) icons[i].innerHTML = UI.icon(item.icon, 15);
       });
+      if (mobileTemplateBox) {
+        var mobileLabel = mobileTemplateBox.querySelector('.h3-label');
+        var mobileIcon = mobileTemplateBox.querySelector('.h3-ic');
+        if (mobileLabel) mobileLabel.textContent = t(page === 'edit-course' ? 'courseTemplates' : 'templates');
+        if (mobileIcon) mobileIcon.innerHTML = UI.icon('layers', 15);
+      }
+      if (mobileChecklistBox) {
+        var mobileChecklistLabel = mobileChecklistBox.querySelector('.h3-label');
+        var mobileChecklistIcon = mobileChecklistBox.querySelector('.h3-ic');
+        if (mobileChecklistLabel) mobileChecklistLabel.textContent = t('checklist');
+        if (mobileChecklistIcon) mobileChecklistIcon.innerHTML = UI.icon('check-circle', 15);
+      }
     }
     if (window.SiteChrome && SiteChrome.mount) SiteChrome.mount();
   }
@@ -199,7 +291,8 @@
   function initProjectEditor() {
     var isCourse = page === 'edit-course';
     var COL = isCourse ? 'certificates' : 'projects';
-    var id = SITE.param('id');
+    var coursePathId = isCourse ? window.location.pathname.match(/\/courses\/edit\/([^/]+)\/?$/) : null;
+    var id = SITE.param('id') || (coursePathId ? coursePathId[1] : '');
     var existing = id ? Store.find(COL, id) : null;
     var p = existing ? JSON.parse(JSON.stringify(existing)) : (isCourse ? {
       id: Store.uid('c'), title: '', slug: '', cover: '', summary: '', content: '',
@@ -248,29 +341,26 @@
       if (metaBox) metaBox.remove();
     }
 
-    var chromeTitles = [{ icon: 'image', title: t('projGallery') }];
+    var chromeTitles = [];
     if (isCourse) chromeTitles.push({ icon: 'list', title: t('syllabusLabel') });
     chromeTitles.push({ icon: 'check-circle', title: t('checklist') });
-    chromeTitles.push({ icon: 'sliders', title: t('certEditorTitle') });
+    chromeTitles.push({ icon: 'layers', title: t(isCourse ? 'courseTemplates' : 'templates') });
+    chromeTitles.push({ icon: 'sliders', title: t(isCourse ? 'certEditorTitle' : 'projectMetaLabel') });
     if (isCourse) chromeTitles.push({ icon: 'award', title: t('courseMetaLabel') });
-    chromeTitles.push(
-      { icon: 'hash', title: t('tagsLabel') },
-      { icon: 'file', title: t('projFiles') },
-      { icon: 'layers', title: t('templates') },
-      { icon: 'sparkles', title: t('ideas') },
-      { icon: 'link', title: t('socialPreview') }
-    );
+    chromeTitles.push({ icon: 'hash', title: t('tagsLabel') });
+    if (!isCourse) chromeTitles.push({ icon: 'file', title: t('projFiles') });
 
     fillChrome({ titles: chromeTitles });
     if (isNew || p.status === 'draft') setStatusDraft(); else setStatus('saved');
 
     var titleEl = document.getElementById('edTitle');
+    var titleEnglishEl = isCourse ? document.getElementById('edTitleEnglish') : null;
     var contentEl = document.getElementById('edContent');
     var slugEl = document.getElementById('edSlug');
     var summaryEl = document.getElementById('edSummary');
     var categoryEl = document.getElementById('edCategory');
     var roleEl = document.getElementById('edRole');
-    var trainerEl = isCourse && roleEl.tagName === 'SELECT' ? roleEl : null;
+    var trainerEl = isCourse && roleEl && roleEl.tagName === 'SELECT' ? roleEl : null;
     var ownerSearchEl = !isCourse ? document.getElementById('edOwnerSearch') : null;
     var ownerIdEl = !isCourse ? document.getElementById('edOwnerId') : null;
     var ownerOptionsEl = !isCourse ? document.getElementById('edOwnerOptions') : null;
@@ -325,21 +415,27 @@
     var tagsBox = document.getElementById('edTagsBox');
     var tagsInput = document.getElementById('edTagsInput');
 
-    titleEl.placeholder = t('editorTitlePlaceholder');
+    titleEl.placeholder = isCourse
+      ? (I18n.getLang() === 'en' ? 'Course title in Arabic' : 'اسم الدورة بالعربية')
+      : t('editorTitlePlaceholder');
     titleEl.value = p.title || '';
+    if (titleEnglishEl) {
+      titleEnglishEl.value = titleEnglishEl.value || p.titleEnglish || p.title_en || '';
+    }
     contentEl.setAttribute('data-ph', t('editorContentPlaceholder'));
     contentEl.innerHTML = p.content || '';
     summaryEl.placeholder = t('editorContentPlaceholder');
     summaryEl.value = p.summary || '';
     categoryEl.value = p.category || '';
-    roleEl.value = p.role || '';
+    if (roleEl) roleEl.value = p.role || '';
     dateEl.value = (p.date || '').slice(0, 10);
     githubEl.value = (p.links && p.links.github) || '';
     demoEl.value = (p.links && p.links.demo) || '';
 
     document.getElementById('lblSummary').textContent = isCourse ? t('descriptionLabel') : t('fieldBio');
     document.getElementById('lblCategory').textContent = t('categoryLabel');
-    document.getElementById('lblRole').textContent = isCourse ? t('instructorLabel') : t('roleLabel');
+    var roleLabelEl = document.getElementById('lblRole');
+    if (roleLabelEl) roleLabelEl.textContent = isCourse ? t('instructorLabel') : t('roleLabel');
     document.getElementById('lblDate').textContent = t('dateLabel');
     document.getElementById('lblDemo').textContent = t('linkDemo');
 
@@ -361,21 +457,20 @@
     var priceEl = document.getElementById('edPrice');
     var durationEl = document.getElementById('edDuration');
     var periodEl = document.getElementById('edPeriod');
-    var credIdEl = document.getElementById('edCredId');
-    var verifyUrlEl = document.getElementById('edVerifyUrl');
     var courseMetaEls = [];
     if (isCourse) {
       document.getElementById('lblPrice').textContent = t('priceLabel');
       document.getElementById('lblDuration').textContent = t('durationLabel');
       document.getElementById('lblPeriod').textContent = t('periodLabel');
-      document.getElementById('lblCredId').textContent = t('credentialLabel');
-      document.getElementById('lblVerifyUrl2').textContent = t('verifyUrlLabel');
-      priceEl.value = p.price;
-      durationEl.value = p.duration;
-      periodEl.value = p.period;
-      credIdEl.value = p.credentialId;
-      verifyUrlEl.value = p.verifyUrl;
-      courseMetaEls = [priceEl, durationEl, periodEl, credIdEl, verifyUrlEl];
+      priceEl.value = String(p.price || '').replace(/[₪\s]/g, '');
+      durationEl.value = durationHours(p.duration, p.durationEnglish);
+      var periodDigits = String(p.period || '').match(/[0-9٠-٩۰-۹]+/);
+      periodEl.value = periodDigits
+        ? periodDigits[0].replace(/[٠-٩۰-۹]/g, function (digit) {
+          return String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10);
+        })
+        : '';
+      courseMetaEls = [priceEl, durationEl, periodEl];
       /* المدرّب هو صاحب الدورة — الحقل للعرض فقط، والدورات لا تملك روابط GitHub/تاريخ إصدار */
       if (trainerEl) {
         document.getElementById('lblRole').textContent = t('instructorLabel');
@@ -383,7 +478,7 @@
         if (trainerPlaceholder) trainerPlaceholder.textContent = t('trainerSelectPlaceholder');
         trainerEl.value = existing ? String(existing.trainerId || '') : '';
         trainerEl.addEventListener('change', markDirty);
-      } else {
+      } else if (roleEl) {
         roleEl.value = p.role || '';
         roleEl.readOnly = true;
         roleEl.classList.add('readonly');
@@ -397,45 +492,89 @@
 
     function syncSlug() {
       p.slug = Store.slugify(titleEl.value || p.title, p.id);
-      slugEl.textContent = p.slug;
+      if (slugEl) slugEl.textContent = p.slug;
     }
     syncSlug();
 
     /* checklist */
-    var CHECKS = [
-      { label: I18n.getLang() === 'ar' ? 'صورة الغلاف' : 'Cover image', done: function () { return !!p.cover; } },
-      { label: I18n.getLang() === 'ar' ? 'عنوان واضح' : 'Clear title', done: function () { return !!titleEl.value.trim(); } },
-      { label: I18n.getLang() === 'ar' ? 'ملخص مختصر' : 'Short summary', done: function () { return !!summaryEl.value.trim(); } },
-      { label: I18n.getLang() === 'ar' ? 'وصف تفصيلي (50+ كلمة)' : 'Detailed description (50+ words)', done: function () { return textOf(contentEl).split(' ').length >= 50; } },
-      { label: I18n.getLang() === 'ar' ? 'تاق واحد على الأقل' : 'At least one tag', done: function () { return p.tags.length >= 1; } },
-      { label: I18n.getLang() === 'ar' ? 'تصنيف ودور وتاريخ' : 'Category, role & date', done: function () { return categoryEl.value.trim() && roleEl.value.trim() && dateEl.value; } },
-      { label: I18n.getLang() === 'ar' ? 'رابط GitHub أو معاينة' : 'GitHub or demo link', done: function () { return githubEl.value.trim() || demoEl.value.trim(); } },
-      { label: I18n.getLang() === 'ar' ? 'ملفات أو صور مرفقة' : 'Files or gallery attached', done: function () { return p.files.length || p.gallery.length; } }
-    ];
-    if (isCourse) {
-      CHECKS[5] = { label: I18n.getLang() === 'ar' ? 'تصنيف واضح' : 'Clear category', done: function () { return !!categoryEl.value.trim(); } };
-      CHECKS[6] = {
-        label: I18n.getLang() === 'ar' ? 'قسم ودروس واحدة على الأقل' : 'At least one section with lessons',
-        done: function () {
-          return p.syllabus.some(function (s) { return (s.lessons || []).length > 0; });
-        }
-      };
-      CHECKS[7] = {
-        label: I18n.getLang() === 'ar' ? 'سعر أو مدة الدورة' : 'Price or duration',
-        done: function () { return !!(priceEl.value.trim() || durationEl.value.trim()); }
-      };
+    var isArabic = I18n.getLang() === 'ar';
+    function projectTagCount() {
+      var tags = p.tags.slice(0, 10);
+      return tags.filter(function (tag, index) {
+        return tags.findIndex(function (candidate) {
+          return candidate.trim().toLocaleLowerCase() === tag.trim().toLocaleLowerCase();
+        }) === index;
+      }).length;
     }
-    var checklistEl = document.getElementById('edChecklist');
+    var CHECKS = isCourse ? [
+      { label: isArabic ? 'اسم الدورة بالعربية' : 'Arabic course title', done: function () { return !!titleEl.value.trim(); } },
+      { label: isArabic ? 'اسم الدورة بالإنجليزية' : 'English course title', done: function () { return !!titleEnglishEl.value.trim(); } },
+      { label: isArabic ? 'صورة الدورة' : 'Course image', done: function () { return !!p.cover; } },
+      { label: isArabic ? 'الوصف القصير' : 'Short description', done: function () { return !!summaryEl.value.trim(); } },
+      { label: isArabic ? 'الوصف الطويل (50 كلمة على الأقل)' : 'Long description (at least 50 words)', done: function () { return textOf(contentEl).trim().split(/\s+/).filter(Boolean).length >= 50; } },
+      { label: isArabic ? 'التصنيف' : 'Category', done: function () { return !!categoryEl.value.trim(); } },
+      { label: isArabic ? 'السعر' : 'Price', done: function () { return !!priceEl.value.trim(); } },
+      { label: isArabic ? 'المدة' : 'Duration', done: function () { return Number(durationEl.value) > 0; } },
+      { label: isArabic ? 'تاق واحد على الأقل' : 'At least one tag', done: function () { return p.tags.length > 0; } },
+      { label: isArabic ? 'قسم ودرس واحد على الأقل' : 'At least one section and lesson', done: function () { return p.syllabus.some(function (section) { return !!String(section.title || '').trim() && (section.lessons || []).some(function (lesson) { return !!String(lesson.title || '').trim(); }); }); } }
+    ] : [
+      { label: isArabic ? 'اسم المشروع' : 'Project title', done: function () { return !!titleEl.value.trim(); } },
+      { label: isArabic ? 'صورة الغلاف' : 'Cover image', done: function () { return !!p.cover; } },
+      { label: isArabic ? 'النبذة القصيرة' : 'Short summary', done: function () { return !!summaryEl.value.trim(); } },
+      { label: isArabic ? 'وصف تفصيلي (50 كلمة على الأقل)' : 'Detailed description (at least 50 words)', done: function () { return textOf(contentEl).trim().split(/\s+/).filter(Boolean).length >= 50; } },
+      { label: isArabic ? 'التصنيف' : 'Category', done: function () { return !!categoryEl.value.trim(); } },
+      { label: isArabic ? 'ظهور المشروع' : 'Project visibility', done: function () { return ['public', 'courses'].indexOf(visibilityEl && visibilityEl.value || p.visibility || 'public') >= 0; } },
+      { label: isArabic ? 'ثلاثة تاقات على الأقل' : 'At least three tags', done: function () { return projectTagCount() >= 3; } },
+      { label: isArabic ? 'التاريخ' : 'Date', done: function () { return !!dateEl.value; } }
+    ];
     function updateChecklist() {
       var doneCount = 0;
-      checklistEl.innerHTML = CHECKS.map(function (c) {
+      var checklistHTML = CHECKS.map(function (c) {
         var ok = !!c.done();
         if (ok) doneCount++;
         return '<div class="check-item' + (ok ? ' done' : '') + '"><span class="cbox">' + UI.icon('check', 12) + '</span>' + e(c.label) + '</div>';
       }).join('');
       var pct = Math.round(doneCount / CHECKS.length * 100);
-      document.getElementById('edProgressBar').style.width = pct + '%';
-      document.getElementById('edProgressPct').textContent = pct + '%';
+      document.querySelectorAll('[data-checklist-list]').forEach(function (list) { list.innerHTML = checklistHTML; });
+      document.querySelectorAll('[data-checklist-bar]').forEach(function (bar) { bar.style.width = pct + '%'; });
+      document.querySelectorAll('[data-checklist-pct]').forEach(function (label) { label.textContent = pct + '%'; });
+    }
+    function coursePublishMissing() {
+      var wordCount = textOf(contentEl).trim().split(/\s+/).filter(Boolean).length;
+      var hasSyllabus = p.syllabus.some(function (section) {
+        return !!String(section.title || '').trim() && (section.lessons || []).some(function (lesson) {
+          return !!String(lesson.title || '').trim();
+        });
+      });
+      return [
+        { key: 'title', missing: !titleEl.value.trim(), element: titleEl },
+        { key: 'titleEnglish', missing: !titleEnglishEl.value.trim(), element: titleEnglishEl },
+        { key: 'cover', missing: !p.cover, element: coverHost },
+        { key: 'summary', missing: !summaryEl.value.trim(), element: summaryEl },
+        { key: 'content', missing: wordCount < 50, element: contentEl },
+        { key: 'category', missing: !categoryEl.value.trim(), element: categoryEl },
+        { key: 'price', missing: !priceEl.value.trim(), element: priceEl },
+        { key: 'duration', missing: !(Number(durationEl.value) > 0), element: durationEl },
+        { key: 'tags', missing: !p.tags.length, element: tagsInput },
+        { key: 'syllabus', missing: !hasSyllabus, element: document.getElementById('edSecAdd') }
+      ].filter(function (field) { return field.missing; });
+    }
+    function projectPublishMissing() {
+      var wordCount = textOf(contentEl).trim().split(/\s+/).filter(Boolean).length;
+      var visibility = visibilityField && visibilityField.style.display !== 'none' && visibilityEl
+        ? visibilityEl.value
+        : (p.visibility || 'public');
+      var fields = [
+        { key: 'title', missing: !titleEl.value.trim(), element: titleEl },
+        { key: 'cover', missing: !p.cover, element: coverHost },
+        { key: 'summary', missing: !summaryEl.value.trim(), element: summaryEl },
+        { key: 'content', missing: wordCount < 50, element: contentEl },
+        { key: 'category', missing: !categoryEl.value.trim(), element: categoryEl },
+        { key: 'visibility', missing: ['public', 'courses'].indexOf(visibility) < 0, element: visibilityEl },
+        { key: 'tags', missing: projectTagCount() < 3, element: tagsInput },
+        { key: 'date', missing: !dateEl.value, element: dateEl }
+      ];
+      return fields.filter(function (field) { return field.missing; });
     }
     updateChecklist();
 
@@ -465,31 +604,6 @@
       updateSocialPreview();
     }
     renderCover();
-
-    /* gallery */
-    var galleryEl = document.getElementById('edGallery');
-    function renderGallery() {
-      var html = p.gallery.map(function (g, i) {
-        return '<div class="gallery-edit-item"><img src="' + e(g) + '" alt=""><button class="gi-x" data-gi="' + i + '">' + UI.icon('x', 12) + '</button></div>';
-      }).join('');
-      html += '<label class="gallery-add">' + UI.icon('plus', 20) + '<input type="file" accept="image/*" multiple id="galInput"></label>';
-      galleryEl.innerHTML = html;
-      galleryEl.querySelector('#galInput').addEventListener('change', function (ev) {
-        var files = Array.prototype.slice.call(ev.target.files || []);
-        Promise.all(files.map(function (f) { return UI.compressImage(f, 1300, 0.8); })).then(function (list) {
-          p.gallery = p.gallery.concat(list);
-          renderGallery(); markDirty();
-        });
-      });
-      galleryEl.querySelectorAll('[data-gi]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-          p.gallery.splice(+btn.getAttribute('data-gi'), 1);
-          renderGallery(); markDirty();
-        });
-      });
-      updateChecklist();
-    }
-    renderGallery();
 
     /* tags */
     function renderTags() {
@@ -583,7 +697,7 @@
           '</div></label>';
         if (linked) {
           body += '<div class="proj-pick-preview">' +
-            (linked.cover ? '<img class="proj-pick-cover" src="' + e(linked.cover) + '" alt="">' : '') +
+            (linked.cover ? '<img class="proj-pick-cover" src="' + e(linked.cover) + '" alt="" loading="lazy" decoding="async">' : '') +
             '<div class="proj-pick-meta">' +
             '<b>' + e(linked.title) + '</b>' +
             (linked.summary ? '<span class="tiny muted">' + e(linked.summary) + '</span>' : '') +
@@ -828,83 +942,93 @@
     }
     if (isCourse) initSyllabusBuilder();
 
-    /* files */
-    var filesList = document.getElementById('edFilesList');
-    function renderFiles() {
-      filesList.innerHTML = p.files.map(function (f, i) {
-        return '<div class="file-row"><span class="file-ic">' + UI.icon('file-text', 16) + '</span>' +
-          '<div class="file-meta"><b>' + e(f.name) + '</b><span>' + e(UI.fileSize(f.size)) + (f.dataUrl ? '' : ' · ' + e(t('optional'))) + '</span></div>' +
-          '<button class="btn-icon sm danger" data-fi="' + i + '">' + UI.icon('trash', 14) + '</button></div>';
-      }).join('');
-      filesList.querySelectorAll('[data-fi]').forEach(function (b) {
-        b.addEventListener('click', function () {
-          p.files.splice(+b.getAttribute('data-fi'), 1);
+    if (!isCourse) {
+      /* files */
+      var filesList = document.getElementById('edFilesList');
+      function renderFiles() {
+        filesList.innerHTML = p.files.map(function (f, i) {
+          return '<div class="file-row"><span class="file-ic">' + UI.icon('file-text', 16) + '</span>' +
+            '<div class="file-meta"><b>' + e(f.name) + '</b><span>' + e(UI.fileSize(f.size)) + (f.dataUrl ? '' : ' · ' + e(t('optional'))) + '</span></div>' +
+            '<button class="btn-icon sm danger" data-fi="' + i + '">' + UI.icon('trash', 14) + '</button></div>';
+        }).join('');
+        filesList.querySelectorAll('[data-fi]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            p.files.splice(+b.getAttribute('data-fi'), 1);
+            renderFiles(); markDirty();
+          });
+        });
+        updateChecklist();
+      }
+      var filesDrop = document.getElementById('edFilesDrop');
+      filesDrop.querySelector('.dz-ic').innerHTML = UI.icon('upload', 20);
+      filesDrop.querySelector('.dz-label').textContent = t('filesDrop');
+      setupDropzone(filesDrop, document.getElementById('edFilesInput'), function (files) {
+        Promise.all(files.map(function (f) {
+          if (f.size <= 2 * 1024 * 1024) {
+            return UI.readFileDataURL(f).then(function (d) {
+              return { id: Store.uid('f'), name: f.name, size: f.size, type: f.type, dataUrl: d };
+            });
+          }
+          UI.toast(t('fileTooBig'), 'info');
+          return Promise.resolve({ id: Store.uid('f'), name: f.name, size: f.size, type: f.type, dataUrl: '' });
+        })).then(function (list) {
+          p.files = p.files.concat(list);
           renderFiles(); markDirty();
         });
       });
-      updateChecklist();
+      renderFiles();
     }
-    var filesDrop = document.getElementById('edFilesDrop');
-    filesDrop.querySelector('.dz-ic').innerHTML = UI.icon('upload', 20);
-    filesDrop.querySelector('.dz-label').textContent = t('filesDrop');
-    setupDropzone(filesDrop, document.getElementById('edFilesInput'), function (files) {
-      Promise.all(files.map(function (f) {
-        if (f.size <= 2 * 1024 * 1024) {
-          return UI.readFileDataURL(f).then(function (d) {
-            return { id: Store.uid('f'), name: f.name, size: f.size, type: f.type, dataUrl: d };
-          });
-        }
-        UI.toast(t('fileTooBig'), 'info');
-        return Promise.resolve({ id: Store.uid('f'), name: f.name, size: f.size, type: f.type, dataUrl: '' });
-      })).then(function (list) {
-        p.files = p.files.concat(list);
-        renderFiles(); markDirty();
-      });
-    });
-    renderFiles();
 
     /* templates */
-    var tplEl = document.getElementById('edTemplates');
-    tplEl.innerHTML = TEMPLATES.map(function (tpl, i) {
-      return '<button class="tpl-btn" data-tpl="' + i + '">' + UI.icon(tpl.icon, 15) + e(tpl.label) + '</button>';
+    var tplEls = Array.prototype.slice.call(document.querySelectorAll('[data-editor-templates]'));
+    var availableTemplates = isCourse ? COURSE_TEMPLATES : TEMPLATES;
+    var templatesHTML = availableTemplates.map(function (tpl, i) {
+      var label = I18n.getLang() === 'en' && tpl.labelEn ? tpl.labelEn : tpl.label;
+      return '<button class="tpl-btn" data-tpl="' + i + '">' + UI.icon(tpl.icon, 15) + e(label) + '</button>';
     }).join('');
-    tplEl.addEventListener('click', function (ev) {
-      var b = ev.target.closest('[data-tpl]');
-      if (!b) return;
-      contentEl.focus();
-      insertHTML(TEMPLATES[+b.getAttribute('data-tpl')].html);
-      UI.toast(t('templateInserted'), 'success');
-      markDirty();
+    tplEls.forEach(function (tplEl) {
+      tplEl.innerHTML = templatesHTML;
+      tplEl.addEventListener('click', function (ev) {
+        var b = ev.target.closest('[data-tpl]');
+        if (!b) return;
+        contentEl.focus();
+        insertHTML(availableTemplates[+b.getAttribute('data-tpl')].html);
+        UI.toast(t('templateInserted'), 'success');
+        markDirty();
+      });
     });
 
-    /* ideas */
-    var ideaOffset = Math.floor(Math.random() * PROJECT_IDEAS.length);
-    var ideasEl = document.getElementById('edIdeas');
-    document.getElementById('edIdeaRefresh').innerHTML = UI.icon('refresh-cw', 15);
-    function renderIdeas() {
-      var items = [];
-      for (var i = 0; i < 3; i++) items.push(PROJECT_IDEAS[(ideaOffset + i) % PROJECT_IDEAS.length]);
-      ideasEl.innerHTML = items.map(function (x) {
-        return '<button class="idea-card">' + UI.icon('sparkles', 14) + '<span>' + e(x) + '</span></button>';
-      }).join('');
-    }
-    renderIdeas();
-    document.getElementById('edIdeaRefresh').addEventListener('click', function () {
-      ideaOffset = (ideaOffset + 3 + Math.floor(Math.random() * PROJECT_IDEAS.length)) % PROJECT_IDEAS.length;
+    if (!isCourse && document.getElementById('edIdeas')) {
+      /* ideas */
+      var ideaOffset = Math.floor(Math.random() * PROJECT_IDEAS.length);
+      var ideasEl = document.getElementById('edIdeas');
+      document.getElementById('edIdeaRefresh').innerHTML = UI.icon('refresh-cw', 15);
+      function renderIdeas() {
+        var items = [];
+        for (var i = 0; i < 3; i++) items.push(PROJECT_IDEAS[(ideaOffset + i) % PROJECT_IDEAS.length]);
+        ideasEl.innerHTML = items.map(function (x) {
+          return '<button class="idea-card">' + UI.icon('sparkles', 14) + '<span>' + e(x) + '</span></button>';
+        }).join('');
+      }
       renderIdeas();
-    });
-    ideasEl.addEventListener('click', function (ev) {
-      var card = ev.target.closest('.idea-card');
-      if (!card) return;
-      var text = card.querySelector('span').textContent;
-      contentEl.focus();
-      insertHTML('<blockquote>' + e(text) + '</blockquote><p>……</p>');
-      markDirty();
-    });
+      document.getElementById('edIdeaRefresh').addEventListener('click', function () {
+        ideaOffset = (ideaOffset + 3 + Math.floor(Math.random() * PROJECT_IDEAS.length)) % PROJECT_IDEAS.length;
+        renderIdeas();
+      });
+      ideasEl.addEventListener('click', function (ev) {
+        var card = ev.target.closest('.idea-card');
+        if (!card) return;
+        var text = card.querySelector('span').textContent;
+        contentEl.focus();
+        insertHTML('<blockquote>' + e(text) + '</blockquote><p>……</p>');
+        markDirty();
+      });
+    }
 
     /* social preview */
     function updateSocialPreview() {
       var host = document.getElementById('edSocialPreview');
+      if (!host) return;
       var title = titleEl.value.trim();
       var sum = summaryEl.value.trim();
       if (!title && !sum) { host.innerHTML = '<div style="padding:16px" class="tiny muted">' + e(t('noPreviewYet')) + '</div>'; return; }
@@ -925,7 +1049,14 @@
     }
     updateMeta();
 
-    var auto = UI.debounce(function () { persist(p.status === 'published' ? 'published' : 'draft', true); }, 1100);
+    var auto = UI.debounce(function () {
+      var status = p.status === 'published' ? 'published' : 'draft';
+      if (isCourse) {
+        serverSave(status, false, true);
+        return;
+      }
+      persist(status, true);
+    }, 1100);
 
     function markDirty() {
       dirty = true;
@@ -937,7 +1068,7 @@
       auto();
     }
 
-    [titleEl, summaryEl, categoryEl, roleEl, dateEl, githubEl, demoEl].concat(courseMetaEls).forEach(function (el) {
+    [titleEl, titleEnglishEl, summaryEl, categoryEl, roleEl, dateEl, githubEl, demoEl].concat(courseMetaEls).filter(Boolean).forEach(function (el) {
       el.addEventListener('input', markDirty);
       el.addEventListener('change', markDirty);
     });
@@ -948,9 +1079,10 @@
 
     function collect() {
       p.title = titleEl.value.trim();
+      if (titleEnglishEl) p.titleEnglish = titleEnglishEl.value.trim();
       p.summary = summaryEl.value.trim();
       p.category = categoryEl.value.trim();
-      p.role = roleEl.value.trim();
+      p.role = roleEl ? roleEl.value.trim() : '';
       if (!isCourse && visibilityEl && visibilityField && visibilityField.style.display !== 'none') {
         p.visibility = visibilityEl.value === 'courses' ? 'courses' : 'public';
       }
@@ -964,9 +1096,7 @@
         p.image = p.cover;
         p.price = priceEl.value.trim();
         p.duration = durationEl.value.trim();
-        p.period = periodEl.value.trim();
-        p.credentialId = credIdEl.value.trim();
-        p.verifyUrl = verifyUrlEl.value.trim();
+        p.period = periodEl.value;
         p.syllabus = (p.syllabus || []).map(function (sec) {
           return Object.assign({}, sec, {
             lessons: (sec.lessons || []).map(function (ls) {
@@ -991,7 +1121,7 @@
       setStatus('saved');
     }
 
-    function serverSave(status, redirect) {
+    function serverSave(status, redirect, silent) {
       collect();
       p.status = status;
       if (!isCourse && ownerIdEl && !ownerIdEl.value) {
@@ -1011,6 +1141,7 @@
         id: existing ? p.id : '',
         trainerId: trainerEl ? trainerEl.value : '',
         title: p.title,
+        titleEnglish: p.titleEnglish || '',
         summary: p.summary,
         content: p.content,
         category: p.category,
@@ -1054,7 +1185,30 @@
       }).then(function (res) {
         if (!res || !res.ok) {
           setStatusDraft();
-          UI.toast(t((res && res.error) || 'required'), 'error');
+          var errorKey = (res && res.error) || 'required';
+          if (errorKey === 'project_incomplete') errorKey = 'projectPublishRequirements';
+          if (errorKey === 'course_incomplete') errorKey = 'coursePublishRequirements';
+          if (errorKey === 'coursePublishRequirements') {
+            var serverMissing = res && res.missing || [];
+            var focusByField = {
+              title: titleEl,
+              titleEnglish: titleEnglishEl,
+              cover: coverHost,
+              summary: summaryEl,
+              content: contentEl,
+              category: categoryEl,
+              price: priceEl,
+              duration: durationEl,
+              tags: tagsInput,
+              syllabus: document.getElementById('edSecAdd')
+            };
+            var focusTarget = serverMissing.length && focusByField[serverMissing[0]];
+            if (focusTarget === coverHost) {
+              focusTarget = coverHost.querySelector('input[type="file"]');
+            }
+            if (focusTarget) focusTarget.focus();
+          }
+          UI.toast(t(errorKey), 'error');
           return;
         }
         p.id = res.id;
@@ -1062,7 +1216,7 @@
         dirty = false;
         if (redirect) { location.href = res.url; return; }
         setStatus('saved');
-        UI.toast(t('savedOk'), 'success');
+        if (!silent) UI.toast(t('savedOk'), 'success');
       }).catch(function () {
         setStatusDraft();
         UI.toast(t('required'), 'error');
@@ -1075,7 +1229,7 @@
         title: t('preview'),
         size: 'md',
         body: '<div class="preview-frame"><div class="card" style="max-width:640px;margin-inline:auto;overflow:hidden">' +
-          (p.cover ? '<img src="' + e(p.cover) + '" alt="" style="aspect-ratio:16/9;object-fit:cover;width:100%">' : '<div style="aspect-ratio:16/9;background:var(--grad);display:grid;place-items:center;color:#fff">' + UI.icon('layers', 40) + '</div>') +
+          (p.cover ? '<img src="' + e(p.cover) + '" alt="" style="aspect-ratio:16/9;object-fit:cover;width:100%" loading="lazy" decoding="async">' : '<div style="aspect-ratio:16/9;background:var(--grad);display:grid;place-items:center;color:#fff">' + UI.icon('layers', 40) + '</div>') +
           '<div style="padding:18px 20px">' +
           '<h3 style="font-size:18px;margin-bottom:8px">' + e(p.title || '—') + '</h3>' +
           (p.summary ? '<p class="muted small" style="margin-bottom:10px">' + e(p.summary) + '</p>' : '') +
@@ -1095,6 +1249,31 @@
 
     document.getElementById('edPublishBtn').addEventListener('click', function () {
       collect();
+      if (isCourse) {
+        var courseMissing = coursePublishMissing();
+        if (courseMissing.length) {
+          UI.toast(t('coursePublishRequirements'), 'error');
+          if (courseMissing[0].key === 'cover') {
+            var courseCoverInput = coverHost.querySelector('input[type="file"]');
+            if (courseCoverInput) courseCoverInput.focus();
+          } else if (courseMissing[0].element) {
+            courseMissing[0].element.focus();
+          }
+          return;
+        }
+      } else {
+        var missing = projectPublishMissing();
+        if (missing.length) {
+          UI.toast(t('projectPublishRequirements'), 'error');
+          if (missing[0].key === 'cover') {
+            var coverInput = coverHost.querySelector('input[type="file"]');
+            if (coverInput) coverInput.focus();
+          } else if (missing[0].element) {
+            missing[0].element.focus();
+          }
+          return;
+        }
+      }
       if (!p.title) { UI.toast(t('required'), 'error'); titleEl.focus(); return; }
       if (textOf(contentEl).length < 10) { UI.toast(t('required'), 'error'); contentEl.focus(); return; }
       if (SERVER_SAVE) { serverSave('published', true); return; }
@@ -1168,8 +1347,8 @@
     function renderGallery() {
       var html = post.media.map(function (m, i) {
         var inner = m.type === 'video'
-          ? '<video src="' + e(m.src) + '" preload="metadata" muted playsinline></video><span class="gi-play">' + UI.icon('play', 13) + '</span>'
-          : '<img src="' + e(m.src) + '" alt="">';
+          ? '<video src="' + e(m.src) + '" preload="none" muted playsinline></video><span class="gi-play">' + UI.icon('play', 13) + '</span>'
+          : '<img src="' + e(m.src) + '" alt="" loading="lazy" decoding="async">';
         return '<div class="gallery-edit-item' + (m.type === 'video' ? ' is-video' : '') + '">' + inner + '<button class="gi-x" data-gi="' + i + '">' + UI.icon('x', 12) + '</button></div>';
       }).join('');
       galleryEl.innerHTML = html;

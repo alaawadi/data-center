@@ -1,4 +1,5 @@
 """Views for the personal portfolio hub (index.html)."""
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 
 from courses.models import (
@@ -13,7 +14,7 @@ from posts.models import Post
 from projects.models import Project, ProjectInteraction
 
 
-class HomeView(TemplateView):
+class HomeView(LoginRequiredMixin, TemplateView):
     """index.html — profile cards, tabs and panels."""
 
     template_name = 'portfolio/home.html'

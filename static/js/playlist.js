@@ -7,6 +7,7 @@
   var PKEY = 'dc_playlist_progress_v1';
 
   var course = null, syllabus = [], flat = [], progress = {}, currentKey = null;
+  var trainerMode = false;
   var serverProgress = null;      /* {done: [lesson ids], complete: bool} من السيرفر */
   var idKeyMap = {};              /* معرّف الدرس في قاعدة البيانات ← المفتاح الموضعي */
   var completeFlag = false;       /* أنهى الدورة (تُظهر شارة الشهادة وتمنع تكرار التهنئة) */
@@ -45,7 +46,7 @@
 
   /* زر الشهادة — يظهر أسفل صندوق التقدّم بعد إتمام كل دروس الدورة */
   function certBtnHTML() {
-    if (!completeFlag) return '';
+    if (trainerMode || !completeFlag) return '';
     return '<a class="pl-cert-btn" href="' + certUrl() + '">' +
       UI.icon('award', 16) + ' ' + e(t('plCertBtn')) + '</a>';
   }
@@ -377,7 +378,7 @@
     actions += '<button type="button" class="btn btn-primary btn-sm" data-act="open-project" data-url="' + e(SITE.u('project', pj.id)) + '"' + (key != null ? ' data-key="' + e(key) + '"' : '') + '>' + UI.icon('briefcase', 15) + ' ' + e(t('plProjectOpen')) + '</button>';
 
     return '<div class="pl-proj-card">' +
-      (pj.cover ? '<div class="pl-proj-cover"><img src="' + e(pj.cover) + '" alt="' + e(pj.title) + '"></div>' : '') +
+      (pj.cover ? '<div class="pl-proj-cover"><img src="' + e(pj.cover) + '" alt="' + e(pj.title) + '" loading="lazy" decoding="async"></div>' : '') +
       '<div class="pl-proj-head">' +
       '<span class="pl-proj-badge">' + UI.icon('briefcase', 14) + ' ' + e(t('plProjectType')) + '</span>' +
       '<h3 class="pl-proj-title">' + e(pj.title) + '</h3>' +
@@ -398,7 +399,7 @@
     if (player) return '<div class="pl-video-player">' + player + '</div>';
     /* لا يوجد رابط تشغيل صالح: صورة غلاف مع شارة مدة */
     return '<div class="pl-video">' +
-      '<img src="' + e(course.courseImage || course.image) + '" alt="' + e(course.title) + '">' +
+      '<img src="' + e(course.courseImage || course.image) + '" alt="' + e(course.title) + '" fetchpriority="high">' +
       '<button type="button" class="pl-video-btn" data-act="play" aria-label="' + e(t('play')) + '">' + UI.icon('play', 26) + '</button>' +
       '<span class="pl-video-badge">' + e(ls.duration || '') + '</span>' +
       '</div>';
@@ -407,7 +408,7 @@
   function playerHTML() {
     var f = flat.find(function (x) { return x.key === currentKey; });
     if (!f) return '';
-    var done = !!progress[f.key];
+    var done = !trainerMode && !!progress[f.key];
     var idx = flat.indexOf(f);
     var prev = flat[idx - 1], next = flat[idx + 1];
     var ls = f.lesson;
@@ -472,9 +473,10 @@
           ? (done
             ? '<span class="pl-note is-pass">' + UI.icon('check-circle', 15) + ' ' + e(t('plProjectAdded')) + '</span>'
             : '<span class="pl-note">' + UI.icon('info', 15) + ' ' + e(t('plProjectHint')) + '</span>')
-          : '<button type="button" class="pl-btn ' + (done ? 'pl-btn-done' : 'pl-btn-primary') + '" data-act="done">' +
+          : (trainerMode ? '' :
+            '<button type="button" class="pl-btn ' + (done ? 'pl-btn-done' : 'pl-btn-primary') + '" data-act="done">' +
             UI.icon(done ? 'check-circle' : 'check', 16) + ' ' + e(done ? t('plDone') : t('plMark')) +
-            '</button>')) +
+            '</button>'))) +
       (isProject && !isLinkedProject && (done || projectFlag[f.key]) ? '<span class="pl-note is-pass">' + UI.icon('briefcase', 15) + ' ' + e(t('plProjectAdded')) + '</span>' : '') +
       '<div class="pl-nav">' +
       '<button type="button" class="pl-btn pl-btn-ghost" data-act="prev"' + (prev ? '' : ' disabled') + '>' + UI.icon('chevron-right', 15) + ' ' + e(t('plPrev')) + '</button>' +
@@ -488,7 +490,7 @@
     var secs = syllabus.map(function (sec, si) {
       var items = (sec.lessons || []).map(function (ls, li) {
         var key = 's' + si + 'l' + li;
-        var done = !!progress[key];
+        var done = !trainerMode && !!progress[key];
         var active = key === currentKey;
         return '' +
           '<li><button type="button" class="pl-lesson' + (active ? ' is-active' : '') + (done ? ' is-done' : '') + '" data-act="lesson" data-key="' + key + '">' +
@@ -498,10 +500,12 @@
           '<span class="pl-lmeta">' + lessonIcon(ls.type) + ' ' + e(lessonMetaLabel(ls)) +
           (ls.free ? ' <span class="pl-free">' + e(t('plFree')) + '</span>' : '') + '</span>' +
           '</span>' +
-          ((ls.type === 'project' && ls.project)
-            ? (done ? '<span class="pl-ldone is-on" aria-hidden="true">' + UI.icon('check-circle', 17) + '</span>' : '')
-            : '<span class="pl-ldone" data-act="toggle" data-key="' + key + '" role="checkbox" aria-checked="' + (done ? 'true' : 'false') + '" aria-label="' + e(t('plDone')) + '">' +
-              (done ? UI.icon('check-circle', 17) : UI.icon('check-circle', 17)) + '</span>') +
+          (trainerMode
+            ? ''
+            : ((ls.type === 'project' && ls.project)
+              ? (done ? '<span class="pl-ldone is-on" aria-hidden="true">' + UI.icon('check-circle', 17) + '</span>' : '')
+              : '<span class="pl-ldone" data-act="toggle" data-key="' + key + '" role="checkbox" aria-checked="' + (done ? 'true' : 'false') + '" aria-label="' + e(t('plDone')) + '">' +
+                UI.icon('check-circle', 17) + '</span>')) +
           '</button></li>';
       }).join('');
 
@@ -523,10 +527,11 @@
       '<h3>' + UI.icon('list', 17) + ' ' + e(t('plTitle')) + '</h3>' +
       '<span class="pl-list-count">' + lessonsLabel(flat.length) + '</span>' +
       '</div>' +
-      '<div class="pl-list-progress">' +
-      '<div class="pl-bar"><span style="width:' + pct() + '%"></span></div>' +
-      '<span class="pl-list-pct">' + pct() + '%</span>' +
-      '</div>' +
+      (trainerMode ? '' :
+        '<div class="pl-list-progress">' +
+        '<div class="pl-bar"><span style="width:' + pct() + '%"></span></div>' +
+        '<span class="pl-list-pct">' + pct() + '%</span>' +
+        '</div>') +
       secs +
       '</div>';
   }
@@ -543,11 +548,12 @@
       '<h1 class="pl-title">' + e(course.title) + '</h1>' +
       '<div class="pl-meta">' + e(course.category || '') + (course.category ? ' · ' : '') + e(meta.join(' · ')) + '</div>' +
       '</div>' +
-      '<div class="pl-progress-box">' +
-      '<div class="pl-progress-label">' + e(t('plProgress')) + ' <b>' + pct() + '%</b> · ' + doneCount() + ' ' + e(t('plOf')) + ' ' + flat.length + '</div>' +
-      '<div class="pl-bar"><span style="width:' + pct() + '%"></span></div>' +
-      certBtnHTML() +
-      '</div>' +
+      (trainerMode ? '' :
+        '<div class="pl-progress-box">' +
+        '<div class="pl-progress-label">' + e(t('plProgress')) + ' <b>' + pct() + '%</b> · ' + doneCount() + ' ' + e(t('plOf')) + ' ' + flat.length + '</div>' +
+        '<div class="pl-bar"><span style="width:' + pct() + '%"></span></div>' +
+        certBtnHTML() +
+        '</div>') +
       '</div>' +
       '</div>';
   }
@@ -621,7 +627,7 @@
       document.querySelectorAll('.pl-lesson').forEach(function (b) {
         var k = b.getAttribute('data-key');
         b.classList.toggle('is-active', k === currentKey);
-        var done = !!progress[k];
+        var done = !trainerMode && !!progress[k];
         b.classList.toggle('is-done', done);
         var chk = b.querySelector('.pl-ldone');
         if (chk) chk.setAttribute('aria-checked', done ? 'true' : 'false');
@@ -669,7 +675,7 @@
   }
 
   function celebrate() {
-    if (completeFlag) return;
+    if (trainerMode || completeFlag) return;
     completeFlag = true;
     progress._complete = 1;
     saveProgress();
@@ -695,7 +701,7 @@
   }
 
   function markLessonDone(key) {
-    if (progress[key]) return;
+    if (trainerMode || progress[key]) return;
     progress[key] = 1;
     saveProgress();
     renderPlayer();
@@ -904,6 +910,7 @@
   }
 
   function toggleDone(key) {
+    if (trainerMode) return;
     var f = flat.find(function (x) { return x.key === key; });
     /* الإكمال اتجاه واحد: الدرس المكتمل لا يُلغى بالضغط مرة أخرى */
     if (progress[key]) return;
@@ -931,7 +938,7 @@
   function sheetItems() {
     if (!flat.length) return '<div class="csi-empty">لا توجد دروس حالياً</div>';
     return flat.map(function (f) {
-      var done = !!progress[f.key];
+      var done = !trainerMode && !!progress[f.key];
       var active = f.key === currentKey;
       var ls = f.lesson;
       return '' +
@@ -990,7 +997,7 @@
       var url = el.getAttribute('data-url');
       var pkey = el.getAttribute('data-key') || currentKey;
       var pf = flat.find(function (x) { return x.key === pkey; });
-      if (pf && !progress[pkey]) {
+      if (!trainerMode && pf && !progress[pkey]) {
         progress[pkey] = 1;
         saveProgress();
         renderPlayer();
@@ -1047,14 +1054,18 @@
 
   /* ---------- الإقلاع ---------- */
 
+  var trainerData = document.getElementById('course-trainer-data');
+  if (trainerData) {
+    try { trainerMode = JSON.parse(trainerData.textContent) === true; } catch (err) { trainerMode = false; }
+  }
   course = Store.find('certificates', courseId) || null;
   if (course) {
     /* المعايدة إلى المعرّف الرسمي (slug) حتى تكون الروابط ومفاتيح التخزين موحّدة */
     courseId = course.id || courseId;
     syllabus = course.syllabus || [];
     flatten();
-    progress = loadProgress();
-    serverProgress = readServerProgress();
+    progress = trainerMode ? {} : loadProgress();
+    serverProgress = trainerMode ? null : readServerProgress();
     quizStatus = readQuizStatus() || {};
     if (serverProgress) {
       (serverProgress.done || []).forEach(function (id) {

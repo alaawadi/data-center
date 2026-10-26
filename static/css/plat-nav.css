@@ -179,12 +179,20 @@
 .plat-nav .cert-thumb {
   height: 118px;
   position: relative;
+  overflow: hidden;
   background-size: cover;
   background-position: center;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   padding: 12px;
+}
+.plat-nav .cert-thumb > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 .plat-nav .cert-thumb::after {
   content: '';

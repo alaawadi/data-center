@@ -14,6 +14,7 @@ from django.db.models import F, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.urls import reverse
 from django.utils.dateparse import parse_date
+from django.utils.html import strip_tags
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import TemplateView
 
@@ -218,10 +219,6 @@ def project_save(request):
             project = queryset.filter(pk=key).first()
 
     status = ProjectStatus.PUBLISHED if payload.get('status') == ProjectStatus.PUBLISHED else ProjectStatus.DRAFT
-    title = str(payload.get('title') or '').strip()[:200]
-    if status == ProjectStatus.PUBLISHED and not title:
-        return JsonResponse({'ok': False, 'error': 'required'}, status=400)
-
     owner = request.user
     if is_admin:
         owner_id = str(payload.get('ownerId') or '').strip()
@@ -232,46 +229,84 @@ def project_save(request):
                 return JsonResponse({'ok': False, 'error': 'invalid_owner'}, status=400)
         elif project is not None:
             owner = project.owner
+
+    title = str(payload.get('title') or '').strip()[:200]
+    summary = str(payload.get('summary') or '').strip()[:320]
+    content = str(payload.get('content') or '').strip()
+    category = str(payload.get('category') or '').strip()[:120]
+    date_value = str(payload.get('date') or '').strip()
+    project_date = parse_date(date_value) if date_value else None
+    visibility = str(payload.get('visibility') or '').strip()
+    raw_tags = payload.get('tags')
+    tag_names = []
+    seen_tags = set()
+    if isinstance(raw_tags, list):
+        for raw in raw_tags[:10]:
+            name = str(raw or '').strip()[:80]
+            if name and name.lower() not in seen_tags:
+                seen_tags.add(name.lower())
+                tag_names.append(name)
+
+    cover = payload.get('cover')
+    decoded_cover = (
+        _decode_data_url(cover)
+        if isinstance(cover, str) and cover.startswith('data:image')
+        else None
+    )
+    if status == ProjectStatus.PUBLISHED:
+        missing = []
+        if not title:
+            missing.append('title')
+        if not ((project is not None and project.cover) or decoded_cover):
+            missing.append('cover')
+        if not summary:
+            missing.append('summary')
+        if len(strip_tags(content).split()) < 50:
+            missing.append('content')
+        if not category:
+            missing.append('category')
+        if visibility not in (ProjectVisibility.PUBLIC, ProjectVisibility.COURSES):
+            missing.append('visibility')
+        if len(tag_names) < 3:
+            missing.append('tags')
+        if project_date is None:
+            missing.append('date')
+        if missing:
+            return JsonResponse(
+                {'ok': False, 'error': 'project_incomplete', 'missing': missing},
+                status=400,
+            )
+
     if project is None:
         project = Project(owner=owner)
     else:
         project.owner = owner
 
     project.title = title or 'مشروع بدون عنوان'
-    project.summary = str(payload.get('summary') or '').strip()[:320]
-    project.content = str(payload.get('content') or '').strip()
-    project.category = str(payload.get('category') or '').strip()[:120]
+    project.summary = summary
+    project.content = content
+    project.category = category
     project.role = str(payload.get('role') or '').strip()[:150]
-    date_value = str(payload.get('date') or '').strip()
-    project.project_date = parse_date(date_value) if date_value else None
+    project.project_date = project_date
     project.github_url = str(payload.get('github') or '').strip()[:200]
     project.demo_url = str(payload.get('demo') or '').strip()[:200]
     project.status = status
     # الظهور: «مخصّص للدورات» يُسمح به للمدرب فقط، وإلا يبقى «عام».
-    visibility = str(payload.get('visibility') or '').strip()
     if project.owner.is_trainer and visibility == ProjectVisibility.COURSES:
         project.visibility = ProjectVisibility.COURSES
     else:
         project.visibility = ProjectVisibility.PUBLIC
     project.save()
 
-    cover = payload.get('cover')
-    if isinstance(cover, str) and cover.startswith('data:image'):
-        decoded = _decode_data_url(cover)
-        if decoded:
-            name, content = decoded
-            project.cover.save(name, ContentFile(content), save=True)
+    if decoded_cover:
+        name, image_content = decoded_cover
+        project.cover.save(name, ContentFile(image_content), save=True)
 
-    tags = payload.get('tags')
-    if isinstance(tags, list):
-        tag_objects = []
-        seen = set()
-        for raw in tags[:10]:
-            name = str(raw or '').strip()[:80]
-            if not name or name.lower() in seen:
-                continue
-            seen.add(name.lower())
-            tag_objects.append(ProjectTag.objects.get_or_create(name=name)[0])
+    if isinstance(raw_tags, list):
+        tag_objects = [
+            ProjectTag.objects.get_or_create(name=name)[0]
+            for name in tag_names
+        ]
         project.tags.set(tag_objects)
 
     gallery = payload.get('gallery')

@@ -48,9 +48,21 @@ class UserAdmin(BaseUserAdmin):
     search_fields = ('phone', 'full_name', 'handle', 'email')
     readonly_fields = ('date_joined', 'last_login')
     inlines = (DeviceSessionInline,)
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj:
+            fields.extend(
+                name for name in ('full_name_ar', 'full_name_en')
+                if getattr(obj, name)
+            )
+        return fields
+
     fieldsets = (
         (None, {'fields': ('phone', 'password')}),
-        ('المعلومات الشخصية', {'fields': ('full_name', 'handle', 'email')}),
+        ('المعلومات الشخصية', {
+            'fields': ('full_name', 'full_name_ar', 'full_name_en', 'handle', 'email')
+        }),
         ('الصلاحيات', {
             'fields': ('role', 'is_verified', 'is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions'),
         }),
@@ -59,7 +71,10 @@ class UserAdmin(BaseUserAdmin):
     add_fieldsets = (
         (None, {
             'classes': ('wide',),
-            'fields': ('phone', 'full_name', 'role', 'password1', 'password2'),
+            'fields': (
+                'phone', 'full_name', 'full_name_ar', 'full_name_en',
+                'role', 'password1', 'password2'
+            ),
         }),
     )
 

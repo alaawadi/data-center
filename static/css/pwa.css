@@ -17,8 +17,10 @@
   transition: transform .18s ease, box-shadow .18s ease;
 }
 .pwa-launcher:hover { transform: translateY(-2px); box-shadow: 0 11px 28px rgba(37, 99, 235, .4); }
-.pwa-android-logo { display: block; width: 25px; height: 25px; fill: currentColor; }
-.pwa-launcher .pwa-android-logo { width: 29px; height: 29px; fill: #fff; }
+.pwa-logo-box { display: grid; place-items: center; width: 40px; height: 40px; padding: 3px; overflow: hidden; background: #fff; border-radius: 9px; }
+.pwa-app-logo { display: block; width: 100%; height: 100%; object-fit: contain; }
+.pwa-prompt-icon { padding: 0; background: #fff; }
+.pwa-launcher .pwa-logo-box { width: 38px; height: 38px; padding: 2px; border-radius: 10px; }
 .pwa-launcher[hidden],
 .pwa-prompt[hidden] { display: none; }
 

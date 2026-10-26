@@ -90,3 +90,54 @@ body.workshop-scan-active::before {
   border-radius: 12px;
   background: #fff;
 }
+
+.workshop-attendees-count {
+  cursor: pointer;
+  font: inherit;
+}
+
+.workshop-attendees-count:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.workshop-attendees-list {
+  display: grid;
+  gap: 8px;
+}
+
+.workshop-attendees-total {
+  margin-bottom: 4px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.workshop-attendee-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.workshop-attendee-row > div {
+  display: grid;
+  gap: 2px;
+}
+
+.workshop-attendee-row small,
+.workshop-attendee-row time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .workshop-attendee-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}

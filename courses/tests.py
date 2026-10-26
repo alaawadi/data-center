@@ -3,7 +3,7 @@ import base64
 import json
 import shutil
 import tempfile
-from datetime import timedelta
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -21,6 +21,7 @@ from .models import (
     CourseProgress,
     CourseSection,
     CourseStatus,
+    InPersonWorkshop,
     Lesson,
     LessonType,
     ManualCertificate,
@@ -32,6 +33,8 @@ from .models import (
     StudentPointTransaction,
     StudentReferral,
     StudentReferralLink,
+    WorkshopAttendance,
+    WorkshopCertificate,
 )
 
 
@@ -39,16 +42,17 @@ def _payload(**kwargs):
     base = {
         'id': '',
         'title': 'دورة بايثون للمبتدئين',
+        'titleEnglish': 'Python for Beginners',
         'summary': 'ملخص الدورة',
-        'content': '<p>وصف تفصيلي للدورة</p>',
+        'content': '<p>' + ' '.join(['وصف تفصيلي'] * 50) + '</p>',
         'category': 'برمجة',
         'price': '₪150',
-        'duration': '20 ساعة',
-        'period': '8 لقاءات',
+        'duration': '20',
+        'period': '8',
         'credentialId': 'PY-2026-1',
         'verifyUrl': 'https://example.com/verify/PY-2026-1',
         'tags': ['Python', 'Basics'],
-        'cover': '',
+        'cover': 'data:image/png;base64,YQ==',
         'syllabus': [
             {
                 'id': None,
@@ -74,6 +78,9 @@ def _payload(**kwargs):
 
 class CoursePermissionsTests(TestCase):
     def setUp(self):
+        self.media_root = tempfile.mkdtemp()
+        self.media_override = override_settings(MEDIA_ROOT=self.media_root)
+        self.media_override.enable()
         self.trainer = User.objects.create_user(
             phone='059111111', password='pass1234', full_name='مدرب أول', role=UserRole.TRAINER
         )
@@ -88,6 +95,10 @@ class CoursePermissionsTests(TestCase):
         )
         self.save_url = reverse('courses:save')
         self.delete_url = reverse('courses:delete')
+
+    def tearDown(self):
+        self.media_override.disable()
+        shutil.rmtree(self.media_root, ignore_errors=True)
 
     def _post(self, payload, user=None):
         if user is not None:
@@ -109,7 +120,7 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(Course.objects.count(), 0)
 
     def test_trainer_creates_course_with_syllabus(self):
-        res = self._post(_payload(), self.trainer)
+        res = self._post(_payload(trainerId=str(self.other_trainer.pk)), self.trainer)
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data['ok'])
@@ -117,9 +128,15 @@ class CoursePermissionsTests(TestCase):
 
         course = Course.objects.get(owner=self.trainer)
         self.assertEqual(course.slug, data['id'])
-        self.assertEqual(course.price, '₪150')
+        self.assertEqual(course.title_en, 'Python for Beginners')
+        self.assertEqual(course.duration, '20 ساعة')
+        self.assertEqual(course.price, '150')
+        self.assertEqual(course.to_public_dict()['price'], '₪150')
         self.assertEqual(course.skills, ['Python', 'Basics'])
         self.assertEqual(course.credential_id, 'PY-2026-1')
+        self.assertEqual(course.duration_en, '20 hours')
+        self.assertEqual(course.period, '8 لقاءات')
+        self.assertEqual(course.owner, self.trainer)
         self.assertEqual(course.sections.count(), 1)
         lesson = course.sections.first().lessons.first()
         self.assertEqual(lesson.title, 'مقدمة')
@@ -134,6 +151,9 @@ class CoursePermissionsTests(TestCase):
         course = Course.objects.get(slug=res.json()['id'])
         self.assertEqual(course.owner, self.other_trainer)
         self.assertEqual(course.title, 'دورة بايثون للمبتدئين')
+        self.assertEqual(course.title_en, 'Python for Beginners')
+        self.assertEqual(course.duration, '20 ساعة')
+        self.assertEqual(course.duration_en, '20 hours')
 
     def test_admin_can_update_course_and_reassign_it_to_another_trainer(self):
         course = Course.objects.create(owner=self.trainer, title='دورة قائمة')
@@ -214,6 +234,83 @@ class CoursePermissionsTests(TestCase):
         lesson.refresh_from_db()
         self.assertEqual(lesson.title, 'درس معدّل')
         self.assertEqual(lesson.type, 'article')
+
+    def test_owner_can_update_english_course_title(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة عربية',
+            title_en='Old English title',
+        )
+
+        response = self._post(
+            _payload(
+                id=course.slug,
+                title='دورة عربية معدلة',
+                titleEnglish='Updated English course title',
+                status='draft',
+            ),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.title_en, 'Updated English course title')
+
+    def test_course_duration_input_generates_arabic_and_english_units(self):
+        course = Course.objects.create(owner=self.trainer, title='دورة')
+
+        response = self._post(
+            _payload(id=course.slug, duration='1', status='draft'),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.duration, '1 ساعة')
+        self.assertEqual(course.duration_en, '1 hour')
+
+        response = self._post(
+            _payload(id=course.slug, duration='2.5', status='draft'),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.duration, '2.5 ساعة')
+        self.assertEqual(course.duration_en, '2.5 hours')
+
+    def test_publishing_rejects_missing_required_course_fields(self):
+        response = self._post(
+            _payload(
+                title='',
+                titleEnglish='',
+                summary='',
+                content='',
+                category='',
+                price='',
+                duration='',
+                tags=[],
+                cover='',
+                syllabus=[],
+            ),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'course_incomplete')
+        self.assertEqual(
+            set(response.json()['missing']),
+            {'title', 'titleEnglish', 'cover', 'summary', 'content', 'category',
+             'price', 'duration', 'tags', 'syllabus'},
+        )
+        self.assertFalse(Course.objects.exists())
+
+    def test_course_period_number_is_saved_with_automatic_arabic_label(self):
+        response = self._post(_payload(period='12'), self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(owner=self.trainer)
+        self.assertEqual(course.period, '12 لقاءات')
 
     def test_only_owner_can_delete(self):
         course = Course.objects.create(owner=self.trainer, title='دوريتي')
@@ -307,6 +404,17 @@ class CoursePageTests(TestCase):
         enrolled = self.client.get(url)
         self.assertTrue(enrolled.context['is_course_enrolled'])
 
+    def test_course_owner_trainer_can_start_without_enrollment(self):
+        url = reverse('courses:detail', kwargs={'pk': self.published.slug})
+        self.client.force_login(self.trainer)
+        owner_response = self.client.get(url)
+        self.assertTrue(owner_response.context['is_course_trainer_owner'])
+        self.assertContains(owner_response, 'id="course-trainer-owner-data"')
+
+        self.client.force_login(self.other_trainer)
+        other_response = self.client.get(url)
+        self.assertFalse(other_response.context['is_course_trainer_owner'])
+
     def test_playlist_registration_redirect_lands_on_course_detail(self):
         response = self.client.get(
             reverse('courses:detail', kwargs={'pk': self.published.slug}),
@@ -361,18 +469,73 @@ class CoursePageTests(TestCase):
         self.client.force_login(self.trainer)
         create_response = self.client.get(reverse('courses:create'))
         self.assertEqual(create_response.status_code, 200)
-        self.assertContains(create_response, 'id="edRole"')
+        self.assertNotContains(create_response, 'id="edRole"')
+        self.assertContains(create_response, 'id="edTitleEnglish"')
+        self.assertContains(create_response, 'id="edDuration"')
+        self.assertNotContains(create_response, 'id="edDurationEnglish"')
+        self.assertNotContains(create_response, 'id="edCredId"')
+        self.assertNotContains(create_response, 'id="edVerifyUrl"')
+        self.assertNotContains(create_response, 'أدخل المدة بالساعات')
+        editor_html = create_response.content.decode()
+        self.assertNotIn("'edit-course': 'editor'", editor_html)
+        self.assertIn("body.getAttribute('data-page') === 'edit-course'", editor_html)
+        self.assertIn("root.classList.remove(transitionClass)", editor_html)
+        self.assertLess(editor_html.index('id="edTitle"'), editor_html.index('id="edTitleEnglish"'))
+        self.assertLess(editor_html.index('id="edTitleEnglish"'), editor_html.index('id="edCoverHost"'))
+        self.assertIn('class="title-input" id="edTitleEnglish"', editor_html)
+        self.assertNotIn('class="slug-row"', editor_html)
+        self.assertLess(editor_html.index('id="edCoverHost"'), editor_html.index('editor-templates-mobile'))
+        self.assertLess(editor_html.index('id="edChecklist"'), editor_html.index('editor-templates-desktop'))
+        self.assertLess(editor_html.index('editor-templates-desktop'), editor_html.index('id="lblSummary"'))
+        self.assertIn('editor-checklist-box', editor_html)
+        self.assertEqual(editor_html.count('data-editor-templates'), 2)
+        self.assertNotContains(create_response, 'id="edFilesDrop"')
+        self.assertNotContains(create_response, 'id="edGallery"')
+        self.assertNotContains(create_response, 'id="edIdeas"')
+        self.assertNotContains(create_response, 'id="edSocialPreview"')
         self.assertNotContains(create_response, '<select class="select" id="edRole"')
+        editor_html = create_response.content.decode()
+        self.assertLess(editor_html.index('js/i18n.js'), editor_html.index('js/editor.js'))
+        self.assertRegex(editor_html, r'<script defer src="[^"]*js/editor\.js')
 
     def test_editor_edit_only_for_owner(self):
         url = reverse('courses:edit', kwargs={'pk': self.published.slug})
+        self.published.title_en = 'Saved English Course Name'
+        self.published.duration = '7 ساعة'
+        self.published.duration_en = '7 hours'
+        self.published.save(update_fields=['title_en', 'duration', 'duration_en'])
         self.client.force_login(self.student)
         self.assertEqual(self.client.get(url).status_code, 404)
         self.client.force_login(self.trainer)
         res = self.client.get(url)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.context['courses_json'][0]['id'], self.published.slug)
-        self.assertContains(res, 'id="edRole"')
+        self.assertEqual(res.context['courses_json'][0]['titleEnglish'], 'Saved English Course Name')
+        self.assertEqual(res.context['courses_json'][0]['duration'], '7 ساعة')
+        self.assertEqual(res.context['courses_json'][0]['durationEnglish'], '7 hours')
+        self.assertContains(res, 'id="edTitleEnglish"')
+        self.assertContains(res, 'value="Saved English Course Name"')
+        editor_html = res.content.decode()
+        self.assertLess(editor_html.index('id="edTitle"'), editor_html.index('id="edTitleEnglish"'))
+        self.assertLess(editor_html.index('id="edTitleEnglish"'), editor_html.index('id="edCoverHost"'))
+        self.assertNotContains(res, 'id="edRole"')
+        self.assertContains(res, 'id="edTitleEnglish"')
+        self.assertContains(res, 'id="edDuration"')
+        self.assertContains(res, 'class="price-input-wrap"')
+        self.assertContains(res, '<span aria-hidden="true">₪</span>')
+        self.assertNotContains(res, 'id="edDurationEnglish"')
+        self.assertNotContains(res, 'id="edCredId"')
+        self.assertNotContains(res, 'id="edVerifyUrl"')
+        self.assertNotContains(res, 'أدخل المدة بالساعات')
+        self.assertEqual(editor_html.count('data-editor-templates'), 2)
+        self.assertNotContains(res, 'id="edFilesDrop"')
+        self.assertNotContains(res, 'id="edGallery"')
+        self.assertNotContains(res, 'id="edIdeas"')
+        self.assertNotContains(res, 'id="edSocialPreview"')
+        self.assertIn('editor-checklist-mobile', editor_html)
+        self.assertLess(editor_html.index('editor-checklist-mobile'), editor_html.index('id="edSyllabusBox"'))
+        self.assertContains(res, 'id="edPeriod" type="number"')
+        self.assertContains(res, 'id="lblPeriodUnit">لقاءات</span>')
         self.assertNotContains(res, '<select class="select" id="edRole"')
 
     def test_admin_can_open_course_editor_and_choose_a_trainer(self):
@@ -544,6 +707,22 @@ class CourseProgressTests(TestCase):
         self.client.force_login(self.other_student)
         res = self.client.get(self.playlist_url)
         self.assertEqual(res.context['progress_json'], {'done': [], 'complete': False})
+
+    def test_trainer_playlist_hides_student_progress(self):
+        self.course.price = '₪150'
+        self.course.save(update_fields=['price'])
+        self.client.force_login(self.trainer)
+        response = self.client.get(self.playlist_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['is_course_trainer'])
+        self.assertNotIn('progress_json', response.context)
+        self.assertContains(response, 'id="course-trainer-data"')
+
+    def test_trainer_cannot_mark_course_lessons_complete(self):
+        response = self._mark(self.lessons[0], user=self.trainer)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error'], 'trainer_progress_unavailable')
+        self.assertFalse(CourseProgress.objects.filter(student=self.trainer, course=self.course).exists())
 
     def test_playlist_page_anonymous_has_no_progress(self):
         res = self.client.get(self.playlist_url)
@@ -748,6 +927,16 @@ class CourseQuizTests(TestCase):
         self.assertIsNotNone(data['certificate'])
         self.assertTrue(CourseProgress.objects.get(student=self.student, course=self.course).completed)
         self.assertEqual(CourseCertificate.objects.filter(student=self.student).count(), 1)
+
+    def test_passing_quiz_does_not_track_trainer_progress(self):
+        self.client.force_login(self.trainer)
+        payload = self._post(self.start_url, {'id': self.course.slug, 'lesson': self.lesson.pk}).json()
+        response = self._post(self.submit_url, {
+            'id': self.course.slug, 'lesson': self.lesson.pk, 'answers': self._answers(payload, correct=True)
+        })
+        self.assertTrue(response.json()['passed'])
+        self.assertFalse(CourseProgress.objects.filter(student=self.trainer, course=self.course).exists())
+        self.assertFalse(CourseCertificate.objects.filter(student=self.trainer, course=self.course).exists())
 
     def test_failing_quiz_does_not_complete_lesson(self):
         self.client.force_login(self.student)
@@ -1167,7 +1356,7 @@ class ProjectCopyIsolationTests(TestCase):
                 'title': 'عنوان عدّله الطالب',
                 'summary': 'ملخص جديد',
                 'content': '<p>محتوى الطالب</p>',
-                'status': 'published',
+                'status': 'draft',
                 'tags': ['تعديل'],
             }),
             content_type='application/json',
@@ -1639,3 +1828,163 @@ class StudentReferralRewardTests(TestCase):
         )
         detail_after = self.client.get(reverse('courses:detail', kwargs={'pk': self.course.slug}))
         self.assertFalse(detail_after.context['course_rewards_json']['canRedeem'])
+
+
+class EarnedCertificateDetailTests(TestCase):
+    def setUp(self):
+        self.trainer = User.objects.create_user(
+            phone='0599888001',
+            password='pass1234',
+            full_name='مدرب الدورة',
+            full_name_ar='مدرب الدورة الأول',
+            full_name_en='Course Trainer Name',
+            trainer_name_en='Jordan Course Trainer',
+            role=UserRole.TRAINER,
+        )
+        self.student = User.objects.create_user(
+            phone='0599888002',
+            password='pass1234',
+            full_name='الاسم الشخصي',
+            full_name_ar='أحمد خالد الحسن',
+            full_name_en='Ahmad Khaled Alhasan',
+            role=UserRole.STUDENT,
+        )
+        self.course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة تطوير الويب',
+            title_en='Web Development Course',
+            duration='20 ساعة',
+            duration_en='20 hours',
+            status=CourseStatus.PUBLISHED,
+        )
+
+    def test_course_certificate_detail_includes_specific_certificate_and_bilingual_names(self):
+        certificate = CourseCertificate.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+
+        response = self.client.get(reverse(
+            'courses:certificate',
+            kwargs={'pk': f'earned-{certificate.pk}'},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        certificate_data = response.context['courses_json'][0]
+        self.assertEqual(certificate_data['id'], f'earned-{certificate.pk}')
+        self.assertEqual(certificate_data['certificateId'], f'earned-{certificate.pk}')
+        self.assertEqual(certificate_data['courseId'], self.course.slug)
+        self.assertEqual(certificate_data['titleEnglish'], 'Web Development Course')
+        self.assertEqual(certificate_data['durationEnglish'], '20 hours')
+        self.assertEqual(certificate_data['instructorEnglish'], 'Jordan Course Trainer')
+        self.assertEqual(certificate_data['studentNameArabic'], self.student.full_name_ar)
+        self.assertEqual(certificate_data['studentNameEnglish'], self.student.full_name_en)
+
+    def test_updated_course_duration_is_used_in_both_certificate_languages(self):
+        certificate = CourseCertificate.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+        self.client.force_login(self.trainer)
+
+        save_response = self.client.post(
+            reverse('courses:save'),
+            data=json.dumps({
+                'id': self.course.slug,
+                'title': self.course.title,
+                'titleEnglish': self.course.title_en,
+                'duration': '7',
+                'status': CourseStatus.DRAFT,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(save_response.status_code, 200, save_response.content)
+        certificate_response = self.client.get(reverse(
+            'courses:certificate',
+            kwargs={'pk': f'earned-{certificate.pk}'},
+        ))
+
+        self.assertEqual(certificate_response.status_code, 200)
+        certificate_data = certificate_response.context['courses_json'][0]
+        self.assertEqual(certificate_data['duration'], '7 ساعة')
+        self.assertEqual(certificate_data['durationEnglish'], '7 hours')
+
+    def test_course_certificate_uses_the_saved_english_course_title(self):
+        certificate = CourseCertificate.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+        self.course.title_en = 'Stored English Course Name'
+        self.course.save(update_fields=['title_en'])
+
+        response = self.client.get(reverse(
+            'courses:certificate',
+            kwargs={'pk': f'earned-{certificate.pk}'},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context['courses_json'][0]['titleEnglish'],
+            'Stored English Course Name',
+        )
+
+    def test_inactive_course_certificate_is_only_visible_to_its_owner(self):
+        certificate = CourseCertificate.objects.create(
+            student=self.student,
+            course=self.course,
+            is_active=False,
+        )
+        url = reverse('courses:certificate', kwargs={'pk': f'earned-{certificate.pk}'})
+
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.client.force_login(self.student)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_workshop_certificate_detail_includes_workshop_information_and_names(self):
+        workshop = InPersonWorkshop.objects.create(
+            title='ورشة أساسيات التصميم',
+            title_en='Design Fundamentals Workshop',
+            trainer_name='مدرب الورشة',
+            trainer_name_en='Workshop Trainer',
+            description='شرح عملي لمبادئ التصميم.',
+            description_en='Practical introduction to design principles.',
+            starts_at=timezone.now(),
+            duration_minutes=90,
+            location='مركز داتا',
+            location_en='Data Center',
+        )
+        attendance = WorkshopAttendance.objects.create(
+            workshop=workshop,
+            student=self.student,
+        )
+        certificate = WorkshopCertificate.objects.create(
+            attendance=attendance,
+            workshop_title=workshop.title,
+            workshop_title_en=workshop.title_en,
+            trainer_name=workshop.trainer_name,
+            trainer_name_en=workshop.trainer_name_en,
+            student_name=self.student.display_name,
+            attended_on=date.today(),
+            duration_minutes=workshop.duration_minutes,
+        )
+
+        response = self.client.get(reverse(
+            'courses:certificate',
+            kwargs={'pk': f'workshop-{certificate.pk}'},
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        certificate_data = response.context['courses_json'][0]
+        self.assertEqual(certificate_data['studentNameArabic'], self.student.full_name_ar)
+        self.assertEqual(certificate_data['studentNameEnglish'], self.student.full_name_en)
+        self.assertEqual(certificate_data['titleEnglish'], 'Design Fundamentals Workshop')
+        self.assertEqual(certificate_data['trainerNameEnglish'], 'Workshop Trainer')
+        self.assertEqual(certificate_data['workshopDetails']['locationEnglish'], 'Data Center')
+        self.assertEqual(
+            certificate_data['workshopDetails']['descriptionEnglish'],
+            'Practical introduction to design principles.',
+        )
+        self.assertEqual(certificate_data['workshopDetails']['title'], workshop.title)
+        self.assertEqual(certificate_data['workshopDetails']['location'], workshop.location)
+        self.assertEqual(certificate_data['workshopDetails']['description'], workshop.description)

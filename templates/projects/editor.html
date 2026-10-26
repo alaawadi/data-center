@@ -9,10 +9,13 @@
       <div class="editor-main">
         <div>
           <input class="title-input" id="edTitle" autocomplete="off">
-          <div class="slug-row"><span dir="ltr">/projects/<b id="edSlug">…</b></span></div>
         </div>
 
         <div id="edCoverHost"></div>
+        <div class="side-card-box editor-templates-box editor-templates-mobile">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="tpl-list" data-editor-templates></div>
+        </div>
 
         <div class="rich-editor">
           <div class="editor-toolbar" id="edToolbar"></div>
@@ -21,17 +24,18 @@
 
         <div class="editor-foot-meta" id="edMeta"></div>
 
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="gallery-edit-grid" id="edGallery"></div>
-        </div>
       </div>
 
       <aside class="editor-side">
-        <div class="side-card-box">
+        <div class="side-card-box editor-checklist-box">
           <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" id="edProgressPct">0%</span></h3>
           <div class="checklist-bar"><i id="edProgressBar" style="width:0%"></i></div>
           <div class="checklist-items" id="edChecklist"></div>
+        </div>
+
+        <div class="side-card-box editor-templates-box editor-templates-desktop">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="tpl-list" data-editor-templates></div>
         </div>
 
         <div class="side-card-box">
@@ -83,21 +87,6 @@
           <div class="files-list" id="edFilesList"></div>
         </div>
 
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="tpl-list" id="edTemplates"></div>
-        </div>
-
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
-            <button class="btn-icon sm" id="edIdeaRefresh" title="فكرة أخرى"></button></h3>
-          <div class="ideas-list" id="edIdeas"></div>
-        </div>
-
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="social-preview" id="edSocialPreview"></div>
-        </div>
       </aside>
     </div>
 {% endblock %}

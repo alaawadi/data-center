@@ -1,9 +1,13 @@
 """User + comprehensive profile models with platform roles."""
+import re
+import unicodedata
+
 from django.contrib.auth.models import (
     AbstractBaseUser,
     BaseUserManager,
     PermissionsMixin,
 )
+from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
@@ -13,6 +17,31 @@ phone_validator = RegexValidator(
     regex=r'^[0-9]{10}$',
     message='رقم الجوال يجب أن يتكوّن من 10 أرقام.',
 )
+
+
+def validate_arabic_three_part_name(value):
+    """Require three to six Arabic-script name parts."""
+    parts = value.split()
+    if not 3 <= len(parts) <= 6 or any(
+        not any(unicodedata.category(char).startswith('L') for char in part)
+        or any(
+            unicodedata.category(char)[0] not in ('L', 'M')
+            or 'ARABIC' not in unicodedata.name(char, '')
+            for char in part
+        )
+        for part in parts
+    ):
+        raise ValidationError('يرجى إدخال الاسم بالعربية من ثلاث إلى ست كلمات.')
+
+
+def validate_english_three_part_name(value):
+    """Require three to six English name parts."""
+    parts = value.split()
+    if not 3 <= len(parts) <= 6 or any(
+        not re.fullmatch(r"[A-Za-z]+(?:[-'][A-Za-z]+)*", part)
+        for part in parts
+    ):
+        raise ValidationError('Enter a name of three to six words in English.')
 
 
 class UserRole(models.TextChoices):
@@ -101,6 +130,21 @@ class User(AbstractBaseUser, PermissionsMixin):
         'رقم الجوال', max_length=10, unique=True, validators=[phone_validator]
     )
     full_name = models.CharField('الاسم الكامل', max_length=150, blank=True)
+    full_name_ar = models.CharField(
+        'الاسم الثلاثي بالعربية',
+        max_length=150,
+        blank=True,
+        validators=[validate_arabic_three_part_name],
+    )
+    full_name_en = models.CharField(
+        'الاسم الثلاثي بالإنجليزية',
+        max_length=150,
+        blank=True,
+        validators=[validate_english_three_part_name],
+    )
+    trainer_name_en = models.CharField(
+        'اسم المدرب بالإنجليزية', max_length=200, blank=True, default=''
+    )
     handle = models.CharField('اسم المستخدم العام', max_length=40, unique=True, blank=True)
     email = models.EmailField('البريد الإلكتروني', blank=True)
     role = models.CharField(
@@ -128,6 +172,31 @@ class User(AbstractBaseUser, PermissionsMixin):
         return f'{self.display_name} ({self.phone})'
 
     def save(self, *args, **kwargs):
+        if bool(self.full_name_ar) != bool(self.full_name_en):
+            raise ValidationError('يجب إدخال الاسم الثلاثي بالعربية والإنجليزية معاً.')
+        if self.full_name_ar:
+            validate_arabic_three_part_name(self.full_name_ar)
+            validate_english_three_part_name(self.full_name_en)
+
+        if self.pk:
+            update_fields = kwargs.get('update_fields')
+            protected_fields = ('full_name_ar', 'full_name_en')
+            if update_fields is not None:
+                protected_fields = tuple(
+                    field for field in protected_fields if field in update_fields
+                )
+            if protected_fields:
+                original = (
+                    type(self).objects.filter(pk=self.pk)
+                    .values(*protected_fields)
+                    .first()
+                )
+                if original:
+                    for field in protected_fields:
+                        if original[field] and getattr(self, field) != original[field]:
+                            raise ValidationError(
+                                'لا يمكن تعديل الاسم الثلاثي بعد حفظه.'
+                            )
         if not self.handle:
             self.handle = self._generate_handle()
         super().save(*args, **kwargs)

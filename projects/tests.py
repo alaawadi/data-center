@@ -1,8 +1,9 @@
 """Tests for project visibility (public vs. courses-only)."""
 import json
+from tempfile import TemporaryDirectory
 
 from django.core.files.base import ContentFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from users.models import User, UserRole
@@ -21,11 +22,21 @@ class ProjectVisibilityTests(TestCase):
 
     def _save(self, user, **fields):
         self.client.force_login(user)
+        project = Project.objects.create(
+            owner=user,
+            title=fields.get('title', 'مشروع اختبار'),
+            cover='test-cover.png',
+        )
         payload = {
-            'id': '',
-            'title': fields.get('title', 'مشروع اختبار'),
+            'id': project.slug,
+            'title': project.title,
+            'summary': 'ملخص للمشروع',
+            'content': ' '.join(['وصف'] * 50),
+            'category': 'تقنية',
+            'date': '2025-01-01',
             'status': 'published',
             'visibility': fields.get('visibility', 'public'),
+            'tags': ['واجهة', 'تجربة', 'مشروع'],
         }
         res = self.client.post(
             reverse('projects:save'),
@@ -33,6 +44,71 @@ class ProjectVisibilityTests(TestCase):
             content_type='application/json',
         )
         return res.json(), Project.objects.get(owner=user, title=payload['title'])
+
+    def _publish_payload(self, **overrides):
+        payload = {
+            'id': '',
+            'title': 'مشروع مكتمل',
+            'summary': 'نبذة قصيرة',
+            'content': ' '.join(['وصف'] * 50),
+            'category': 'تقنية',
+            'date': '2025-01-01',
+            'visibility': 'public',
+            'tags': ['واجهة', 'تجربة', 'مشروع'],
+            'cover': 'data:image/png;base64,YQ==',
+            'status': 'published',
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_publishing_rejects_missing_required_project_fields(self):
+        self.client.force_login(self.trainer)
+        response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps({'id': '', 'status': 'published'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'project_incomplete')
+        self.assertEqual(
+            set(response.json()['missing']),
+            {'title', 'cover', 'summary', 'content', 'category', 'visibility', 'tags', 'date'},
+        )
+        self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
+
+    def test_publishing_accepts_complete_project(self):
+        self.client.force_login(self.trainer)
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            response = self.client.post(
+                reverse('projects:save'),
+                data=json.dumps(self._publish_payload()),
+                content_type='application/json',
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            project = Project.objects.get(slug=response.json()['id'])
+            self.assertEqual(project.status, ProjectStatus.PUBLISHED)
+            self.assertEqual(project.tags.count(), 3)
+            self.assertTrue(project.cover)
+
+    def test_publishing_requires_three_distinct_tags(self):
+        project = Project.objects.create(
+            owner=self.trainer, title='مسودة', cover='existing-cover.png'
+        )
+        self.client.force_login(self.trainer)
+        response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps(self._publish_payload(
+                id=project.slug,
+                tags=['واجهة', 'واجهة', 'تجربة'],
+            )),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['missing'], ['tags'])
+        project.refresh_from_db()
+        self.assertEqual(project.status, ProjectStatus.DRAFT)
 
     def test_trainer_can_mark_project_for_courses(self):
         data, project = self._save(self.trainer, visibility='courses')
@@ -148,7 +224,7 @@ class ProjectVisibilityTests(TestCase):
                 'id': '',
                 'ownerId': str(self.student.pk),
                 'title': 'مشروع طالب',
-                'status': 'published',
+                'status': 'draft',
             }),
             content_type='application/json',
         )
@@ -169,7 +245,7 @@ class ProjectVisibilityTests(TestCase):
                 'id': project.slug,
                 'ownerId': str(self.student.pk),
                 'title': project.title,
-                'status': 'published',
+                'status': 'draft',
             }),
             content_type='application/json',
         )
@@ -195,6 +271,24 @@ class ProjectVisibilityTests(TestCase):
         self.assertIn(str(self.student.pk), [owner['id'] for owner in owners])
         self.assertContains(response, 'id="edOwnerSearch"')
 
+    def test_project_editor_has_project_details_and_responsive_templates_only(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.get(reverse('projects:create'))
+
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertLess(content.index('id="edChecklist"'), content.index('editor-templates-desktop'))
+        self.assertLess(content.index('editor-templates-desktop'), content.index('id="lblSummary"'))
+        self.assertLess(content.index('id="edCoverHost"'), content.index('editor-templates-mobile'))
+        self.assertIn('editor-checklist-box', content)
+        self.assertEqual(content.count('data-editor-templates'), 2)
+        self.assertNotContains(response, 'id="edGallery"')
+        self.assertNotContains(response, 'id="edIdeas"')
+        self.assertNotContains(response, 'id="edIdeaRefresh"')
+        self.assertNotContains(response, 'id="edSocialPreview"')
+        self.assertNotContains(response, 'class="slug-row"')
+
     def test_non_admin_cannot_assign_project_to_another_user(self):
         self.client.force_login(self.student)
         response = self.client.post(
@@ -203,7 +297,7 @@ class ProjectVisibilityTests(TestCase):
                 'id': '',
                 'ownerId': str(self.trainer.pk),
                 'title': 'مشروعي',
-                'status': 'published',
+                'status': 'draft',
             }),
             content_type='application/json',
         )

@@ -29,12 +29,18 @@
       workshopAdd: 'إضافة ورشة',
       workshopEdit: 'تعديل الورشة',
       workshopTitle: 'اسم الورشة',
+      workshopTrainer: 'اسم المدرب',
       workshopDescription: 'وصف الورشة',
       workshopStartsAt: 'موعد الورشة',
       workshopDuration: 'المدة بالدقائق',
       workshopMinutes: 'دقيقة',
       workshopLocation: 'الموقع',
       workshopAttendees: 'الحضور',
+      workshopAttendeesTitle: 'طلاب الورشة',
+      workshopNoAttendees: 'لم يسجل أي طالب حضوره في هذه الورشة بعد.',
+      workshopAttendeesLoading: 'جارٍ تحميل قائمة الحضور...',
+      workshopAttendeesError: 'تعذر تحميل قائمة الحضور.',
+      workshopAttendedAt: 'وقت الحضور',
       workshopAttendanceIsOpen: 'مفتوح',
       workshopAttendanceIsClosed: 'مغلق',
       workshopOpenAttendance: 'فتح الحضور',
@@ -184,6 +190,7 @@
       actDelete: 'حذف',
       actStatus: 'حالة',
       fName: 'اسم المنصة',
+      fHomepageTitle: 'عنوان بانر الرئيسية',
       fTagline: 'الشعار النصي',
       fEmail: 'البريد الإلكتروني',
       fPhone: 'رقم الهاتف',
@@ -425,12 +432,18 @@
       workshopAdd: 'Add workshop',
       workshopEdit: 'Edit workshop',
       workshopTitle: 'Workshop title',
+      workshopTrainer: 'Trainer name',
       workshopDescription: 'Workshop description',
       workshopStartsAt: 'Workshop date and time',
       workshopDuration: 'Duration in minutes',
       workshopMinutes: 'minutes',
       workshopLocation: 'Location',
       workshopAttendees: 'Attendees',
+      workshopAttendeesTitle: 'Workshop attendees',
+      workshopNoAttendees: 'No students have attended this workshop yet.',
+      workshopAttendeesLoading: 'Loading attendance list...',
+      workshopAttendeesError: 'Could not load the attendance list.',
+      workshopAttendedAt: 'Attendance time',
       workshopAttendanceIsOpen: 'Open',
       workshopAttendanceIsClosed: 'Closed',
       workshopOpenAttendance: 'Open attendance',
@@ -581,6 +594,7 @@
       actDelete: 'Deleted',
       actStatus: 'Status',
       fName: 'Platform name',
+      fHomepageTitle: 'Homepage banner title',
       fTagline: 'Tagline',
       fEmail: 'Contact email',
       fPhone: 'Phone number',
@@ -1070,7 +1084,7 @@
   }
 
   function galItemHTML(src, i) {
-    return '<span class="gal-item"><img src="' + e(src) + '" alt="">' +
+    return '<span class="gal-item"><img src="' + e(src) + '" alt="" loading="lazy" decoding="async">' +
       '<button type="button" class="gal-x" data-gal-del="1" data-i="' + i + '" aria-label="' + e(t('cRemove')) + '">' + UI.icon('x', 12) + '</button></span>';
   }
 
@@ -1084,8 +1098,8 @@
 
   function mediaItemHTML(item, i) {
     var inner = item && item.type === 'video'
-      ? '<video src="' + e(item.src) + '" muted></video>'
-      : '<img src="' + e(item && item.src) + '" alt="">';
+      ? '<video src="' + e(item.src) + '" muted preload="none"></video>'
+      : '<img src="' + e(item && item.src) + '" alt="" loading="lazy" decoding="async">';
     return '<span class="gal-item">' + inner +
       '<button type="button" class="gal-x" data-media-del="1" data-i="' + i + '" aria-label="' + e(t('cRemove')) + '">' + UI.icon('x', 12) + '</button></span>';
   }
@@ -1156,7 +1170,7 @@
     } else if (f.type === 'image') {
       var src = val || StoreHelpers.grad('#1d4ed8', '#3b82f6', f.emoji || '⭐', 800, 500);
       inner = '<div class="image-pick">' +
-        '<img class="ip-prev" data-img-prev="' + f.k + '" src="' + e(src) + '" alt="">' +
+        '<img class="ip-prev" data-img-prev="' + f.k + '" src="' + e(src) + '" alt="" loading="lazy" decoding="async">' +
         '<div class="ip-btns">' +
         '<button type="button" class="btn btn-ghost btn-sm" data-img-pick="' + f.k + '">' + UI.icon('upload', 14) + e(t('cUpload')) + '</button>' +
         '<button type="button" class="btn btn-ghost btn-sm" data-img-clear="' + f.k + '">' + UI.icon('trash', 14) + e(t('cRemove')) + '</button>' +
@@ -1729,6 +1743,9 @@
       '<div class="sec-head"><div><h2>' + UI.icon('layers', 18) + e(t('setInfo')) + '</h2><p>' + e(t('setInfoSub')) + '</p></div></div>' +
       '<div class="field-row">' +
       '<div class="field"><label class="label">' + e(t('fName')) + '</label><input class="input" data-fk="name" value="' + e(s.name || '') + '"></div>' +
+      '<div class="field"><label class="label">' + e(t('fHomepageTitle')) + '</label><input class="input" data-fk="homepageTitle" value="' + e(s.homepageTitle || '') + '"></div>' +
+      '</div>' +
+      '<div class="field-row">' +
       '<div class="field"><label class="label">' + e(t('fTagline')) + '</label><input class="input" data-fk="tagline" value="' + e(s.tagline || '') + '"></div>' +
       '</div>' +
       '<div class="field-row">' +
@@ -1999,7 +2016,7 @@
     var host = document.getElementById('admContent');
     function v(k) { var el = host.querySelector('[data-fk="' + k + '"]'); return el ? String(el.value || '').trim() : ''; }
     var patch = {
-      name: v('name'), tagline: v('tagline'), email: v('email'),
+      name: v('name'), homepageTitle: v('homepageTitle'), tagline: v('tagline'), email: v('email'),
       phone: v('phone'), whatsapp: v('whatsapp'), website: v('website'),
       brandPalette: v('brandPalette')
     };

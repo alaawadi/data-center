@@ -36,7 +36,7 @@
       '<div class="profile-body">' +
       '<div class="profile-top">' +
       '<div class="profile-avatar-wrap">' +
-      '<img class="profile-avatar" src="' + e(cover) + '" alt="' + e(p.name || p.handle) + '">' +
+      '<img class="profile-avatar" src="' + e(cover) + '" alt="' + e(p.name || p.handle) + '" fetchpriority="high">' +
       '</div>' +
       '<div class="profile-head">' +
       '<div class="name-row"><h1>' + e(p.name || p.handle) + '</h1>' + (p.verified ? UI.verifiedBadge(20) : '') + '</div>' +

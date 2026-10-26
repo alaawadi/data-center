@@ -19,6 +19,7 @@ from django.db.models import F, Sum
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.html import strip_tags
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView
@@ -43,6 +44,7 @@ from .models import (
     StudentPointTransaction,
     StudentReferral,
     StudentReferralLink,
+    WorkshopCertificate,
 )
 
 _PREFETCH = ('sections__lessons',)
@@ -178,6 +180,11 @@ class CourseDetailView(TemplateView):
                 course=course,
             ).exists()
         )
+        context['is_course_trainer_owner'] = bool(
+            self.request.user.is_authenticated
+            and self.request.user.is_trainer
+            and course.owner_id == self.request.user.pk
+        )
         points = 0
         referral_share_url = ''
         if self.request.user.is_authenticated and self.request.user.role == UserRole.STUDENT:
@@ -273,6 +280,36 @@ class CertificateDetailView(TemplateView):
             context['courses_json'] = [manual_certificate.to_public_dict()]
             return context
 
+        if key.startswith('earned-'):
+            try:
+                cert = CourseCertificate.objects.select_related(
+                    'student', 'course', 'course__owner'
+                ).prefetch_related('course__sections__lessons').get(
+                    pk=key[len('earned-'):]
+                )
+            except (CourseCertificate.DoesNotExist, ValueError):
+                raise Http404('الشهادة غير موجودة')
+            is_owner = (
+                self.request.user.is_authenticated
+                and cert.student_id == self.request.user.pk
+            )
+            if not cert.is_active and not is_owner:
+                raise Http404('الشهادة غير موجودة')
+            certificate_data = cert.to_public_dict()
+            certificate_data['id'] = key
+            context['courses_json'] = [certificate_data]
+            return context
+
+        if key.startswith('workshop-'):
+            try:
+                certificate = WorkshopCertificate.objects.select_related(
+                    'attendance__student', 'attendance__workshop'
+                ).get(pk=key[len('workshop-'):])
+            except (WorkshopCertificate.DoesNotExist, ValueError):
+                raise Http404('الشهادة غير موجودة')
+            context['courses_json'] = [certificate.to_public_dict()]
+            return context
+
         course = _find_course(key, _published_courses())
         if course is None:
             course = _find_course(key)
@@ -320,7 +357,10 @@ class PlaylistView(TemplateView):
             raise Http404('الدورة غير موجودة')
         context['course'] = course
         context['courses_json'] = [course.to_public_dict()]
-        if self.request.user.is_authenticated:
+        context['is_course_trainer'] = bool(
+            self.request.user.is_authenticated and self.request.user.is_trainer
+        )
+        if self.request.user.is_authenticated and not context['is_course_trainer']:
             progress = (
                 CourseProgress.objects.filter(student=self.request.user, course=course).first()
             )
@@ -328,6 +368,7 @@ class PlaylistView(TemplateView):
                 'done': list(progress.completed_ids or []) if progress else [],
                 'complete': bool(progress.completed) if progress else False,
             }
+        if self.request.user.is_authenticated:
             # حالة محاولات الكويز (لصفحة المشاهدة): لكل درس اختبار محاولات سابقة
             quiz_status = {}
             quizzes = Quiz.objects.filter(
@@ -355,10 +396,12 @@ class CourseEditorView(LoginRequiredMixin, TemplateView):
                 raise Http404('الدورة غير موجودة')
             # محرر الدورة يحتاج نصوص الأسئلة والإجابات الصحيحة.
             context['courses_json'] = [course.to_public_dict(include_answers=True)]
+            context['course_title_en'] = course.title_en
         else:
             if not self.request.user.is_trainer and not is_admin:
                 raise PermissionDenied('الإنشاء متاح للمدربين فقط')
             context['courses_json'] = []
+            context['course_title_en'] = ''
         context['is_admin_editor'] = is_admin
         context['admin_trainers'] = (
             User.objects.filter(role=UserRole.TRAINER, is_active=True).order_by('full_name', 'pk')
@@ -597,6 +640,52 @@ def _sync_syllabus(course, syllabus):
     Lesson.objects.filter(section__course=course).exclude(pk__in=lesson_pks).delete()
 
 
+def _format_course_duration(value, legacy_english=''):
+    raw = str(value or '').strip()[:40]
+    normalized = raw.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
+    match = re.search(r'\d+(?:[.,]\d+)?', normalized)
+    if not match:
+        return raw, str(legacy_english or '').strip()[:40]
+
+    amount = match.group().replace(',', '.')
+    english_amount = amount.rstrip('0').rstrip('.') if '.' in amount else amount
+    english_unit = 'hour' if english_amount == '1' else 'hours'
+    return f'{amount} ساعة'[:40], f'{amount} {english_unit}'[:40]
+
+
+def _format_course_period(value):
+    raw = str(value or '').strip()
+    normalized = raw.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
+    match = re.fullmatch(r'(\d+)(?:\s*لقاءات?)?', normalized)
+    if not match:
+        return ''
+    return f'{int(match.group(1))} لقاءات'[:40]
+
+
+def _normalize_course_price(value):
+    raw = str(value or '').strip().replace('₪', '').replace(',', '.')
+    normalized = raw.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
+    return normalized[:40]
+
+
+def _has_publishable_course_syllabus(syllabus):
+    if not isinstance(syllabus, list):
+        return False
+
+    for section in syllabus[:_MAX_SECTIONS]:
+        if not isinstance(section, dict) or not str(section.get('title') or '').strip():
+            continue
+        lessons = section.get('lessons')
+        if not isinstance(lessons, list):
+            continue
+        if any(
+            isinstance(lesson, dict) and str(lesson.get('title') or '').strip()
+            for lesson in lessons
+        ):
+            return True
+    return False
+
+
 @login_required
 @require_POST
 def course_save(request):
@@ -625,8 +714,58 @@ def course_save(request):
 
     status = CourseStatus.PUBLISHED if payload.get('status') == CourseStatus.PUBLISHED else CourseStatus.DRAFT
     title = str(payload.get('title') or '').strip()[:200]
-    if status == CourseStatus.PUBLISHED and not title:
-        return JsonResponse({'ok': False, 'error': 'required'}, status=400)
+    title_en = str(payload.get('titleEnglish', payload.get('title_en', course.title_en if course else '')) or '').strip()[:200]
+    summary = str(payload.get('summary') or payload.get('description') or '').strip()[:320]
+    content = str(payload.get('content') or '').strip()
+    category = str(payload.get('category') or '').strip()[:120]
+    price = _normalize_course_price(payload.get('price'))
+    price_match = re.fullmatch(r'\d+(?:\.\d{1,2})?', price)
+    duration = str(payload.get('duration') or '').strip()
+    normalized_duration = duration.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
+    duration_match = re.fullmatch(r'\d+(?:[.,]\d+)?', normalized_duration)
+    raw_skills = payload.get('skills') or payload.get('tags')
+    skills = []
+    seen_skills = set()
+    if isinstance(raw_skills, list):
+        for raw in raw_skills[:15]:
+            name = str(raw or '').strip()[:80]
+            if name and name.lower() not in seen_skills:
+                seen_skills.add(name.lower())
+                skills.append(name)
+
+    cover = payload.get('cover')
+    decoded_cover = (
+        _decode_data_url(cover)
+        if isinstance(cover, str) and cover.startswith('data:image')
+        else None
+    )
+    if status == CourseStatus.PUBLISHED:
+        missing = []
+        if not title:
+            missing.append('title')
+        if not title_en:
+            missing.append('titleEnglish')
+        if not ((course is not None and course.cover) or decoded_cover):
+            missing.append('cover')
+        if not summary:
+            missing.append('summary')
+        if len(strip_tags(content).split()) < 50:
+            missing.append('content')
+        if not category:
+            missing.append('category')
+        if not price_match:
+            missing.append('price')
+        if not duration_match or not re.search(r'[1-9]', duration_match.group()):
+            missing.append('duration')
+        if not skills:
+            missing.append('tags')
+        if not _has_publishable_course_syllabus(payload.get('syllabus')):
+            missing.append('syllabus')
+        if missing:
+            return JsonResponse(
+                {'ok': False, 'error': 'course_incomplete', 'missing': missing},
+                status=400,
+            )
 
     created = course is None
     if created:
@@ -649,38 +788,30 @@ def course_save(request):
         course.owner = trainer
 
     course.title = title or 'دورة بدون عنوان'
-    course.category = str(payload.get('category') or '').strip()[:120]
-    course.summary = str(payload.get('summary') or payload.get('description') or '').strip()[:320]
-    course.content = str(payload.get('content') or '').strip()
-    course.price = str(payload.get('price') or '').strip()[:40]
-    course.duration = str(payload.get('duration') or '').strip()[:40]
-    course.period = str(payload.get('period') or '').strip()[:40]
+    course.title_en = title_en
+    course.category = category
+    course.summary = summary
+    course.content = content
+    course.price = price
+    course.duration, course.duration_en = _format_course_duration(
+        payload.get('duration'),
+        payload.get('durationEnglish', course.duration_en),
+    )
+    course.period = _format_course_period(payload.get('period'))
     course.credential_id = str(payload.get('credentialId') or payload.get('credential_id') or '').strip()[:60]
     course.verify_url = str(payload.get('verifyUrl') or payload.get('verify_url') or '').strip()[:200]
     course.status = status
     course.save()
 
-    cover = payload.get('cover')
-    if isinstance(cover, str) and cover.startswith('data:image'):
-        decoded = _decode_data_url(cover)
-        if decoded:
-            name, content = decoded
-            course.cover.save(name, ContentFile(content), save=True)
+    if decoded_cover:
+        name, image_content = decoded_cover
+        course.cover.save(name, ContentFile(image_content), save=True)
     elif cover == '':
         if course.cover:
             course.cover.delete(save=True)
 
-    skills = payload.get('skills') or payload.get('tags')
-    if isinstance(skills, list):
-        cleaned = []
-        seen = set()
-        for raw in skills[:15]:
-            name = str(raw or '').strip()[:80]
-            if not name or name.lower() in seen:
-                continue
-            seen.add(name.lower())
-            cleaned.append(name)
-        course.skills = cleaned
+    if isinstance(raw_skills, list):
+        course.skills = skills
         course.save(update_fields=['skills'])
 
     if 'syllabus' in payload:
@@ -824,6 +955,9 @@ def course_lesson_done(request):
 
     عند إتمام كل الدروس تُنشأ شهادة تلقائياً لطالب الدورة.
     """
+    if request.user.is_trainer:
+        return JsonResponse({'ok': False, 'error': 'trainer_progress_unavailable'}, status=403)
+
     try:
         payload = json.loads(request.body.decode('utf-8'))
     except (ValueError, UnicodeDecodeError):
@@ -1246,6 +1380,6 @@ def course_quiz_submit(request):
         'passed': passed,
         'results': results,
     }
-    if passed:
+    if passed and not request.user.is_trainer:
         response.update(_apply_lesson_completion(request.user, course, lesson, True))
     return JsonResponse(response)

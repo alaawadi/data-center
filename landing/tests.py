@@ -61,6 +61,20 @@ class HomePageTests(TestCase):
         titles = [course['title'] for course in response.context['courses_json']]
         self.assertEqual(titles, [published.title])
 
+    def test_homepage_course_card_images_fill_and_crop_the_thumbnail(self):
+        response = self.client.get(reverse('landing:home'))
+        styles = (
+            Path(__file__).resolve().parent.parent
+            / 'static'
+            / 'css'
+            / 'plat-nav.css'
+        ).read_text(encoding='utf-8')
+
+        self.assertContains(response, 'css/plat-nav.css')
+        self.assertIn('.plat-nav .cert-thumb > img', styles)
+        self.assertIn('position: absolute;', styles)
+        self.assertIn('object-fit: cover;', styles)
+
 
 class ProgressiveWebAppTests(TestCase):
     def test_public_page_includes_pwa_manifest_and_install_prompt(self):
@@ -89,14 +103,30 @@ class ProgressiveWebAppTests(TestCase):
         self.assertIn('/static/vendor/jsQR.js', worker)
         self.assertIn('/static/css/workshops.css', worker)
 
-    def test_pwa_launcher_uses_android_logo_instead_of_phone_emoji(self):
+    def test_pwa_launcher_uses_platform_logo_in_a_white_box(self):
         pwa_script = (Path(__file__).resolve().parent.parent / 'static' / 'js' / 'pwa.js').read_text(
             encoding='utf-8'
         )
+        pwa_styles = (Path(__file__).resolve().parent.parent / 'static' / 'css' / 'pwa.css').read_text(
+            encoding='utf-8'
+        )
 
-        self.assertIn('function androidLogo()', pwa_script)
-        self.assertIn('class="pwa-android-logo"', pwa_script)
+        self.assertIn('function appLogo()', pwa_script)
+        self.assertIn('/static/images/logo.svg', pwa_script)
+        self.assertIn('.pwa-logo-box', pwa_styles)
+        self.assertIn('background: #fff', pwa_styles)
+        self.assertIn('Install Data Center', pwa_script)
         self.assertNotIn('📲', pwa_script)
+
+    def test_pwa_manifest_uses_data_center_as_the_app_name(self):
+        manifest = json.loads(
+            (Path(__file__).resolve().parent.parent / 'static' / 'manifest.webmanifest').read_text(
+                encoding='utf-8'
+            )
+        )
+
+        self.assertEqual(manifest['name'], 'Data Center')
+        self.assertEqual(manifest['short_name'], 'Data Center')
 
     def test_web_manifest_declares_platform_install_icons_and_root_scope(self):
         manifest_path = Path(__file__).resolve().parent.parent / 'static' / 'manifest.webmanifest'

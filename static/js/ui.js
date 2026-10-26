@@ -144,7 +144,7 @@
   function avatarOf(person, size) {
     size = size || 44;
     var src = (person && person.avatar) || initialsAvatar((person && (person.name || person.author)) || '?', size * 2);
-    return '<img class="avatar" style="width:' + size + 'px;height:' + size + 'px" src="' + esc(src) + '" alt="">';
+    return '<img class="avatar" style="width:' + size + 'px;height:' + size + 'px" src="' + esc(src) + '" alt="" loading="lazy" decoding="async">';
   }
 
   function verifiedBadge(size) {
@@ -229,6 +229,15 @@
       clearTimeout(t);
       t = setTimeout(function () { fn.apply(self, args); }, ms || 250);
     };
+  }
+
+  function observeNearViewport(target, callback, rootMargin) {
+    if (!target || !window.IntersectionObserver) return null;
+    var observer = new IntersectionObserver(function (entries) {
+      if (entries.some(function (entry) { return entry.isIntersecting; })) callback();
+    }, { rootMargin: rootMargin || '0px 0px 400px 0px' });
+    observer.observe(target);
+    return observer;
   }
 
   function toast(msg, type) {
@@ -650,7 +659,7 @@
       return '<div class="plyr-host" data-plyr-provider="youtube" data-plyr-embed-id="' +
         esc(youtubeId(u)) + '" id="' + esc(id) + '"></div>';
     }
-    return '<video id="' + esc(id) + '" class="plyr-video" playsinline controls src="' + esc(u) + '"></video>';
+    return '<video id="' + esc(id) + '" class="plyr-video" playsinline controls preload="none" src="' + esc(u) + '"></video>';
   }
 
   /* تهيئة Plyr على عنصر (يوتيوب أو ملف مباشر) — تُرجع النسخة أو null */
@@ -812,6 +821,7 @@
     countFmt: countFmt,
     sanitize: sanitize,
     debounce: debounce,
+    observeNearViewport: observeNearViewport,
     toast: toast,
     confirm: confirmBox,
     modal: modal,

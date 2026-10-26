@@ -27,6 +27,15 @@
 
       <section class="pf-section">
         <h2>الهوية والصورة</h2>
+        {% if request.user.is_trainer %}
+          {% include "users/_field.html" with field=form.trainer_name_en %}
+        {% else %}
+          <div class="pf-grid">
+            {% include "users/_field.html" with field=form.full_name_ar %}
+            {% include "users/_field.html" with field=form.full_name_en %}
+          </div>
+          <p class="hint">أدخل الاسم من ثلاث إلى ست كلمات بدقة؛ لا يمكن تغييره بعد حفظه، وسيظهر على الشهادات.</p>
+        {% endif %}
         <div class="pf-grid">
           {% include "users/_field.html" with field=form.full_name %}
           {% include "users/_field.html" with field=form.headline %}

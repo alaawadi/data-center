@@ -4,9 +4,11 @@
 
 {% block title %}{{ site_settings.name }}{% endblock %}
 {% block description %}{{ site_settings.tagline }}{% endblock %}
+{% block body_attrs %}data-page="landing"{% endblock %}
 
 {% block css %}
   {{ block.super }}
+  <link rel="preload" as="image" href="{% static_v 'images/home-bg3.webp' %}" fetchpriority="high">
   <link rel="stylesheet" href="{% static_v 'css/landing.css' %}">
   <link rel="stylesheet" href="{% static_v 'css/plat-nav.css' %}">
 {% endblock %}
@@ -14,7 +16,10 @@
 {% block content %}
   <!-- شاشة التحميل -->
   <div class="site-loader" id="siteLoader" aria-hidden="true">
-    <img src="{% static_v 'images/loader-img.gif' %}" alt="">
+    <picture>
+      <source srcset="{% static_v 'images/loader-img.webp' %}" type="image/webp">
+      <img src="{% static_v 'images/loader-img.gif' %}" alt="">
+    </picture>
   </div>
 
   <!-- ============ شريط التنقل السفلي (موبايل) ============ -->
@@ -32,7 +37,7 @@
   <!-- ============ الرئيسية ============ -->
   <section class="home-section" id="home">
     <div class="container">
-      {% include "partials/hero_banner.html" with hero_class="home-hero" hero_floating_image=True hero_title=site_settings.name hero_sub=site_settings.tagline hero_cta_template="partials/hero_cta_landing.html" %}
+      {% include "partials/hero_banner.html" with hero_class="home-hero" hero_floating_image=True hero_title=site_settings.homepageTitle hero_sub=site_settings.tagline hero_cta_template="partials/hero_cta_landing.html" %}
     </div>
   </section>
 
@@ -87,62 +92,62 @@
 
     <div class="reviews-track">
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-1.svg' %}" alt="صورة كرتونية لطالب">
+        <img src="{% static_v 'images/avatar-1.svg' %}" alt="صورة كرتونية لطالب" loading="lazy" decoding="async">
         <p>كل يوم فيه تحدّي جديد، حسّيت حالي بشتغل مع فريق محترف</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-2.svg' %}" alt="صورة كرتونية لطالبة">
+        <img src="{% static_v 'images/avatar-2.svg' %}" alt="صورة كرتونية لطالبة" loading="lazy" decoding="async">
         <p>كل شي عملي وفعلي، حسّيت حالي بتعلم من أول يوم وأنصح أي حد حاب يتطوّر</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-3.svg' %}" alt="صورة كرتونية لطالبة">
+        <img src="{% static_v 'images/avatar-3.svg' %}" alt="صورة كرتونية لطالبة" loading="lazy" decoding="async">
         <p>تجربة مختلفة، حسّيت حالي بتعلم مهارات قيمة للسوق، وأنصح أي شخص يجرب بالكورس</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-4.svg' %}" alt="صورة كرتونية لطالب">
+        <img src="{% static_v 'images/avatar-4.svg' %}" alt="صورة كرتونية لطالب" loading="lazy" decoding="async">
         <p>صراحة بعد ما خلصت الكورس، حسّيت حالي جاهز للسوق، كل مهارة تعلمتها حقيقية وبإمكاني أطبقها مباشرة</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-5.svg' %}" alt="صورة كرتونية لطالبة">
+        <img src="{% static_v 'images/avatar-5.svg' %}" alt="صورة كرتونية لطالبة" loading="lazy" decoding="async">
         <p>الكورس أعطاني دفعة قوية وحسّيت حالي صرت متمكن، والمدرب ممتاز وبيعطي وقته لكل طالب</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-6.svg' %}" alt="صورة كرتونية لطالب">
+        <img src="{% static_v 'images/avatar-6.svg' %}" alt="صورة كرتونية لطالب" loading="lazy" decoding="async">
         <p>الكورس مركز على التطبيق والممارسة، وحسّيت النتائج مباشرة بعد كل درس</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-1.svg' %}" alt="صورة كرتونية لطالب">
+        <img src="{% static_v 'images/avatar-1.svg' %}" alt="صورة كرتونية لطالب" loading="lazy" decoding="async">
         <p>الدورة منظّمة بشكل ممتاز، المحتوى مبسط والتطبيق بعد كل محاضرة ساعدني أثبّت المعلومات</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-2.svg' %}" alt="صورة كرتونية لطالبة">
+        <img src="{% static_v 'images/avatar-2.svg' %}" alt="صورة كرتونية لطالبة" loading="lazy" decoding="async">
         <p>أفضل شي عجبني التركيز على المشاريع العملية، خرجت ببورتفوليو حقيقي أقدر أعرضه</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-3.svg' %}" alt="صورة كرتونية لطالبة">
+        <img src="{% static_v 'images/avatar-3.svg' %}" alt="صورة كرتونية لطالبة" loading="lazy" decoding="async">
         <p>المدرب شرح بأسلوب بسيط ودائمًا كان جاهز يساعد، فرقت فعلًا معاه</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-4.svg' %}" alt="صورة كرتونية لطالب">
+        <img src="{% static_v 'images/avatar-4.svg' %}" alt="صورة كرتونية لطالب" loading="lazy" decoding="async">
         <p>من أول أسبوع حسّيت بإنجاز، والشهادة بعد الدورة فتحت لي فرص مقابلات كثيرة</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-5.svg' %}" alt="صورة كرتونية لطالبة">
+        <img src="{% static_v 'images/avatar-5.svg' %}" alt="صورة كرتونية لطالبة" loading="lazy" decoding="async">
         <p>البيئة داخل التدريب محفّزة، تعرّفت على زملاء وشبكة علاقات جديدة</p>
         <div class="stars"></div>
       </div>
       <div class="review-slide">
-        <img src="{% static_v 'images/avatar-6.svg' %}" alt="صورة كرتونية لطالب">
+        <img src="{% static_v 'images/avatar-6.svg' %}" alt="صورة كرتونية لطالب" loading="lazy" decoding="async">
         <p>المحتوى محدّث ومواكب لسوق العمل، والتمارين العملية هي الفرق الحقيقي</p>
         <div class="stars"></div>
       </div>
@@ -192,10 +197,10 @@
 {% endblock %}
 
 {% block scripts %}
-  <script src="{% static_v 'js/landing-data.js' %}"></script>
-  <script src="{% static_v 'js/landing.js' %}"></script>
-  <script src="{% static_v 'js/store.js' %}"></script>
-  <script src="{% static_v 'js/i18n.js' %}"></script>
-  <script src="{% static_v 'js/ui.js' %}"></script>
-  <script src="{% static_v 'js/landing-nav.js' %}"></script>
+  <script defer src="{% static_v 'js/landing-data.js' %}"></script>
+  <script defer src="{% static_v 'js/landing.js' %}"></script>
+  <script defer src="{% static_v 'js/store.js' %}"></script>
+  <script defer src="{% static_v 'js/i18n.js' %}"></script>
+  <script defer src="{% static_v 'js/ui.js' %}"></script>
+  <script defer src="{% static_v 'js/landing-nav.js' %}"></script>
 {% endblock %}

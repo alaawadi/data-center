@@ -5,7 +5,8 @@ from django.core.cache import cache
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
-from .models import DeviceSession, LoginAttempt, SignupVerification, User, UserRole
+from .forms import ProfileEditForm
+from .models import DeviceSession, LoginAttempt, Profile, SignupVerification, User, UserRole
 from .models import SignupRateLimit
 
 PHONE = '0591000010'
@@ -368,3 +369,174 @@ class ProfileVerificationTests(TestCase):
         trainer.refresh_from_db()
         self.assertTrue(trainer.is_verified)
         self.assertTrue(response.json()['profile']['verified'])
+
+
+class LegalCertificateNameTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            phone='0591000052',
+            password=PASSWORD,
+            full_name='طالب تجربة',
+            role=UserRole.STUDENT,
+        )
+
+    def test_profile_update_saves_both_names_and_rejects_later_changes(self):
+        self.client.force_login(self.user)
+        url = reverse('users:profile-update')
+        data = {
+            'full_name': self.user.full_name,
+            'full_name_ar': 'أحمد خالد الحسن',
+            'full_name_en': 'Ahmad Khaled Alhasan',
+        }
+
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.full_name_ar, data['full_name_ar'])
+        self.assertEqual(self.user.full_name_en, data['full_name_en'])
+        self.assertEqual(response.json()['profile']['fullNameArabic'], data['full_name_ar'])
+        self.assertEqual(response.json()['profile']['fullNameEnglish'], data['full_name_en'])
+
+        changed = self.client.post(url, {
+            **data,
+            'full_name_ar': 'محمد علي حسن',
+            'full_name_en': 'Mohammad Ali Hassan',
+        })
+
+        self.assertEqual(changed.status_code, 409)
+        self.assertEqual(changed.json()['error'], 'legal_name_locked')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.full_name_ar, data['full_name_ar'])
+        self.assertEqual(self.user.full_name_en, data['full_name_en'])
+
+    def test_profile_update_requires_both_names_and_valid_three_part_names(self):
+        self.client.force_login(self.user)
+        url = reverse('users:profile-update')
+
+        partial = self.client.post(url, {
+            'full_name_ar': 'أحمد خالد الحسن',
+        })
+        invalid = self.client.post(url, {
+            'full_name_ar': 'أحمد خالد الحسن',
+            'full_name_en': 'Ahmad Khaled',
+        })
+
+        self.assertEqual(partial.status_code, 400)
+        self.assertEqual(partial.json()['error'], 'legal_name_pair_required')
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.json()['error'], 'invalid_legal_name')
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.full_name_ar, '')
+        self.assertEqual(self.user.full_name_en, '')
+
+    def test_profile_update_accepts_up_to_six_name_parts_and_rejects_more(self):
+        self.client.force_login(self.user)
+        url = reverse('users:profile-update')
+        arabic_name = 'أحمد محمد خالد عبد الرحمن الحسن'
+        english_name = 'Ahmad Mohammad Khaled Abdul Rahman Alhasan'
+
+        rejected = self.client.post(url, {
+            'full_name_ar': 'أحمد محمد خالد عبد الرحمن يوسف الحسن',
+            'full_name_en': 'Ahmad Mohammad Khaled Abdul Rahman Yusuf Alhasan',
+        })
+
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(rejected.json()['error'], 'invalid_legal_name')
+
+        accepted = self.client.post(url, {
+            'full_name_ar': arabic_name,
+            'full_name_en': english_name,
+        })
+
+        self.assertEqual(accepted.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.full_name_ar, arabic_name)
+        self.assertEqual(self.user.full_name_en, english_name)
+
+    def test_saved_names_are_disabled_in_profile_edit_form(self):
+        self.user.full_name_ar = 'أحمد خالد الحسن'
+        self.user.full_name_en = 'Ahmad Khaled Alhasan'
+        self.user.save()
+        profile, _ = Profile.objects.get_or_create(user=self.user)
+
+        form = ProfileEditForm(instance=profile)
+
+        self.assertTrue(form.fields['full_name_ar'].disabled)
+        self.assertTrue(form.fields['full_name_en'].disabled)
+
+    def test_trainer_profile_explains_english_certificate_name(self):
+        trainer = User.objects.create_user(
+            phone='0591000053',
+            password='pass1234',
+            full_name='مدرب تجربة',
+            full_name_ar='مدرب تجربة أول',
+            full_name_en='Trainer Example Name',
+            role=UserRole.TRAINER,
+        )
+        profile, _ = Profile.objects.get_or_create(user=trainer)
+
+        form = ProfileEditForm(instance=profile)
+
+        self.assertNotIn('full_name_ar', form.fields)
+        self.assertNotIn('full_name_en', form.fields)
+        self.assertIn('بالإنجليزية', form.fields['trainer_name_en'].label)
+        self.assertIn('شهادات دوراتك', form.fields['trainer_name_en'].help_text)
+        self.assertEqual(form.fields['trainer_name_en'].initial, 'Trainer Example Name')
+
+        self.client.force_login(trainer)
+        response = self.client.get(reverse('users:profile-edit'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="id_trainer_name_en"')
+        self.assertNotContains(response, 'id="id_full_name_ar"')
+        self.assertNotContains(response, 'id="id_full_name_en"')
+
+        form = ProfileEditForm(
+            data={
+                'full_name': trainer.full_name,
+                'trainer_name_en': 'Jordan Doe',
+                'gender': 'unspecified',
+                'skills_count': '1',
+                'skill_1': '',
+            },
+            instance=profile,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        trainer.refresh_from_db()
+        self.assertEqual(trainer.trainer_name_en, 'Jordan Doe')
+        self.assertEqual(trainer.full_name_ar, 'مدرب تجربة أول')
+        self.assertEqual(trainer.full_name_en, 'Trainer Example Name')
+
+    def test_trainer_ajax_updates_certificate_name_without_legal_name_fields(self):
+        trainer = User.objects.create_user(
+            phone='0591000054',
+            password='pass1234',
+            full_name='مدرب تجربة',
+            full_name_ar='مدرب تجربة أول',
+            full_name_en='Trainer Example Name',
+            role=UserRole.TRAINER,
+        )
+        self.client.force_login(trainer)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'trainer_name_en': 'Jordan Doe',
+            'full_name_ar': 'Changed Arabic Name',
+            'full_name_en': 'Changed English Name',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        trainer.refresh_from_db()
+        self.assertEqual(trainer.trainer_name_en, 'Jordan Doe')
+        self.assertEqual(trainer.full_name_ar, 'مدرب تجربة أول')
+        self.assertEqual(trainer.full_name_en, 'Trainer Example Name')
+        self.assertEqual(response.json()['profile']['trainerNameEnglish'], 'Jordan Doe')
+
+    def test_model_rejects_changing_a_saved_legal_name(self):
+        self.user.full_name_ar = 'أحمد خالد الحسن'
+        self.user.full_name_en = 'Ahmad Khaled Alhasan'
+        self.user.save()
+        self.user.full_name_ar = 'محمد علي حسن'
+
+        with self.assertRaises(ValidationError):
+            self.user.save()

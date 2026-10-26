@@ -95,8 +95,13 @@ class TrainerPortfolioTests(TestCase):
         self.assertLess(tabs_position, panels_position)
 
     def test_anonymous_has_no_my_courses_payload(self):
-        res = self.client.get(reverse('portfolio:home'))
-        self.assertNotIn('my_courses_json', res.context)
+        response = self.client.get(reverse('portfolio:home'))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('users:login')}?next={reverse('portfolio:home')}",
+            fetch_redirect_response=False,
+        )
 
     def test_saved_projects_are_scoped_to_current_user(self):
         own_project = Project.objects.create(

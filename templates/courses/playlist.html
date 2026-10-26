@@ -11,11 +11,12 @@
 {% endblock %}
 
 {% block content %}
+  {{ is_course_trainer|json_script:"course-trainer-data" }}
   <main class="container pl-page" id="plHost"></main>
 {% endblock %}
 
 {% block scripts %}
-  <script src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
+  <script defer src="{% static_v 'vendor/plyr/plyr.min.js' %}"></script>
   {{ block.super }}
-  <script src="{% static_v 'js/playlist.js' %}"></script>
+  <script defer src="{% static_v 'js/playlist.js' %}"></script>
 {% endblock %}

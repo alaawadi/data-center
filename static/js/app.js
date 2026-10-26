@@ -6,6 +6,7 @@
   var activeTab = 'certificates';
   var skillsExpanded = false;
   var lastGalleryDrag = 0;
+  var certificateLanguage = 'ar';
 
   /* البيانات الحقيقية للمستخدم المسجّل (من السيرفر) تحل مكان بيانات العرض التوضيحي */
   var SERVER_PROFILE = null;
@@ -52,29 +53,101 @@
 
   /* ---------- shared cards ---------- */
 
+  function certificateDate(value, language) {
+    if (!value) return '—';
+    var normalized = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value + 'T12:00:00' : value;
+    var date = new Date(normalized);
+    if (isNaN(date.getTime())) return '—';
+    try {
+      return date.toLocaleDateString(language === 'en' ? 'en-US' : 'ar-SA', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (err) {
+      return UI.formatDate(value);
+    }
+  }
+
   function earnedCertificateSheet(c, studentName, compact) {
-    var instructor = c.workshop
-      ? t('certPageWorkshopType')
-      : (c.instructor || c.issuer || '');
-    var trainerLabel = c.workshop ? t('certPageWorkshopLabel') : t('certPageTrainer');
-    var issued = c.date ? UI.formatDate(c.date) : '—';
-    return '<div class="cert-sheet' + (compact ? ' cert-sheet-preview' : '') + '">' +
-      '<img class="cert-sheet-stamp" src="' + SITE.assets('images/cert-stamp.jpeg') + '" alt="' + e(t('certPageStamp')) + '">' +
-      '<div class="cert-sheet-seal">' + UI.icon('award', compact ? 18 : 28) + '</div>' +
-      '<div class="cert-sheet-brand">' + UI.verifiedBadge(compact ? 12 : 16) + e(t('certPageBrand')) + '</div>' +
-      '<div class="cert-sheet-kicker">' + e(t('certPageKicker')) + '</div>' +
-      '<h2 class="cert-sheet-title">' + e(c.title) + '</h2>' +
-      '<div class="cert-sheet-to">' + e(t('certPageAwarded')) + '</div>' +
-      '<div class="cert-sheet-name">' + e(studentName || '—') + '</div>' +
-      '<div class="cert-sheet-course">' + e(c.workshop ? t('certPageWorkshopCompleted') : t('certPageCompleted')) + ' «' + e(c.title) + '»</div>' +
-      '<div class="cert-sheet-meta">' +
-      '<div>' + e(t('certPageIssued')) + '<b>' + e(issued) + '</b></div>' +
-      '<div>' + e(trainerLabel) + '<b>' + e(instructor || '—') + '</b></div>' +
-      (c.workshop && c.duration
-        ? '<div>' + e(t('certPageWorkshopDuration')) + '<b>' + e(c.duration) + ' ' + e(t('certPageWorkshopMinutes')) + '</b></div>'
-        : '') +
-      '<div>' + e(t('certPageStatus')) + '<b>' + e(t('certPageStatusValid')) + '</b></div>' +
-      '</div></div>';
+    var lang = arguments.length > 3 ? arguments[3] : 'ar';
+    var english = lang === 'en';
+    var instructor = english
+      ? (c.trainerNameEnglish || c.instructorEnglish || 'English instructor name not provided')
+      : (c.trainerName || c.instructor || c.issuer || '');
+    var title = english
+      ? (c.titleEnglish || c.title_en || 'English title not provided')
+      : (c.title || '');
+    var issued = certificateDate(c.date, lang);
+    var trainerLabel = english
+      ? (c.workshop ? 'Workshop Trainer' : 'Course Instructor')
+      : (c.workshop ? 'مدرب الورشة' : 'مدرب الدورة');
+    var duration = c.workshop
+      ? (c.duration ? c.duration + ' ' + (english ? 'minutes' : 'دقيقة') : '—')
+      : (english ? (c.durationEnglish || 'Not specified') : (c.duration || '—'));
+    var labels = english ? {
+      title: 'Training Certificate',
+      lead: 'Data Center for Training & Development certifies that',
+      student: 'Student name:',
+      activity: c.workshop ? 'has successfully completed the workshop:' : 'has successfully completed the training:',
+      duration: 'Duration:',
+      wish: 'We wish you continued success and excellence.',
+      director: 'Data Center Director',
+      issued: 'Issued',
+      code: 'Certificate No.'
+    } : {
+      title: 'شهادة تدريب',
+      lead: 'يشهد مركز داتا للتدريب والتطوير بأن',
+      student: 'اسم الطالب/ة:',
+      activity: c.workshop ? 'قد أتمّ بنجاح ورشة تدريبية بعنوان:' : 'قد أتمّ بنجاح دورة تدريبية بعنوان:',
+      duration: 'المدة:',
+      wish: 'نتمنى لكم دوام التوفيق والتميّز.',
+      director: 'مدير مركز داتا',
+      issued: 'تاريخ الإصدار',
+      code: 'رقم الشهادة'
+    };
+    var code = c.certificateCode || c.code || c.credentialId || '';
+    var gradientId = 'certificate-' + String(code || c.id || 'preview').replace(/[^A-Za-z0-9_-]/g, '');
+    var textDir = english ? 'ltr' : 'rtl';
+    return '<article class="cert-sheet' + (compact ? ' cert-sheet-preview' : '') + '" dir="rtl" lang="' + (english ? 'en' : 'ar') + '">' +
+      '<svg class="cert-sheet-wave cert-sheet-wave-top" viewBox="0 0 520 300" aria-hidden="true">' +
+      '<defs><linearGradient id="' + gradientId + '-blue-top" x1="0" x2="1"><stop offset="0" stop-color="#2f4b8f"/><stop offset="1" stop-color="#9aa7cc" stop-opacity=".15"/></linearGradient>' +
+      '<linearGradient id="' + gradientId + '-red-top" x1="0" x2="1"><stop offset="0" stop-color="#c8383f"/><stop offset="1" stop-color="#e98a8f" stop-opacity=".2"/></linearGradient></defs>' +
+      '<path d="M0 0H520C430 40 330 40 230 110 150 165 70 190 0 190Z" fill="url(#' + gradientId + '-blue-top)" opacity=".85"/>' +
+      '<path d="M0 0H430C340 30 250 50 170 100 100 145 50 150 0 150Z" fill="url(#' + gradientId + '-red-top)"/>' +
+      '<path d="M0 0H300C220 20 150 50 90 90 50 115 20 120 0 120Z" fill="#fff" opacity=".35"/></svg>' +
+      '<svg class="cert-sheet-wave cert-sheet-wave-bottom" viewBox="0 0 520 300" aria-hidden="true">' +
+      '<defs><linearGradient id="' + gradientId + '-blue-bottom" x1="0" x2="1"><stop offset="0" stop-color="#2f4b8f"/><stop offset="1" stop-color="#9aa7cc" stop-opacity=".15"/></linearGradient>' +
+      '<linearGradient id="' + gradientId + '-red-bottom" x1="0" x2="1"><stop offset="0" stop-color="#c8383f"/><stop offset="1" stop-color="#e98a8f" stop-opacity=".2"/></linearGradient></defs>' +
+      '<path d="M0 0H520C430 40 330 40 230 110 150 165 70 190 0 190Z" fill="url(#' + gradientId + '-blue-bottom)" opacity=".85"/>' +
+      '<path d="M0 0H430C340 30 250 50 170 100 100 145 50 150 0 150Z" fill="url(#' + gradientId + '-red-bottom)"/></svg>' +
+      '<div class="cert-sheet-frame"></div>' +
+      '<div class="cert-sheet-content">' +
+      '<img class="cert-sheet-logo" src="' + SITE.assets('images/certificate-design-logo.png') + '" alt="' + e(t('certPageBrand')) + '">' +
+      '<h2 class="cert-sheet-title" dir="' + textDir + '">' + e(labels.title) + '</h2>' +
+      '<div class="cert-sheet-ornament" aria-hidden="true"><i></i><b></b><i></i></div>' +
+      '<p class="cert-sheet-lead" dir="' + textDir + '">' + e(labels.lead) + '</p>' +
+      '<p class="cert-sheet-caption" dir="' + textDir + '">' + e(labels.student) + '</p>' +
+      '<div class="cert-sheet-name" dir="' + textDir + '">' + e(studentName || '—') + '</div>' +
+      '<p class="cert-sheet-caption" dir="' + textDir + '">' + e(labels.activity) + '</p>' +
+      '<div class="cert-sheet-course" dir="' + textDir + '">' + e(title) + '</div>' +
+      '<div class="cert-sheet-duration">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="#c8383f" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 6.5V12l3.5 2"/></svg>' +
+      '<span dir="' + textDir + '">' + e(labels.duration) + ' <b>' + e(duration) + '</b></span></div>' +
+      '<p class="cert-sheet-wish" dir="' + textDir + '">' + e(labels.wish) + '</p>' +
+      '</div>' +
+      '<div class="cert-sheet-signature cert-sheet-signature-trainer"><b dir="' + textDir + '">' + e(instructor) + '</b>' +
+      '<div class="cert-sheet-signature-line"></div><span dir="' + textDir + '">' + e(trainerLabel) + '</span></div>' +
+      '<div class="cert-sheet-signature cert-sheet-signature-center"><div class="cert-sheet-signature-line"></div>' +
+      '<span>' + e(labels.director) + '</span></div>' +
+      '<img class="cert-sheet-stamp" src="' + SITE.assets('images/certificate-design-stamp.png') + '" alt="' + e(t('certPageStamp')) + '">' +
+      '<svg class="cert-sheet-seal" viewBox="0 0 84 100" role="img" aria-label="' + e(t('certDesignSeal')) + '">' +
+      '<path d="M26 58 14 96l16-9 8 13 8-36Z" fill="#2f4b8f"/><path d="M58 58 70 96l-16-9-8 13-8-36Z" fill="#c8383f"/>' +
+      '<circle cx="42" cy="38" r="32" fill="#2f4b8f"/><circle cx="42" cy="38" r="26" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 3"/>' +
+      '<path d="m42 22 4.6 9.6 10.4 1.4-7.6 7.3 1.9 10.4L42 45.6l-9.3 5.1 1.9-10.4-7.6-7.3 10.4-1.4Z" fill="#fff"/></svg>' +
+      '<div class="cert-sheet-issued">' + e(labels.issued) + ' · ' + e(issued) + '</div>' +
+      (code ? '<div class="cert-sheet-code" dir="ltr">' + e(labels.code) + ': ' + e(code) + '</div>' : '') +
+      '</article>';
   }
 
   function certCard(c, opts) {
@@ -87,17 +160,17 @@
     if (opts.returnTo) courseParams.push('return=' + encodeURIComponent(opts.returnTo));
     var detailUrl = opts.course
       ? SITE.u('course', e(c.id)) + (courseParams.length ? '?' + courseParams.join('&') : '')
-      : SITE.u('certificate', e(c.id)) + returnTo;
+      : SITE.u('certificate', e(c.certificateId || c.id)) + returnTo;
     if (opts.imageOnly) {
       return '<article class="cert-card cert-card-preview" data-goto="' + detailUrl + '" data-search="' +
         e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (c.studentName || '')).toLowerCase()) + '">' +
-        earnedCertificateSheet(c, c.studentName || (SERVER_PROFILE && SERVER_PROFILE.fullName) || '', true) +
+        earnedCertificateSheet(c, c.studentNameArabic || (SERVER_PROFILE && SERVER_PROFILE.fullNameArabic) || c.studentName || '', true) +
         '</article>';
     }
     if (opts.manualImage) {
       return '<article class="cert-card cert-card-uploaded" data-goto="' + detailUrl + '" data-search="' +
         e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (c.studentName || '')).toLowerCase()) + '">' +
-        '<img src="' + e(c.image || '') + '" alt="' + e(c.title) + '" loading="lazy">' +
+        '<img src="' + e(c.image || '') + '" alt="' + e(c.title) + '" loading="lazy" decoding="async">' +
         (c.status === 'pending' ? '<span class="manual-cert-status">' + e(c.statusLabel || t('certPendingReviewStatus')) + '</span>' : '') +
         '</article>';
     }
@@ -119,7 +192,8 @@
           '<button class="btn-icon" data-act="goto" data-url="' + SITE.u('courseEdit', e(c.id)) + '" title="' + e(t('edit')) + '">' + UI.icon('pencil', 15) + '</button>' +
       (isCourse ? '' : '<button class="btn-icon danger" data-act="del-cert" data-id="' + e(c.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>') +
       '</div>') +
-      '<div class="cert-thumb" style="background-image:url(\'' + c.image + '\')">' +
+      '<div class="cert-thumb">' +
+      (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">' : '') +
       '<span class="cert-cat">' + cat + '</span>' +
       (isCourse
         ? (c.price ? '<span class="cert-price-tag">' + e(c.price) + '</span>' : '')
@@ -142,7 +216,7 @@
   function projCard(p, opts) {
     if (!opts || typeof opts !== 'object') opts = {};
     var tags = (p.tags || []).slice(0, 3).map(function (x) { return '<span class="chip">' + e(x) + '</span>'; }).join('');
-    var cover = p.cover ? '<img src="' + e(p.cover) + '" alt="">' : '<div class="no-cover">' + UI.icon('layers', 34) + '</div>';
+    var cover = p.cover ? '<img src="' + e(p.cover) + '" alt="" loading="lazy" decoding="async">' : '<div class="no-cover">' + UI.icon('layers', 34) + '</div>';
     var draft = p.status === 'draft' ? '<span class="chip warn" style="position:absolute;top:10px;inset-inline-start:10px;z-index:1">' + e(t('draft')) + '</span>' : '';
     var courseBadge = (p.visibility === 'courses' && p.status !== 'draft')
       ? '<span class="chip course-badge" style="position:absolute;top:10px;inset-inline-start:10px;z-index:1">' + UI.icon('award', 12) + ' ' + e(t('projectCourseBadge')) + '</span>'
@@ -179,9 +253,9 @@
     var ratio = RATIO_CLASS[post.ratio] || 'ratio-1-1';
     var slides = media.map(function (m) {
       if (m.type === 'video') {
-        return '<div class="mc-slide"><video src="' + e(m.src) + '" controls playsinline preload="metadata" onclick="event.stopPropagation()"></video></div>';
+        return '<div class="mc-slide"><video src="' + e(m.src) + '" controls playsinline preload="none" onclick="event.stopPropagation()"></video></div>';
       }
-      return '<div class="mc-slide"><img src="' + e(m.src) + '" alt="" draggable="false"></div>';
+      return '<div class="mc-slide"><img src="' + e(m.src) + '" alt="" loading="lazy" decoding="async" draggable="false"></div>';
     }).join('');
     var multi = media.length > 1;
     var dots = multi ? '<div class="mc-dots">' + media.map(function (_, i) { return '<i class="' + (i === 0 ? 'on' : '') + '"></i>'; }).join('') + '</div>' : '';
@@ -340,7 +414,7 @@
       '<div class="profile-body">' +
       '<div class="profile-top">' +
       '<div class="profile-avatar-wrap">' +
-      '<img class="profile-avatar" src="' + e(p.avatar || UI.initialsAvatar(p.name, 220)) + '" alt="' + e(p.name) + '">' +
+      '<img class="profile-avatar" src="' + e(p.avatar || UI.initialsAvatar(p.name, 220)) + '" alt="' + e(p.name) + '" fetchpriority="high">' +
       '<button class="avatar-edit" data-act="edit-profile" title="' + e(t('profileEdit')) + '">' + UI.icon('camera', 14) + '</button>' +
       '</div>' +
       '<div class="profile-head">' +
@@ -493,14 +567,14 @@
   }
 
   function workshopCertificateCard(certificate) {
-    return '<article class="cert-card cert-card-preview workshop-certificate-preview" aria-label="' +
+    return '<article class="cert-card cert-card-preview workshop-certificate-preview" data-goto="' +
+      e(SITE.u('certificate', certificate.id)) + '" aria-label="' +
       e(t('certPageWorkshopLabel')) + '">' +
       earnedCertificateSheet(
         certificate,
-        certificate.studentName || (SERVER_PROFILE && SERVER_PROFILE.fullName) || '',
+        certificate.studentNameArabic || (SERVER_PROFILE && SERVER_PROFILE.fullNameArabic) || certificate.studentName || '',
         true
       ) +
-      (certificate.code ? '<small class="workshop-certificate-code" dir="ltr">' + e(certificate.code) + '</small>' : '') +
       '</article>';
   }
 
@@ -752,7 +826,7 @@
       act === 'del-cert' || act === 'edit-cert' || act === 'del-project' || act === 'tab' ||
       act === 'toggle-skills' || act === 'edit-profile' || act === 'share-profile' ||
       act === 'new-cert' || act === 'search-tag' || act === 'copy-id' || act === 'lightbox' ||
-      act === 'print-cert' ||
+      act === 'print-cert' || act === 'certificate-language' ||
       act === 'del-file' || act === 'like-post-detail' || act === 'save-post-detail' ||
       act === 'share-menu' || act === 'share-to' || act === 'close-sheet')) {
       ev.preventDefault();
@@ -1075,7 +1149,7 @@
           printCard.className = 'manual-certificate-print';
           var title = document.querySelector('.cd-title');
           printCard.innerHTML = (title ? '<h1>' + e(title.textContent) + '</h1>' : '') +
-            '<img src="' + e(manualImage.src) + '" alt="' + e(manualImage.alt) + '">';
+            '<img src="' + e(manualImage.src) + '" alt="' + e(manualImage.alt) + '" fetchpriority="high">';
           wrap.appendChild(printCard);
         }
         document.body.appendChild(wrap);
@@ -1090,6 +1164,11 @@
         setTimeout(cleanup, 1500);
         break;
       }
+
+      case 'certificate-language':
+        certificateLanguage = actEl.getAttribute('data-language') === 'en' ? 'en' : 'ar';
+        renderCourseDetail();
+        break;
     }
   });
 
@@ -1281,6 +1360,12 @@
     if (!url || url === '/') { onFail('no-endpoint'); return; }
     var fd = new FormData();
     fd.append('full_name', payload.name || '');
+    if (IS_TRAINER) {
+      fd.append('trainer_name_en', payload.trainerNameEnglish || '');
+    } else {
+      fd.append('full_name_ar', payload.fullNameArabic || '');
+      fd.append('full_name_en', payload.fullNameEnglish || '');
+    }
     fd.append('handle', (payload.handle || '').replace(/^@/, ''));
     fd.append('headline', payload.title || '');
     fd.append('bio', payload.bio || '');
@@ -1322,6 +1407,13 @@
       '</div>' +
       '<div class="field"><label class="label">' + e(t('fieldName')) + '</label><input class="input" id="peName" value="' + e(p.name) + '">' +
       '<p class="hint" id="peNameHint"></p></div>' +
+      (IS_TRAINER
+        ? '<div class="field"><label class="label">اسم المدرب بالإنجليزية</label><input class="input" id="peTrainerNameEnglish" dir="ltr" autocomplete="name" maxlength="200" value="' + e(p.trainerNameEnglish || p.fullNameEnglish || '') + '" placeholder="Example: Ahmad Khaled">' +
+          '<p class="hint">يظهر هذا الاسم على النسخة الإنجليزية من شهادات دوراتك.</p></div>'
+        : '<div class="field"><label class="label">الاسم الكامل بالعربية (3–6 كلمات)</label><input class="input" id="peFullNameArabic" dir="rtl" autocomplete="name" value="' + e(p.fullNameArabic || '') + '" placeholder="أحمد محمد خالد عبد الرحمن الحسن"' + (p.fullNameArabic ? ' disabled' : '') + '>' +
+          '<p class="hint">يُحفظ مرة واحدة ويظهر على النسخة العربية من شهاداتك.</p></div>' +
+          '<div class="field"><label class="label">الاسم الكامل بالإنجليزية (3–6 كلمات)</label><input class="input" id="peFullNameEnglish" dir="ltr" autocomplete="name" value="' + e(p.fullNameEnglish || '') + '" placeholder="Ahmad Mohammad Khaled Abdul Rahman Alhasan"' + (p.fullNameEnglish ? ' disabled' : '') + '>' +
+          '<p class="hint">يُحفظ مرة واحدة ويظهر على النسخة الإنجليزية من شهاداتك.</p></div>') +
       '<div class="field"><label class="label">' + e(t('fieldTitle')) + '</label><input class="input" id="peTitle" maxlength="35" value="' + e(titleInitial) + '"></div>' +
       '<div class="field"><label class="label">' + e(t('fieldEmail')) + ' <span class="opt">(' + e(t('optional')) + ')</span></label><input class="input" id="peEmail" type="email" dir="ltr" placeholder="name@example.com" value="' + e(p.email || '') + '">' +
       '<p class="hint" id="peEmailHint"></p></div>' +
@@ -1498,8 +1590,16 @@
       var cleanSkills = skills.filter(function (s) { return s.name && s.name.trim(); }).map(function (s) {
         return { id: s.id || Store.uid('sk'), name: s.name.trim(), level: s.level || 50 };
       });
+      var fullNameArabic = IS_TRAINER ? '' : m.body.querySelector('#peFullNameArabic').value.trim();
+      var fullNameEnglish = IS_TRAINER ? '' : m.body.querySelector('#peFullNameEnglish').value.trim();
+      var trainerNameEnglish = IS_TRAINER
+        ? m.body.querySelector('#peTrainerNameEnglish').value.trim()
+        : '';
       var payload = {
         name: name,
+        fullNameArabic: fullNameArabic,
+        fullNameEnglish: fullNameEnglish,
+        trainerNameEnglish: trainerNameEnglish,
         title: m.body.querySelector('#peTitle').value.trim(),
         bio: m.body.querySelector('#peBio').value.trim(),
         website: m.body.querySelector('#peWebsite').value.trim(),
@@ -1513,6 +1613,9 @@
         var prof = res.profile || {};
         Store.updateProfile({
           name: prof.name || name,
+          fullNameArabic: prof.fullNameArabic || fullNameArabic,
+          fullNameEnglish: prof.fullNameEnglish || fullNameEnglish,
+          trainerNameEnglish: prof.trainerNameEnglish || trainerNameEnglish,
           handle: prof.handle || p.handle,
           title: prof.title || payload.title,
           bio: typeof prof.bio === 'string' ? prof.bio : payload.bio,
@@ -1531,6 +1634,8 @@
       }, function (err) {
         btn.disabled = false;
         if (err === 'invalid_name') UI.toast(t('nameInvalid'), 'error');
+        else if (err === 'legal_name_pair_required' || err === 'invalid_legal_name') UI.toast('أدخل الاسم بالعربية والإنجليزية، من ثلاث إلى ست كلمات لكل لغة.', 'error');
+        else if (err === 'legal_name_locked') UI.toast('لا يمكن تعديل الاسم الثلاثي بعد حفظه.', 'error');
         else if (err === 'login') UI.toast(t('loginRequiredSave'), 'error');
         else UI.toast(t('saveFailed'), 'error');
       });
@@ -1759,28 +1864,47 @@
     }
     var from = '';
     try { from = new URLSearchParams(location.search).get('from') || ''; } catch (err) { }
-    var instName = c.instructor || c.issuer || '';
+    var isEnglish = certificateLanguage === 'en';
+    var instName = isEnglish
+      ? (c.instructorEnglish || 'English instructor name not provided')
+      : (c.instructor || c.issuer || '');
+    var certificateTitle = isEnglish
+      ? (c.titleEnglish || c.title_en || 'English title not provided')
+      : (c.title || '');
+    var certificateDuration = isEnglish
+      ? (c.durationEnglish || '')
+      : (c.duration || '');
     var skills = c.skills || [];
     var heroImg = c.courseImage || c.image || '';
     var code = c.certificateCode || c.code || c.credentialId || '';
-    var issued = c.date ? UI.formatDate(c.date) : '—';
-    var studentName = c.studentName || (SERVER_PROFILE && SERVER_PROFILE.fullName) || '';
-    var shareUrl = location.origin + SITE.u('certificate', e(c.id));
-    var backDest = SITE.u('course', e(c.id));
+    var issued = certificateDate(c.date, certificateLanguage);
+    var studentName = certificateLanguage === 'en'
+      ? (c.studentNameEnglish || (SERVER_PROFILE && SERVER_PROFILE.fullNameEnglish) || 'English full name not provided')
+      : (c.studentNameArabic || (SERVER_PROFILE && SERVER_PROFILE.fullNameArabic) || c.studentName || '');
+    var shareUrl = location.origin + SITE.u('certificate', e(c.certificateId || c.id));
+    var backDest = c.workshop
+      ? SITE.u('portfolio')
+      : SITE.u('course', e(c.courseId || c.id));
+    var workshopDetails = c.workshopDetails || {};
+    var languageTabs =
+      '<div class="cert-language-tabs" role="group" aria-label="Certificate language">' +
+      '<button type="button" class="btn btn-sm ' + (certificateLanguage === 'ar' ? 'btn-primary' : 'btn-ghost') + '" data-act="certificate-language" data-language="ar" aria-pressed="' + (certificateLanguage === 'ar') + '">العربية</button>' +
+      '<button type="button" class="btn btn-sm ' + (certificateLanguage === 'en' ? 'btn-primary' : 'btn-ghost') + '" data-act="certificate-language" data-language="en" aria-pressed="' + (certificateLanguage === 'en') + '">English</button>' +
+      '</div>';
 
     host.innerHTML =
       backLink(t('certPageBack')) +
       '<section class="cd-hero cert-hero' + (heroImg ? '' : '') + '"' + (heroImg ? ' style="background-image:url(\'' + e(heroImg) + '\'),linear-gradient(135deg,#2563eb,#7c3aed)"' : '') + '>' +
       '<div class="cd-hero-overlay"><div class="cd-hero-inner">' +
       '<span class="cert-hero-seal">' + UI.verifiedBadge(15) + e(t('certPageStatusValid')) + '</span>' +
-      '<h1 class="cd-title">' + e(c.title) + '</h1>' +
+      '<h1 class="cd-title">' + e(certificateTitle) + '</h1>' +
       '<div class="cd-author">' +
       '<img class="cd-author-av" src="' + UI.userLetterAvatar(instName, 64) + '" alt="">' +
-      '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b></span>' +
+      '<span>' + e(isEnglish ? 'By' : t('ucBy')) + ' <b>' + e(instName) + '</b></span>' +
       '</div>' +
       '<div class="cd-pills">' +
       '<span class="cd-pill">' + UI.icon('calendar', 14) + e(issued) + '</span>' +
-      (c.duration ? '<span class="cd-pill">' + UI.icon('clock', 14) + e(c.duration) + '</span>' : '') +
+      (certificateDuration ? '<span class="cd-pill">' + UI.icon('clock', 14) + e(certificateDuration) + '</span>' : '') +
       '<span class="cd-pill">' + UI.icon('award', 14) + e(t('ucCert')) + '</span>' +
       '</div>' +
       '</div></div>' +
@@ -1789,11 +1913,25 @@
       '<div class="cd-grid">' +
       '<div class="cd-main">' +
       '<section class="cd-card">' +
-      earnedCertificateSheet(c, studentName, false) +
+      languageTabs +
+      earnedCertificateSheet(c, studentName, false, certificateLanguage) +
       (code ? '<div class="cert-code-row"><span class="lbl">' + e(t('certPageCode')) + '</span>' +
-        '<span class="cert-code" dir="ltr">' + e(code) + '</span>' +
-        '<button class="btn btn-ghost btn-sm" type="button" data-act="copy-id" data-value="' + e(code) + '">' + UI.icon('copy', 14) + e(t('certPageCopyLink')) + '</button></div>' : '') +
+        '<span class="cert-code" dir="ltr">' + e(code) + '</span></div>' : '') +
       '</section>' +
+
+      (c.workshop ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('calendar', 18) +
+        e(certificateLanguage === 'en' ? 'Workshop details' : 'معلومات الورشة') + '</h2>' +
+        '<div class="prose"><p><b>' + e(certificateLanguage === 'en' ? 'Workshop:' : 'الورشة:') + '</b> ' + e(certificateLanguage === 'en' ? (workshopDetails.titleEnglish || c.titleEnglish || 'English title not provided') : (workshopDetails.title || c.title)) + '</p>' +
+        '<p><b>' + e(certificateLanguage === 'en' ? 'Trainer:' : 'المدرب:') + '</b> ' + e(certificateLanguage === 'en' ? (workshopDetails.trainerEnglish || c.trainerNameEnglish || 'English trainer name not provided') : (workshopDetails.trainer || c.trainerName || '—')) + '</p>' +
+        '<p><b>' + e(certificateLanguage === 'en' ? 'Date:' : 'التاريخ:') + '</b> ' + e(certificateDate(workshopDetails.date || c.date, certificateLanguage)) + '</p>' +
+        '<p><b>' + e(certificateLanguage === 'en' ? 'Duration:' : 'المدة:') + '</b> ' + e(workshopDetails.duration || c.duration || '—') + ' ' + e(certificateLanguage === 'en' ? 'minutes' : 'دقيقة') + '</p>' +
+        ((certificateLanguage === 'en' ? workshopDetails.locationEnglish : workshopDetails.location)
+          ? '<p><b>' + e(certificateLanguage === 'en' ? 'Location:' : 'الموقع:') + '</b> ' + e(certificateLanguage === 'en' ? workshopDetails.locationEnglish : workshopDetails.location) + '</p>'
+          : '') +
+        ((certificateLanguage === 'en' ? workshopDetails.descriptionEnglish : workshopDetails.description)
+          ? '<p>' + e(certificateLanguage === 'en' ? workshopDetails.descriptionEnglish : workshopDetails.description) + '</p>'
+          : '') +
+        '</div></section>' : '') +
 
       (skills.length ?
       '<section class="cd-card">' +
@@ -1848,7 +1986,7 @@
       '<div class="cd-grid"><div class="cd-main">' +
       '<section class="cd-card manual-certificate-image-card">' +
       '<h2 class="cd-h2">' + UI.icon('image', 18) + e(t('imageLabel')) + '</h2>' +
-      (c.image ? '<img class="manual-certificate-detail-image" src="' + e(c.image) + '" alt="' + e(c.title) + '">' : '') +
+      (c.image ? '<img class="manual-certificate-detail-image" src="' + e(c.image) + '" alt="' + e(c.title) + '" fetchpriority="high">' : '') +
       '</section>' +
       (c.skills && c.skills.length ? '<section class="cd-card"><h2 class="cd-h2">' +
         UI.icon('check-circle', 18) + e(t('certPageLearn')) + '</h2><div class="cd-learn">' +
@@ -1882,7 +2020,7 @@
     actions += '<a class="btn btn-primary btn-sm" href="' + projectDetailUrl(pj.id) + '">' + UI.icon('eye', 14) + ' ' + e(t('plProjectOpen')) + '</a>';
 
     return '<article class="cd-project-card">' +
-      (pj.cover ? '<div class="cd-project-cover"><img src="' + e(pj.cover) + '" alt="' + e(pj.title) + '"></div>' : '') +
+      (pj.cover ? '<div class="cd-project-cover"><img src="' + e(pj.cover) + '" alt="' + e(pj.title) + '" loading="lazy" decoding="async"></div>' : '') +
       '<div class="cd-project-body">' +
       '<div class="cd-project-head">' +
       '<span class="cd-project-badge">' + UI.icon('briefcase', 13) + ' ' + e(t('plProjectType')) + '</span>' +
@@ -1944,6 +2082,11 @@
     if (enrollmentData) {
       try { enrolled = JSON.parse(enrollmentData.textContent) === true; } catch (err) { enrolled = false; }
     }
+    var trainerOwner = false;
+    var trainerOwnerData = document.getElementById('course-trainer-owner-data');
+    if (trainerOwnerData) {
+      try { trainerOwner = JSON.parse(trainerOwnerData.textContent) === true; } catch (err) { trainerOwner = false; }
+    }
     var rewardsData = {};
     var rewardsEl = document.getElementById('course-rewards-data');
     if (rewardsEl) {
@@ -1952,6 +2095,21 @@
     var from = '';
     try { from = new URLSearchParams(location.search).get('from') || ''; } catch (err) { }
     var c = Store.find('certificates', id);
+    if (!c) {
+      var coursesDataEl = document.getElementById('courses-data');
+      if (coursesDataEl) {
+        try {
+          var pageCourses = JSON.parse(coursesDataEl.textContent);
+          if (Array.isArray(pageCourses)) {
+            c = pageCourses.filter(function (item) {
+              return item.id === id || item.slug === id || String(item.pk) === String(id);
+            })[0] || null;
+          }
+        } catch (err) {
+          c = null;
+        }
+      }
+    }
     if (!c) { renderNotFound(host); return; }
     if (c.earned) { renderEarnedCertificate(host, c); return; }
     var related = Store.collection('certificates').filter(function (x) { return x.id !== c.id; }).slice(0, 3);
@@ -1994,7 +2152,7 @@
      try { heroPlayerHTML = UI.playerHTML(previewUrl, { id: 'cdHeroPlayer' }); } catch (err) { heroPlayerHTML = ''; }
    }
    if (!heroPlayerHTML) {
-     heroPlayerHTML = '<img src="' + e(heroImg) + '" alt="' + e(c.title) + '"><span class="cd-play" aria-hidden="true">' + UI.icon('play', 24) + '</span>';
+     heroPlayerHTML = '<img src="' + e(heroImg) + '" alt="' + e(c.title) + '" fetchpriority="high"><span class="cd-play" aria-hidden="true">' + UI.icon('play', 24) + '</span>';
    }
    var previewLabel = '';
    if (previewLesson) {
@@ -2078,7 +2236,7 @@
       '<b>' + e(c.price || t('ucFree')) + '</b>' +
       '<span>' + e(t('ucPriceNote')) + '</span>' +
       '</div>' +
-      (enrolled
+      (enrolled || trainerOwner
         ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
         : '<button class="cd-btn cd-btn-wa" type="button" data-act="enroll-course" data-title="' + e(c.title) + '">' + UI.icon('whatsapp', 17) + e(t('ucEnroll')) + '</button>') +
       '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' + e(rewardsData.shareUrl || SITE.u('course', e(c.id))) + '">' + UI.icon('share-2', 16) + e(t('shareCta')) + '</button>' +
@@ -2124,24 +2282,14 @@
     var galleryItems = p.gallery || [];
     var gallery = galleryItems.length
       ? '<h2 style="font-size:17px;margin:26px 0 12px">' + UI.icon('image', 16) + ' ' + e(t('projGallery')) + '</h2><div class="gallery-row" id="projGalleryRow">' +
-        galleryItems.map(function (g, i) { return '<button class="gal-item" data-gal="' + i + '" type="button"><img src="' + e(g) + '" alt="" draggable="false"></button>'; }).join('') +
+        galleryItems.map(function (g, i) { return '<button class="gal-item" data-gal="' + i + '" type="button"><img src="' + e(g) + '" alt="" loading="lazy" decoding="async" draggable="false"></button>'; }).join('') +
         '</div>'
-      : '';
-    var files = (p.files || []).length
-      ? '<h2 style="font-size:17px;margin:26px 0 12px">' + UI.icon('file', 16) + ' ' + e(t('projFiles')) + '</h2><div class="file-list">' +
-      p.files.map(function (f) {
-        return '<div class="file-item"><span class="file-ic">' + UI.icon('file-text', 17) + '</span>' +
-          '<div class="file-meta"><b>' + e(f.name) + '</b><span>' + e(UI.fileSize(f.size)) + '</span></div>' +
-          (f.dataUrl ? '<a class="btn btn-soft btn-sm" download="' + e(f.name) + '" href="' + e(f.downloadUrl || f.dataUrl) + '">' + UI.icon('download', 14) + e(t('download')) + '</a>'
-            : '<button class="btn btn-ghost btn-sm" disabled title="' + e(t('fileTooBig')) + '">' + UI.icon('download', 14) + e(t('download')) + '</button>') +
-          '</div>';
-      }).join('') + '</div>'
       : '';
 
     host.innerHTML =
       backLink(null, true) +
       (p.status !== 'published' ? '<div style="margin-bottom:14px"><span class="chip warn">' + e(p.status === 'inactive' ? (I18n.getLang() === 'en' ? 'Inactive' : 'غير نشط') : t('draft')) + '</span></div>' : '') +
-      (p.cover ? '<div class="detail-hero reveal" style="margin-bottom:16px"><img class="detail-cover" src="' + e(p.cover) + '" alt=""></div>' : '') +
+      (p.cover ? '<div class="detail-hero reveal" style="margin-bottom:16px"><img class="detail-cover" src="' + e(p.cover) + '" alt="" fetchpriority="high"></div>' : '') +
       '<div class="detail-grid">' +
       '<div class="detail-main">' +
       '<div class="detail-title-row reveal reveal-1"><h1>' + e(p.title) + '</h1>' +
@@ -2158,7 +2306,7 @@
       '</div>' +
       (tags ? '<div class="stat-chips" style="margin-bottom:18px">' + tags + '</div>' : '') +
       '<div class="prose">' + UI.sanitize(p.content) + '</div>' +
-      gallery + files +
+      gallery +
       '</div>' +
       '<aside class="detail-side">' +
       '<div class="card side-card reveal reveal-2">' +
@@ -2254,6 +2402,9 @@
       } else if (page === 'course') {
         mountChrome({});
         renderCourseDetail();
+      } else if (page === 'certificate') {
+        mountChrome({});
+        renderCourseDetail();
       } else if (page === 'project') {
         mountChrome({});
         renderProjectDetail();
@@ -2271,9 +2422,17 @@
   document.addEventListener('i18n:change', UI.debounce(function () {
     closeCommentsSheet();
     if (page === 'home') renderHome();
-    else if (page === 'course') { mountChrome({}); renderCourseDetail(); }
+    else if (page === 'course' || page === 'certificate') { mountChrome({}); renderCourseDetail(); }
     else if (page === 'project') { mountChrome({}); renderProjectDetail(); }
   }, 60));
+
+  window.addEventListener('pageshow', function (event) {
+    if (!event.persisted) return;
+    var host = document.getElementById('detailHost');
+    if (!host || host.childElementCount) return;
+    if (page === 'course' || page === 'certificate') renderCourseDetail();
+    else if (page === 'project') renderProjectDetail();
+  });
 
   window.AppPage = { renderHome: renderHome, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, workshopCertificateCard: workshopCertificateCard, projCard: projCard, initCaptions: initCaptions };
 

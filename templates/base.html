@@ -17,11 +17,14 @@
     <link rel="stylesheet" href="{% static_v 'css/site-chrome.css' %}">
     <link rel="stylesheet" href="{% static_v 'css/account-menu.css' %}">
   {% endblock %}
+  <link rel="stylesheet" href="{% static_v 'css/page-transition.css' %}">
   <link rel="stylesheet" href="{% static_v 'css/brand-palettes.css' %}">
   {% include "partials/pwa_head.html" %}
 </head>
 <body {% block body_attrs %}data-page=""{% endblock %}>
 
+  {% include "partials/page_transition_bootstrap.html" %}
+  {% include "partials/page_transition_skeleton.html" %}
   {% include "partials/header.html" %}
 
   {% block content %}{% endblock %}
@@ -33,14 +36,15 @@
   {{ site_settings|json_script:"site-settings-data" }}
 
   {% include "partials/js_urls.html" %}
+  <script defer src="{% static_v 'js/page-transition.js' %}"></script>
   {% block scripts %}
-    <script src="{% static_v 'js/store.js' %}"></script>
-    <script src="{% static_v 'js/i18n.js' %}"></script>
-    <script src="{% static_v 'js/ui.js' %}"></script>
-    <script src="{% static_v 'js/site-chrome.js' %}"></script>
-    <script src="{% static_v 'js/account-menu.js' %}"></script>
-    <script src="{% static_v 'js/app.js' %}"></script>
+    <script defer src="{% static_v 'js/store.js' %}"></script>
+    <script defer src="{% static_v 'js/i18n.js' %}"></script>
+    <script defer src="{% static_v 'js/ui.js' %}"></script>
+    <script defer src="{% static_v 'js/site-chrome.js' %}"></script>
+    <script defer src="{% static_v 'js/account-menu.js' %}"></script>
+    <script defer src="{% static_v 'js/app.js' %}"></script>
   {% endblock %}
-  <script src="{% static_v 'js/pwa.js' %}"></script>
+  <script defer src="{% static_v 'js/pwa.js' %}"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ urlpatterns = [
     path('panel/certificates/<str:certificate_key>/status/', views.certificate_set_active, name='certificate-status'),
     path('panel/course-lessons/save/', views.course_lesson_save, name='course-lesson-save'),
     path('panel/workshops/save/', views.workshop_save, name='workshop-save'),
+    path('panel/workshops/<str:pk>/attendees/', views.workshop_attendees, name='workshop-attendees'),
     path('panel/workshops/<str:pk>/attendance/', views.workshop_attendance_status, name='workshop-attendance-status'),
     path('panel/workshops/<str:pk>/qr/regenerate/', views.workshop_regenerate_qr, name='workshop-regenerate-qr'),
     path('panel/workshops/<str:pk>/delete/', views.workshop_delete, name='workshop-delete'),

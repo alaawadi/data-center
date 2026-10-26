@@ -17,6 +17,8 @@ from .models import (
     Skill,
     SocialLink,
     phone_validator,
+    validate_arabic_three_part_name,
+    validate_english_three_part_name,
 )
 
 User = get_user_model()
@@ -218,6 +220,38 @@ class ProfileEditForm(forms.ModelForm):
     """Comprehensive "edit my profile" form (identity + lists + socials formset)."""
 
     full_name = forms.CharField(label='الاسم الكامل', max_length=150, required=False)
+    full_name_ar = forms.CharField(
+        label='الاسم الكامل بالعربية (3–6 كلمات)',
+        max_length=150,
+        required=False,
+        validators=[validate_arabic_three_part_name],
+        widget=forms.TextInput(attrs={
+            'dir': 'rtl',
+            'autocomplete': 'name',
+            'placeholder': 'مثال: أحمد محمد خالد عبد الرحمن الحسن',
+        }),
+    )
+    full_name_en = forms.CharField(
+        label='الاسم الكامل بالإنجليزية (3–6 كلمات)',
+        max_length=150,
+        required=False,
+        validators=[validate_english_three_part_name],
+        widget=forms.TextInput(attrs={
+            'dir': 'ltr',
+            'autocomplete': 'name',
+            'placeholder': 'Example: Ahmad Mohammad Khaled Abdul Rahman Alhasan',
+        }),
+    )
+    trainer_name_en = forms.CharField(
+        label='اسم المدرب بالإنجليزية',
+        max_length=200,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'dir': 'ltr',
+            'autocomplete': 'name',
+            'placeholder': 'Example: Ahmad Khaled',
+        }),
+    )
     email = forms.EmailField(label='البريد الإلكتروني', required=False)
 
     skills_count = forms.IntegerField(widget=forms.HiddenInput(), initial=0, min_value=0, max_value=8)
@@ -290,11 +324,37 @@ class ProfileEditForm(forms.ModelForm):
             )
         if profile and profile.pk:
             self.fields['full_name'].initial = profile.user.full_name
+            if profile.user.is_trainer:
+                self.fields.pop('full_name_ar')
+                self.fields.pop('full_name_en')
+                self.fields['trainer_name_en'].initial = (
+                    profile.user.trainer_name_en or profile.user.full_name_en
+                )
+                self.fields['trainer_name_en'].help_text = (
+                    'يُستخدم هذا الاسم في النسخة الإنجليزية لشهادات دوراتك.'
+                )
+            else:
+                self.fields.pop('trainer_name_en')
+                self.fields['full_name_ar'].initial = profile.user.full_name_ar
+                self.fields['full_name_en'].initial = profile.user.full_name_en
+                if profile.user.full_name_ar:
+                    self.fields['full_name_ar'].disabled = True
+                if profile.user.full_name_en:
+                    self.fields['full_name_en'].disabled = True
             self.fields['email'].initial = profile.user.email
+        else:
+            self.fields.pop('trainer_name_en')
         self.fields['skills_count'].initial = wanted
 
     def clean(self):
         cleaned = super().clean()
+        name_ar = (cleaned.get('full_name_ar') or '').strip()
+        name_en = (cleaned.get('full_name_en') or '').strip()
+        if bool(name_ar) != bool(name_en):
+            self.add_error(
+                'full_name_en' if name_ar else 'full_name_ar',
+                'أدخل الاسم الثلاثي باللغتين معاً.',
+            )
         count = cleaned.get('skills_count') or 0
         if count < 1:
             count = 1
@@ -327,8 +387,16 @@ class ProfileEditForm(forms.ModelForm):
         user = profile.user
         user.full_name = self.cleaned_data.get('full_name', '').strip()
         user.email = self.cleaned_data.get('email', '').strip()
+        update_fields = ['full_name', 'email']
+        if user.is_trainer:
+            user.trainer_name_en = self.cleaned_data.get('trainer_name_en', '').strip()
+            update_fields.append('trainer_name_en')
+        else:
+            user.full_name_ar = self.cleaned_data.get('full_name_ar', '').strip()
+            user.full_name_en = self.cleaned_data.get('full_name_en', '').strip()
+            update_fields.extend(('full_name_ar', 'full_name_en'))
         if commit:
-            user.save(update_fields=['full_name', 'email'])
+            user.save(update_fields=update_fields)
         return profile
 
 

@@ -9,6 +9,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView as BaseLoginView
 from django.contrib.auth.views import LogoutView as BaseLogoutView
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.http import JsonResponse
@@ -16,6 +17,7 @@ from django.shortcuts import redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
+from django.utils.decorators import method_decorator
 from django.views.generic import FormView, TemplateView, UpdateView
 
 from core.context_processors import get_platform_settings
@@ -30,6 +32,8 @@ from .models import (
     SocialLink,
     User,
     UserRole,
+    validate_arabic_three_part_name,
+    validate_english_three_part_name,
 )
 
 from .security import (
@@ -271,8 +275,15 @@ class ProfileUpdateView(LoginRequiredMixin, UpdateView):
     template_name = 'users/profile_edit.html'
     form_class = ProfileEditForm
 
+    @method_decorator(transaction.atomic)
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
     def get_object(self, queryset=None):
-        profile, _ = Profile.objects.get_or_create(user=self.request.user)
+        user = self.request.user
+        if self.request.method == 'POST':
+            user = User.objects.select_for_update().get(pk=user.pk)
+        profile, _ = Profile.objects.get_or_create(user=user)
         return profile
 
     def get_context_data(self, **kwargs):
@@ -327,9 +338,10 @@ def _decode_data_url(data_url):
 
 @login_required
 @require_POST
+@transaction.atomic
 def profile_update_ajax(request):
     """AJAX endpoint used by the client-side profile edit modal."""
-    user = request.user
+    user = User.objects.select_for_update().get(pk=request.user.pk)
     profile, _ = Profile.objects.get_or_create(user=user)
 
     handle = (request.POST.get('handle') or '').strip().lstrip('@')
@@ -347,6 +359,30 @@ def profile_update_ajax(request):
                 status=400,
             )
         user.full_name = full_name[:150]
+
+    if user.is_trainer and 'trainer_name_en' in request.POST:
+        user.trainer_name_en = (request.POST.get('trainer_name_en') or '').strip()[:200]
+    elif not user.is_trainer and (
+        'full_name_ar' in request.POST or 'full_name_en' in request.POST
+    ):
+        full_name_ar = ' '.join((request.POST.get('full_name_ar') or '').split())
+        full_name_en = ' '.join((request.POST.get('full_name_en') or '').split())
+        if user.full_name_ar or user.full_name_en:
+            if (
+                full_name_ar and full_name_ar != user.full_name_ar
+                or full_name_en and full_name_en != user.full_name_en
+            ):
+                return JsonResponse({'ok': False, 'error': 'legal_name_locked'}, status=409)
+        elif full_name_ar or full_name_en:
+            if not full_name_ar or not full_name_en:
+                return JsonResponse({'ok': False, 'error': 'legal_name_pair_required'}, status=400)
+            try:
+                validate_arabic_three_part_name(full_name_ar)
+                validate_english_three_part_name(full_name_en)
+            except ValidationError:
+                return JsonResponse({'ok': False, 'error': 'invalid_legal_name'}, status=400)
+            user.full_name_ar = full_name_ar
+            user.full_name_en = full_name_en
 
     if 'email' in request.POST:
         user.email = (request.POST.get('email') or '').strip()
@@ -412,6 +448,9 @@ def profile_update_ajax(request):
             SocialLink.objects.create(profile=profile, platform=platform, url=url)
 
     data = profile.to_public_dict()
+    data['fullNameArabic'] = user.full_name_ar
+    data['fullNameEnglish'] = user.full_name_en
+    data['trainerNameEnglish'] = user.trainer_name_en or user.full_name_en
     data['skills'] = [
         {'id': f'sk{link.pk}', 'name': link.skill.name, 'level': link.level}
         for link in profile.profile_skills.select_related('skill')

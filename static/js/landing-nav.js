@@ -27,7 +27,8 @@
       params.push('return=' + encodeURIComponent(location.pathname + location.search + '#nav'));
     }
     return '<a class="cert-card" href="' + SITE.u('course', e(c.id)) + (params.length ? '?' + params.join('&') : '') + '">' +
-      '<div class="cert-thumb" style="background-image:url(\'' + c.image + '\')">' +
+      '<div class="cert-thumb">' +
+      (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">' : '') +
       '<span class="cert-cat">' + e(c.category || '') + '</span>' +
       (c.price ? '<span class="cert-price-tag">' + e(c.price) + '</span>' : '') +
       '</div>' +

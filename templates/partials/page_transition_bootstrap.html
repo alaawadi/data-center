@@ -1,0 +1,52 @@
+<script>
+  (function () {
+    var root = document.documentElement;
+    var body = document.body;
+    var transitionClass = 'is-page-transitioning';
+    var pendingAttribute = 'data-page-transition-pending';
+    var layouts = {
+      'all-courses': 'listing',
+      'all-projects': 'listing',
+      'all-users': 'listing',
+      course: 'detail',
+      project: 'detail',
+      playlist: 'detail',
+      'user-profile': 'profile',
+      home: 'profile',
+      'profile-edit': 'editor',
+      'edit-project': 'editor',
+      certificate: 'certificate',
+      admin: 'admin'
+    };
+
+    try {
+      if (body && body.getAttribute('data-page') === 'edit-course') {
+        sessionStorage.removeItem('dc-page-transition');
+        root.classList.remove(transitionClass);
+        root.classList.remove('is-page-transition-settling');
+        root.removeAttribute(pendingAttribute);
+        return;
+      }
+
+      var destination = sessionStorage.getItem('dc-page-transition');
+      if (destination && new URL(destination, location.href).origin === location.origin && body) {
+        var layout = body.classList.contains('auth-body')
+          ? 'auth'
+          : layouts[body.getAttribute('data-page')];
+
+        if (layout) {
+          body.setAttribute('data-transition-layout', layout);
+          root.setAttribute(pendingAttribute, '');
+          window.setTimeout(function () {
+            if (root.hasAttribute(pendingAttribute)) {
+              root.classList.add(transitionClass);
+            }
+          }, 100);
+        }
+      }
+      sessionStorage.removeItem('dc-page-transition');
+    } catch (error) {
+      console.warn('Page transition state could not be restored.', error);
+    }
+  })();
+</script>

@@ -1,0 +1,68 @@
+.page-transition-skeleton {
+  display: none;
+}
+
+html.is-page-transitioning {
+  overflow: hidden;
+  scrollbar-gutter: stable;
+}
+
+html.is-page-transitioning body > :not(.page-transition-skeleton):not(.header):not(.topbar):not(.footer):not(.bottom-navbar) {
+  visibility: hidden !important;
+}
+
+html.is-page-transitioning .page-transition-skeleton {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  background: var(--bg, #f4f7fb);
+  pointer-events: none;
+}
+
+html.is-page-transitioning .page-transition-skeleton::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 42px;
+  height: 42px;
+  border: 4px solid var(--line, #e4e9f2);
+  border-top-color: var(--main, #ff9f1a);
+  border-radius: 50%;
+  content: '';
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+  animation: page-transition-spin .7s linear infinite;
+  will-change: transform;
+}
+
+html.is-page-transitioning body > .header {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+}
+
+html.is-page-transitioning body > .bottom-navbar {
+  position: fixed;
+  inset-block-end: 0;
+  inset-inline: 0;
+}
+
+html.is-page-transition-settling .page-transition-skeleton {
+  opacity: 0;
+  transition: opacity .1s ease;
+}
+
+html.is-page-transition-settling body > :not(.page-transition-skeleton):not(.header):not(.topbar):not(.footer):not(.bottom-navbar) {
+  visibility: visible !important;
+}
+
+@keyframes page-transition-spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.is-page-transitioning .page-transition-skeleton::before { animation-duration: 1.5s; }
+  html.is-page-transition-settling .page-transition-skeleton { transition-duration: .01ms; }
+}

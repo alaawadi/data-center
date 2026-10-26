@@ -193,7 +193,7 @@ class FreelancerDetailView(TemplateView):
             certificate.to_public_dict()
             for certificate in WorkshopCertificate.objects.filter(
                 attendance__student=profile.user
-            ).select_related('attendance__student')
+            ).select_related('attendance__student', 'attendance__workshop')
         ]
         # الدورات المنشورة تُدمج مع الشهادات المكتسبة في لائحة شهادات البروفايل
         context['courses_json'] = published_courses_payload()

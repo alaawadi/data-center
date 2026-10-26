@@ -209,7 +209,7 @@
   }
 
   function courseCell(c) {
-    return '<div class="cell-cover"><img class="cc-img" src="' + e(c.image || StoreHelpers.grad('#1d4ed8', '#3b82f6', '🎓', 160, 110)) + '" alt="">' +
+    return '<div class="cell-cover"><img class="cc-img" src="' + e(c.image || StoreHelpers.grad('#1d4ed8', '#3b82f6', '🎓', 160, 110)) + '" alt="" loading="lazy" decoding="async">' +
       '<div class="cc-b"><b>' + e(c.title) + '</b><span>' + e(c.issuer || '') + '</span></div></div>';
   }
 
@@ -1239,7 +1239,7 @@
           {
             k: 'title', label: t('colTitle'), sortVal: function (p) { return p.title; },
             render: function (p) {
-              return '<div class="cell-cover"><img class="cc-img" src="' + e(p.cover || StoreHelpers.grad('#1e3a8a', '#3b82f6', '📁', 160, 110)) + '" alt="">' +
+              return '<div class="cell-cover"><img class="cc-img" src="' + e(p.cover || StoreHelpers.grad('#1e3a8a', '#3b82f6', '📁', 160, 110)) + '" alt="" loading="lazy" decoding="async">' +
                 '<div class="cc-b"><b>' + e(p.title) + '</b><span>' + e(excerpt(p.summary, 48)) + '</span></div></div>';
             },
             csv: function (p) { return p.title; }
@@ -1359,10 +1359,15 @@
       title: workshop ? t('workshopEdit') : t('workshopAdd'),
       fields: [
         { k: 'title', label: t('workshopTitle'), value: workshop ? workshop.title : '', required: true, maxLength: 200 },
+        { k: 'titleEnglish', label: 'اسم الورشة بالإنجليزية · Workshop title in English', value: workshop ? workshop.titleEnglish : '', maxLength: 200 },
+        { k: 'trainerName', label: t('workshopTrainer'), value: workshop ? workshop.trainerName : '', required: true, maxLength: 200 },
+        { k: 'trainerNameEnglish', label: 'اسم المدرب بالإنجليزية · Trainer name in English', value: workshop ? workshop.trainerNameEnglish : '', maxLength: 200 },
         { k: 'startsAt', label: t('workshopStartsAt'), value: workshop ? workshop.startsAt.slice(0, 16) : '', inputType: 'datetime-local', required: true },
         { k: 'durationMinutes', label: t('workshopDuration'), type: 'number', value: workshop ? workshop.durationMinutes : 60, min: 1, max: 1440, required: true },
         { k: 'location', label: t('workshopLocation'), value: workshop ? workshop.location : '', maxLength: 200 },
-        { k: 'description', label: t('workshopDescription'), type: 'textarea', full: true, rows: 4, value: workshop ? workshop.description : '' }
+        { k: 'locationEnglish', label: 'الموقع بالإنجليزية · Location in English', value: workshop ? workshop.locationEnglish : '', maxLength: 200 },
+        { k: 'description', label: t('workshopDescription'), type: 'textarea', full: true, rows: 4, value: workshop ? workshop.description : '' },
+        { k: 'descriptionEnglish', label: 'الوصف بالإنجليزية · Description in English', type: 'textarea', full: true, rows: 4, value: workshop ? workshop.descriptionEnglish : '' }
       ],
       submit: t('saveChanges'),
       onSubmit: function (values) {
@@ -1431,7 +1436,9 @@
               label: t('workshopAttendees'),
               sortVal: function (workshop) { return workshop.attendeesCount; },
               render: function (workshop) {
-                return '<span class="chip neutral">' + workshop.attendeesCount + '</span> ' +
+                return '<button class="chip neutral workshop-attendees-count" type="button" data-act="workshop-attendees" data-id="' +
+                  e(workshop.id) + '" aria-label="' + e(t('workshopAttendeesTitle')) + ' (' + workshop.attendeesCount + ')">' +
+                  workshop.attendeesCount + '</button> ' +
                   '<span class="st ' + (workshop.attendanceOpen ? 'st-ok' : 'st-mute') + '">' +
                   e(t(workshop.attendanceOpen ? 'workshopAttendanceIsOpen' : 'workshopAttendanceIsClosed')) + '</span>';
               },
@@ -1465,6 +1472,43 @@
       return String(item.id) === el.getAttribute('data-id');
     })[0];
     if (workshop) workshopForm(workshop);
+  });
+
+  Admin.on('workshop-attendees', function (el) {
+    var workshopId = el.getAttribute('data-id');
+    var workshop = AdminData.workshops().filter(function (item) {
+      return String(item.id) === workshopId;
+    })[0];
+    if (!workshop) return;
+
+    var modal = UI.modal({
+      title: t('workshopAttendeesTitle') + ' — ' + workshop.title,
+      size: 'md',
+      body: '<p class="tiny muted">' + e(t('workshopAttendeesLoading')) + '</p>'
+    });
+    fetch(SITE.u('workshopAttendees', workshopId), {
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('workshopAttendeesError'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      modal.body.innerHTML = data.attendees.length
+        ? '<div class="workshop-attendees-list"><div class="workshop-attendees-total">' +
+          e(t('workshopAttendees')) + ': <b>' + data.attendees.length + '</b></div>' +
+          data.attendees.map(function (attendee) {
+            return '<div class="workshop-attendee-row"><div><b>' + e(attendee.name) + '</b>' +
+              (attendee.handle ? '<small dir="ltr">@' + e(attendee.handle) + '</small>' : '') +
+              '</div><time>' + e(workshopDateTime(attendee.attendedAt)) + '</time></div>';
+          }).join('') + '</div>'
+        : '<p class="tiny muted">' + e(t('workshopNoAttendees')) + '</p>';
+    }).catch(function (error) {
+      modal.body.innerHTML = '<p class="form-error">' + e(error.message || t('workshopAttendeesError')) + '</p>';
+    });
   });
 
   Admin.on('workshop-qr', function (el) {
@@ -1780,7 +1824,7 @@
             render: function (p) {
               var img = (p.media && p.media.length && p.media[0].src) || (p.images && p.images[0]) || '';
               return '<div class="cell-cover">' +
-                (img ? '<img class="cc-img" src="' + e(img) + '" alt="">' : '') +
+                (img ? '<img class="cc-img" src="' + e(img) + '" alt="" loading="lazy" decoding="async">' : '') +
                 '<div class="cc-b" style="max-width:340px"><b class="cell-clip" style="font-weight:600">' + e(excerpt(p.content, 64)) + '</b>' +
                 '<span>' + ((p.media || p.images || []).length) + ' ' + e(t('colCover')) + '</span></div></div>';
             },

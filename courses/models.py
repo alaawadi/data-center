@@ -28,6 +28,7 @@ class Course(models.Model):
         verbose_name='المدرّب',
     )
     title = models.CharField('العنوان', max_length=200)
+    title_en = models.CharField('العنوان بالإنجليزية', max_length=200, blank=True)
     slug = models.SlugField('المعرّف', max_length=200, unique=True, blank=True, allow_unicode=True)
 
     category = models.CharField('التصنيف', max_length=120, blank=True)
@@ -36,6 +37,7 @@ class Course(models.Model):
 
     price = models.CharField('السعر', max_length=40, blank=True)
     duration = models.CharField('المدة', max_length=40, blank=True)
+    duration_en = models.CharField('المدة بالإنجليزية', max_length=40, blank=True)
     period = models.CharField('الفترة', max_length=40, blank=True)
 
     cover = models.ImageField('صورة الغلاف', upload_to='courses/covers/%Y/%m/', blank=True)
@@ -112,6 +114,7 @@ class Course(models.Model):
         """
         owner = self.owner
         cover = self.cover.url if self.cover else ''
+        price_amount = str(self.price or '').strip().replace('₪', '').strip()
         syllabus = [
             {
                 'id': section.pk,
@@ -140,19 +143,22 @@ class Course(models.Model):
             'id': self.slug or str(self.pk),
             'pk': self.pk,
             'title': self.title,
+            'titleEnglish': self.title_en,
             'slug': self.slug,
             'category': self.category,
             'description': self.summary,
             'summary': self.summary,
             'content': self.content,
-            'price': self.price,
+            'price': f'₪{price_amount}' if price_amount else '',
             'duration': self.duration,
+            'durationEnglish': self.duration_en,
             'period': self.period,
             'image': cover,
             'courseImage': cover,
             'cover': cover,
             'issuer': owner.display_name if owner else '',
             'instructor': owner.display_name if owner else '',
+            'instructorEnglish': (owner.trainer_name_en or owner.full_name_en) if owner else '',
             'skills': list(self.skills or []),
             'credentialId': self.credential_id,
             'verifyUrl': self.verify_url,
@@ -602,6 +608,8 @@ class CourseCertificate(models.Model):
         student = self.student
         data.update(
             {
+                'certificateId': f'earned-{self.pk}',
+                'courseId': self.course.slug or str(self.course_id),
                 'earned': True,
                 'completed': True,
                 'certificateCode': self.code,
@@ -613,6 +621,8 @@ class CourseCertificate(models.Model):
                 # الشهادة تُنسب لطالبها في صفحات البروفايل
                 'handle': student.handle if student else '',
                 'studentName': student.display_name if student else '',
+                'studentNameArabic': student.full_name_ar if student else '',
+                'studentNameEnglish': student.full_name_en if student else '',
                 'studentHandle': student.handle if student else '',
                 'trainerHandle': self.course.owner.handle if self.course.owner_id else '',
                 'active': self.is_active,
@@ -691,10 +701,15 @@ class InPersonWorkshop(models.Model):
     """An in-person workshop with a revocable QR attendance token."""
 
     title = models.CharField('اسم الورشة', max_length=200)
+    title_en = models.CharField('اسم الورشة بالإنجليزية', max_length=200, blank=True)
+    trainer_name = models.CharField('اسم المدرب', max_length=200, blank=True, default='')
+    trainer_name_en = models.CharField('اسم المدرب بالإنجليزية', max_length=200, blank=True, default='')
     description = models.TextField('وصف الورشة', blank=True)
+    description_en = models.TextField('وصف الورشة بالإنجليزية', blank=True)
     starts_at = models.DateTimeField('موعد الورشة')
     duration_minutes = models.PositiveSmallIntegerField('المدة بالدقائق')
     location = models.CharField('الموقع', max_length=200, blank=True)
+    location_en = models.CharField('الموقع بالإنجليزية', max_length=200, blank=True)
     qr_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     attendance_open = models.BooleanField('الحضور مفتوح', default=False)
     created_at = models.DateTimeField('تاريخ الإنشاء', auto_now_add=True)
@@ -751,6 +766,9 @@ class WorkshopCertificate(models.Model):
         verbose_name='الحضور',
     )
     workshop_title = models.CharField('اسم الورشة', max_length=200)
+    workshop_title_en = models.CharField('اسم الورشة بالإنجليزية', max_length=200, blank=True, default='')
+    trainer_name = models.CharField('اسم المدرب', max_length=200, blank=True, default='')
+    trainer_name_en = models.CharField('اسم المدرب بالإنجليزية', max_length=200, blank=True, default='')
     student_name = models.CharField('اسم الطالب', max_length=200)
     attended_on = models.DateField('تاريخ الحضور')
     duration_minutes = models.PositiveSmallIntegerField('المدة بالدقائق')
@@ -769,14 +787,32 @@ class WorkshopCertificate(models.Model):
 
     def to_public_dict(self):
         student = self.attendance.student
+        workshop = self.attendance.workshop
         return {
             'id': f'workshop-{self.pk}',
             'workshop': True,
             'title': self.workshop_title,
+            'titleEnglish': self.workshop_title_en,
+            'trainerName': self.trainer_name,
+            'trainerNameEnglish': self.trainer_name_en,
             'studentName': self.student_name,
+            'studentNameArabic': student.full_name_ar,
+            'studentNameEnglish': student.full_name_en,
             'handle': student.handle,
             'date': self.attended_on.isoformat(),
             'duration': self.duration_minutes,
             'code': self.code,
             'earned': True,
+            'workshopDetails': {
+                'title': self.workshop_title,
+                'titleEnglish': self.workshop_title_en,
+                'trainer': self.trainer_name,
+                'trainerEnglish': self.trainer_name_en,
+                'date': self.attended_on.isoformat(),
+                'duration': self.duration_minutes,
+                'location': workshop.location,
+                'locationEnglish': workshop.location_en,
+                'description': workshop.description,
+                'descriptionEnglish': workshop.description_en,
+            },
         }

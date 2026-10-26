@@ -1550,6 +1550,7 @@ class PlatformSettingsAndBackupTests(TestCase):
     def test_platform_settings_are_persisted_and_reject_removed_options(self):
         response = self.post_settings({
             'name': 'منصة جديدة',
+            'homepageTitle': 'تعلّم وارتقِ بمهاراتك',
             'tagline': 'نتعلم وننجز',
             'email': 'hello@example.com',
             'phone': '+970 59 1234567',
@@ -1562,8 +1563,13 @@ class PlatformSettingsAndBackupTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['settings']['name'], 'منصة جديدة')
+        self.assertEqual(
+            response.json()['settings']['homepageTitle'],
+            'تعلّم وارتقِ بمهاراتك',
+        )
         stored = PlatformSettings.objects.get(pk=1).data
         self.assertEqual(stored['tagline'], 'نتعلم وننجز')
+        self.assertEqual(stored['homepageTitle'], 'تعلّم وارتقِ بمهاراتك')
         self.assertFalse(stored['allowSignup'])
         self.assertEqual(stored['brandPalette'], 'emerald')
         self.assertEqual(
@@ -1572,6 +1578,7 @@ class PlatformSettingsAndBackupTests(TestCase):
         )
         public_response = self.client.get(reverse('landing:home'))
         self.assertContains(public_response, 'منصة جديدة')
+        self.assertContains(public_response, 'تعلّم وارتقِ بمهاراتك')
         self.assertContains(public_response, 'نتعلم وننجز')
         self.assertContains(public_response, 'https://example.com')
         self.assertContains(public_response, 'data-brand-palette="emerald"')
@@ -1580,6 +1587,10 @@ class PlatformSettingsAndBackupTests(TestCase):
         self.assertContains(panel_response, 'data-brand-palette="emerald"')
         self.assertGreater(panel_response.context['settings_summary']['databaseSizeBytes'], 0)
         self.assertEqual(panel_response.context['platform_settings']['brandPalette'], 'emerald')
+        self.assertEqual(
+            panel_response.context['platform_settings']['homepageTitle'],
+            'تعلّم وارتقِ بمهاراتك',
+        )
 
         removed_option = self.post_settings({'commentsEnabled': False})
         self.assertEqual(removed_option.status_code, 400)
@@ -1587,6 +1598,12 @@ class PlatformSettingsAndBackupTests(TestCase):
         invalid_palette = self.post_settings({'brandPalette': ['ocean']})
         self.assertEqual(invalid_palette.status_code, 400)
         self.assertEqual(PlatformSettings.objects.get(pk=1).data['brandPalette'], 'emerald')
+        invalid_homepage_title = self.post_settings({'homepageTitle': ''})
+        self.assertEqual(invalid_homepage_title.status_code, 400)
+        self.assertEqual(
+            PlatformSettings.objects.get(pk=1).data['homepageTitle'],
+            'تعلّم وارتقِ بمهاراتك',
+        )
 
     def test_current_platform_colors_are_default_palette(self):
         response = self.client.get(reverse('dashboard:platform-settings'))
@@ -1751,10 +1768,15 @@ class InPersonWorkshopTests(TestCase):
     def workshop_payload(self, **overrides):
         payload = {
             'title': 'ورشة التصميم الرقمي',
+            'titleEnglish': 'Digital Design Workshop',
+            'trainerName': 'مدرب الورشة',
+            'trainerNameEnglish': 'Workshop Trainer',
             'description': 'تدريب عملي',
+            'descriptionEnglish': 'Practical training',
             'startsAt': (timezone.now() + timedelta(days=1)).replace(microsecond=0).isoformat(),
             'durationMinutes': 90,
             'location': 'غزة',
+            'locationEnglish': 'Gaza',
         }
         payload.update(overrides)
         return payload
@@ -1774,7 +1796,46 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(len(response.context['admin_workshops_json']), 1)
         self.assertTrue(response.context['admin_workshops_json'][0]['qrImage'].startswith('data:image/png;base64,'))
         self.assertEqual(response.context['admin_workshops_json'][0]['id'], workshop.pk)
+        self.assertEqual(response.context['admin_workshops_json'][0]['trainerName'], 'مدرب الورشة')
+        self.assertEqual(response.context['admin_workshops_json'][0]['titleEnglish'], 'Digital Design Workshop')
+        self.assertEqual(response.context['admin_workshops_json'][0]['trainerNameEnglish'], 'Workshop Trainer')
         self.assertFalse(workshop.attendance_open)
+
+    def test_workshop_creation_requires_a_trainer_name(self):
+        self.client.force_login(self.admin)
+
+        response = self.post_json(self.save_url, self.workshop_payload(trainerName=' '))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(InPersonWorkshop.objects.exists())
+
+    def test_adding_a_trainer_to_an_existing_workshop_fills_older_certificates(self):
+        workshop = InPersonWorkshop.objects.create(
+            title='ورشة سابقة',
+            starts_at=timezone.now(),
+            duration_minutes=60,
+        )
+        attendance = WorkshopAttendance.objects.create(
+            workshop=workshop,
+            student=self.student,
+        )
+        certificate = WorkshopCertificate.objects.create(
+            attendance=attendance,
+            workshop_title=workshop.title,
+            student_name=self.student.display_name,
+            attended_on=timezone.localdate(),
+            duration_minutes=workshop.duration_minutes,
+        )
+
+        self.client.force_login(self.admin)
+        response = self.post_json(
+            self.save_url,
+            self.workshop_payload(id=workshop.pk, trainerName='مدرب سابق'),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        certificate.refresh_from_db()
+        self.assertEqual(certificate.trainer_name, 'مدرب سابق')
 
     def test_workshop_admin_endpoints_reject_non_admins(self):
         self.client.force_login(self.student)
@@ -1794,6 +1855,38 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(status_response.status_code, 403)
         workshop.refresh_from_db()
         self.assertFalse(workshop.attendance_open)
+
+    def test_admin_can_view_workshop_attendees(self):
+        workshop = self.create_workshop()
+        attendance = WorkshopAttendance.objects.create(
+            workshop=workshop,
+            student=self.student,
+        )
+        url = reverse('dashboard:workshop-attendees', args=[workshop.pk])
+
+        self.client.force_login(self.admin)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['attendees'], [{
+            'name': self.student.display_name,
+            'handle': self.student.handle,
+            'attendedAt': attendance.attended_at.isoformat(),
+        }])
+
+    def test_workshop_attendee_list_rejects_non_admins_and_missing_workshops(self):
+        workshop = self.create_workshop()
+        url = reverse('dashboard:workshop-attendees', args=[workshop.pk])
+
+        self.client.force_login(self.student)
+        denied = self.client.get(url)
+        self.assertEqual(denied.status_code, 403)
+
+        self.client.force_login(self.admin)
+        missing = self.client.get(
+            reverse('dashboard:workshop-attendees', args=[999999])
+        )
+        self.assertEqual(missing.status_code, 404)
 
     def test_scan_requires_login_student_role_and_open_attendance(self):
         workshop = self.create_workshop()
@@ -1847,6 +1940,9 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(WorkshopCertificate.objects.filter(attendance__workshop=workshop).count(), 1)
         certificate = WorkshopCertificate.objects.get(attendance__student=self.student)
         self.assertEqual(certificate.workshop_title, workshop.title)
+        self.assertEqual(certificate.workshop_title_en, workshop.title_en)
+        self.assertEqual(certificate.trainer_name, workshop.trainer_name)
+        self.assertEqual(certificate.trainer_name_en, workshop.trainer_name_en)
         self.assertEqual(certificate.student_name, self.student.display_name)
         self.assertEqual(certificate.duration_minutes, workshop.duration_minutes)
         self.assertEqual(certificate.code, first.json()['certificate']['code'])
@@ -1861,6 +1957,7 @@ class InPersonWorkshopTests(TestCase):
         ]
         self.assertEqual(len(workshop_certs), 1)
         self.assertEqual(workshop_certs[0]['title'], workshop.title)
+        self.assertEqual(workshop_certs[0]['trainerName'], 'مدرب الورشة')
         self.assertEqual(workshop_certs[0]['duration'], workshop.duration_minutes)
 
         self.client.force_login(self.admin)
@@ -1869,12 +1966,14 @@ class InPersonWorkshopTests(TestCase):
             self.workshop_payload(
                 id=workshop.pk,
                 title='عنوان محدث',
+                trainerName='مدرب بديل',
                 durationMinutes=120,
             ),
         )
         self.assertEqual(edited.status_code, 200, edited.content)
         certificate.refresh_from_db()
         self.assertEqual(certificate.workshop_title, 'ورشة التصميم الرقمي')
+        self.assertEqual(certificate.trainer_name, 'مدرب الورشة')
         self.assertEqual(certificate.duration_minutes, 90)
 
     def test_regenerating_qr_revokes_old_code_and_closes_attendance(self):

@@ -163,14 +163,17 @@ def platform_settings(request):
         return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
 
     allowed = {
-        'name', 'tagline', 'email', 'phone', 'whatsapp', 'website',
+        'name', 'homepageTitle', 'tagline', 'email', 'phone', 'whatsapp', 'website',
         'maintenance', 'allowSignup', 'defaultLang', 'brandPalette',
     }
     if set(payload) - allowed:
         return _admin_api_error('تحتوي البيانات على حقول غير مسموح بها.', 400)
 
     values = {}
-    limits = {'name': 150, 'tagline': 200, 'email': 254, 'phone': 30, 'whatsapp': 16, 'website': 200}
+    limits = {
+        'name': 150, 'homepageTitle': 200, 'tagline': 200, 'email': 254,
+        'phone': 30, 'whatsapp': 16, 'website': 200,
+    }
     for key, limit in limits.items():
         if key not in payload:
             continue
@@ -178,7 +181,7 @@ def platform_settings(request):
         if not isinstance(value, str):
             return _admin_api_error('قيمة أحد الحقول النصية غير صالحة.', 400)
         value = value.strip()
-        if len(value) > limit or (key in ('name', 'tagline') and not value):
+        if len(value) > limit or (key in ('name', 'homepageTitle', 'tagline') and not value):
             return _admin_api_error('تحقق من أطوال بيانات المنصة المطلوبة.', 400)
         values[key] = value
 
@@ -446,10 +449,15 @@ def _workshop_data(workshop):
     return {
         'id': workshop.pk,
         'title': workshop.title,
+        'titleEnglish': workshop.title_en,
+        'trainerName': workshop.trainer_name,
+        'trainerNameEnglish': workshop.trainer_name_en,
         'description': workshop.description,
+        'descriptionEnglish': workshop.description_en,
         'startsAt': workshop.starts_at.isoformat(),
         'durationMinutes': workshop.duration_minutes,
         'location': workshop.location,
+        'locationEnglish': workshop.location_en,
         'attendanceOpen': workshop.attendance_open,
         'qrImage': qr_image,
         'attendeesCount': workshop.attendees_count
@@ -468,13 +476,20 @@ def workshop_save(request):
     except (json.JSONDecodeError, UnicodeDecodeError):
         return _admin_api_error('بيانات الورشة غير صالحة.', 400)
     if not isinstance(payload, dict) or set(payload) - {
-        'id', 'title', 'description', 'startsAt', 'durationMinutes', 'location'
+        'id', 'title', 'titleEnglish', 'trainerName', 'trainerNameEnglish',
+        'description', 'descriptionEnglish', 'startsAt', 'durationMinutes',
+        'location', 'locationEnglish'
     }:
         return _admin_api_error('بيانات الورشة غير صالحة.', 400)
 
     title = payload.get('title')
+    trainer_name = payload.get('trainerName')
+    title_en = payload.get('titleEnglish')
+    trainer_name_en = payload.get('trainerNameEnglish')
     description = payload.get('description', '')
+    description_en = payload.get('descriptionEnglish')
     location = payload.get('location', '')
+    location_en = payload.get('locationEnglish')
     try:
         starts_at = (
             parse_datetime(payload.get('startsAt', ''))
@@ -486,12 +501,26 @@ def workshop_save(request):
     duration = payload.get('durationMinutes')
     if (
         not isinstance(title, str) or not title.strip() or len(title.strip()) > 200
+        or not isinstance(trainer_name, str) or not trainer_name.strip()
+        or len(trainer_name.strip()) > 200
+        or (title_en is not None and (
+            not isinstance(title_en, str) or len(title_en.strip()) > 200
+        ))
+        or (trainer_name_en is not None and (
+            not isinstance(trainer_name_en, str) or len(trainer_name_en.strip()) > 200
+        ))
         or not isinstance(description, str) or len(description) > 4000
+        or (description_en is not None and (
+            not isinstance(description_en, str) or len(description_en) > 4000
+        ))
         or not isinstance(location, str) or len(location.strip()) > 200
+        or (location_en is not None and (
+            not isinstance(location_en, str) or len(location_en.strip()) > 200
+        ))
         or starts_at is None
         or isinstance(duration, bool) or not isinstance(duration, int) or not 1 <= duration <= 1440
     ):
-        return _admin_api_error('تحقق من عنوان الورشة وموعدها ومدتها.', 400)
+        return _admin_api_error('تحقق من عنوان الورشة واسم المدرب وموعدها ومدتها.', 400)
     if timezone.is_naive(starts_at):
         starts_at = timezone.make_aware(starts_at, timezone.get_current_timezone())
 
@@ -505,26 +534,79 @@ def workshop_save(request):
             with transaction.atomic():
                 workshop = InPersonWorkshop.objects.select_for_update().get(pk=workshop_id)
                 workshop.title = title.strip()
+                if title_en is not None:
+                    workshop.title_en = title_en.strip()
+                workshop.trainer_name = trainer_name.strip()
+                if trainer_name_en is not None:
+                    workshop.trainer_name_en = trainer_name_en.strip()
                 workshop.description = description.strip()
+                if description_en is not None:
+                    workshop.description_en = description_en.strip()
                 workshop.starts_at = starts_at
                 workshop.duration_minutes = duration
                 workshop.location = location.strip()
+                if location_en is not None:
+                    workshop.location_en = location_en.strip()
                 workshop.save(update_fields=[
-                    'title', 'description', 'starts_at', 'duration_minutes', 'location', 'updated_at',
+                    'title', 'title_en', 'trainer_name', 'trainer_name_en',
+                    'description', 'description_en', 'starts_at', 'duration_minutes',
+                    'location', 'location_en', 'updated_at',
                 ])
+                WorkshopCertificate.objects.filter(
+                    attendance__workshop=workshop,
+                    trainer_name='',
+                ).update(trainer_name=workshop.trainer_name)
+                WorkshopCertificate.objects.filter(
+                    attendance__workshop=workshop,
+                    trainer_name_en='',
+                ).update(trainer_name_en=workshop.trainer_name_en)
+                WorkshopCertificate.objects.filter(
+                    attendance__workshop=workshop,
+                    workshop_title_en='',
+                ).update(workshop_title_en=workshop.title_en)
         except InPersonWorkshop.DoesNotExist:
             return _admin_api_error('الورشة غير موجودة.', 404)
         status = 200
     else:
         workshop = InPersonWorkshop.objects.create(
             title=title.strip(),
+            title_en=title_en.strip() if title_en is not None else '',
+            trainer_name=trainer_name.strip(),
+            trainer_name_en=trainer_name_en.strip() if trainer_name_en is not None else '',
             description=description.strip(),
+            description_en=description_en.strip() if description_en is not None else '',
             starts_at=starts_at,
             duration_minutes=duration,
             location=location.strip(),
+            location_en=location_en.strip() if location_en is not None else '',
         )
         status = 201
     return JsonResponse({'ok': True, 'workshop': _workshop_data(workshop)}, status=status)
+
+
+@require_http_methods(['GET'])
+def workshop_attendees(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    if not str(pk).isdigit():
+        return _admin_api_error('الورشة غير موجودة.', 404)
+    if not InPersonWorkshop.objects.filter(pk=pk).exists():
+        return _admin_api_error('الورشة غير موجودة.', 404)
+    attendees = WorkshopAttendance.objects.filter(workshop_id=pk).select_related(
+        'student'
+    ).order_by('-attended_at', '-pk')
+    return JsonResponse({
+        'ok': True,
+        'attendees': [
+            {
+                'name': attendance.student.display_name,
+                'handle': attendance.student.handle,
+                'attendedAt': attendance.attended_at.isoformat(),
+            }
+            for attendance in attendees
+        ],
+    })
 
 
 @require_POST
@@ -616,6 +698,9 @@ def workshop_attendance_scan(request):
                 attendance=attendance,
                 defaults={
                     'workshop_title': workshop.title,
+                    'workshop_title_en': workshop.title_en,
+                    'trainer_name': workshop.trainer_name,
+                    'trainer_name_en': workshop.trainer_name_en,
                     'student_name': request.user.display_name,
                     'attended_on': timezone.localtime(workshop.starts_at).date(),
                     'duration_minutes': workshop.duration_minutes,

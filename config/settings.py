@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -26,16 +28,50 @@ def _env_bool(name, default=False):
     return value.strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'django-insecure-8)9)dr&)j&ua*+3*%plq^r=@b8w%ym%l5(6rk7mgldtz!)%r!g',
-)
+def _env_list(name, default=()):
+    value = os.environ.get(name)
+    if value is None:
+        return list(default)
+    return [item.strip() for item in value.split(',') if item.strip()]
 
+
+def _env_path(name, default):
+    path = Path(os.environ.get(name, default))
+    return path if path.is_absolute() else BASE_DIR / path
+
+
+# SECURITY WARNING: keep the secret key used in production secret!
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = _env_bool('DJANGO_DEBUG', True)
 
-ALLOWED_HOSTS = ['alaawadi99998.pythonanywhere.com', '127.0.0.1', 'localhost']
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '').strip()
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured(
+            'Set DJANGO_SECRET_KEY to a unique secret before running with DJANGO_DEBUG=False.'
+        )
+    SECRET_KEY = 'django-insecure-development-only-do-not-use-in-production'
+elif not DEBUG and (
+    SECRET_KEY.startswith('django-insecure-')
+    or len(SECRET_KEY) < 50
+    or len(set(SECRET_KEY)) < 5
+):
+    raise ImproperlyConfigured(
+        'DJANGO_SECRET_KEY must be at least 50 characters and use a secure random value.'
+    )
+
+_production_hosts = ('alaawadi99998.pythonanywhere.com',)
+ALLOWED_HOSTS = _env_list(
+    'DJANGO_ALLOWED_HOSTS',
+    _production_hosts if not DEBUG else (*_production_hosts, '127.0.0.1', 'localhost'),
+)
+if not DEBUG and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured('Set DJANGO_ALLOWED_HOSTS to the hostnames served by this site.')
+
+CSRF_TRUSTED_ORIGINS = _env_list(
+    'DJANGO_CSRF_TRUSTED_ORIGINS',
+    ('https://alaawadi99998.pythonanywhere.com',) if not DEBUG else (),
+)
 
 # Application definition
 
@@ -100,7 +136,10 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': _env_path('DJANGO_SQLITE_PATH', 'db.sqlite3'),
+        'OPTIONS': {
+            'timeout': int(os.environ.get('DJANGO_SQLITE_TIMEOUT', 20)),
+        },
     }
 }
 
@@ -150,11 +189,11 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = _env_path('DJANGO_STATIC_ROOT', 'staticfiles')
 
 # Media (uploaded files: avatars, covers)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = _env_path('DJANGO_MEDIA_ROOT', 'media')
 
 # The project editor posts base64 images/files as JSON, so allow a larger body.
 DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_SIZE', 25 * 1024 * 1024))
@@ -204,16 +243,29 @@ EMAIL_USE_TLS = _env_bool('EMAIL_USE_TLS', True)
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 14  # 2 weeks
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 X_FRAME_OPTIONS = 'DENY'
 SECURE_REFERRER_POLICY = 'same-origin'
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
-# HTTPS-only protections — active whenever DEBUG is off.
-if not DEBUG:
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
-    SECURE_SSL_REDIRECT = _env_bool('DJANGO_SECURE_SSL_REDIRECT', True)
-    SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365
-    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = True
+# HTTPS-only protections. HSTS subdomains and preload stay opt-in until every
+# subdomain is confirmed to support HTTPS.
+SECURE_SSL_REDIRECT = _env_bool('DJANGO_SECURE_SSL_REDIRECT', not DEBUG)
+SECURE_HSTS_SECONDS = int(
+    os.environ.get('DJANGO_SECURE_HSTS_SECONDS', 60 * 60 * 24 * 365 if not DEBUG else 0)
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = _env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
+if _env_bool('DJANGO_USE_X_FORWARDED_PROTO', not DEBUG):
+    # PythonAnywhere terminates HTTPS at its proxy and forwards this header.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+if SECURE_HSTS_SECONDS:
+    if SECURE_HSTS_INCLUDE_SUBDOMAINS:
+        SECURE_HSTS_SECONDS = max(SECURE_HSTS_SECONDS, 60 * 60 * 24 * 365)
+
+if SECURE_HSTS_PRELOAD and not SECURE_HSTS_INCLUDE_SUBDOMAINS:
+    raise ImproperlyConfigured(
+        'DJANGO_SECURE_HSTS_PRELOAD requires DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True.'
+    )

@@ -189,7 +189,7 @@
       var c = COURSES[key].card;
       return '' +
         '<div class="box" role="button" tabindex="0" data-course="' + esc(c.id) + '">' +
-          '<img src="' + esc(c.image) + '" alt="' + esc(c.alt) + '" loading="lazy">' +
+          '<img src="' + esc(c.image) + '" alt="' + esc(c.alt) + '" loading="lazy" decoding="async">' +
           '<span class="price">' + esc(c.price) + '</span>' +
           '<div class="content">' +
             '<div class="stars">' + starRow() + '</div>' +
@@ -234,7 +234,7 @@
     list.innerHTML = certs.map(function (c) {
       return '' +
         '<a class="course-sheet-item" href="' + SITE.u('course', esc(c.id)) + '?from=landing">' +
-          '<img class="csi-thumb" src="' + esc(c.image) + '" alt="' + esc(c.title) + '" loading="lazy">' +
+          '<img class="csi-thumb" src="' + esc(c.image) + '" alt="' + esc(c.title) + '" loading="lazy" decoding="async">' +
           '<div class="csi-main">' +
             '<div class="csi-title">' + esc(c.title) + '</div>' +
             '<div class="csi-sub">' +
@@ -397,7 +397,7 @@
       ['interpal_org.svg', 'Interpal']
     ];
     var html = logos.map(function (l) {
-      return '<img src="' + SITE.assets('images/' + l[0]) + '" alt="' + l[1] + '" loading="lazy">';
+      return '<img src="' + SITE.assets('images/' + l[0]) + '" alt="' + l[1] + '" loading="lazy" decoding="async">';
     }).join('');
     marquee.innerHTML = '<div class="bm-set">' + html + '</div>' +
       '<div class="bm-set">' + html + '</div>';
@@ -494,9 +494,12 @@
   function initLoader() {
     var loader = $('#siteLoader');
     if (!loader) return;
-    function done() { loader.classList.add('done'); setTimeout(function () { loader.remove(); }, 400); }
-    if (document.readyState === 'complete') done();
-    else window.addEventListener('load', function () { setTimeout(done, 300); });
+    if (document.documentElement.classList.contains('is-page-transitioning')) {
+      loader.remove();
+      return;
+    }
+    function done() { loader.classList.add('done'); setTimeout(function () { loader.remove(); }, 300); }
+    setTimeout(done, 120);
   }
 
   /* ----------------------------------------------------------

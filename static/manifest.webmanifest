@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "مركز داتا للتدريب والتطوير",
-  "short_name": "مركز داتا",
-  "description": "منصة مركز داتا للتدريب والتطوير والدورات والمشاريع",
+  "name": "Data Center",
+  "short_name": "Data Center",
+  "description": "Data Center learning, training, and project platform",
   "lang": "ar",
   "dir": "rtl",
   "start_url": "/",

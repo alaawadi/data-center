@@ -9,10 +9,14 @@
       <div class="editor-main">
         <div>
           <input class="title-input" id="edTitle" autocomplete="off">
-          <div class="slug-row"><span dir="ltr">/courses/<b id="edSlug">…</b></span></div>
+          <input class="title-input" id="edTitleEnglish" dir="ltr" maxlength="200" autocomplete="off" placeholder="Course title in English" value="{{ course_title_en|default:'' }}">
         </div>
 
         <div id="edCoverHost"></div>
+        <div class="side-card-box course-templates-box editor-templates-mobile">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="tpl-list" data-editor-templates></div>
+        </div>
 
         <div class="rich-editor">
           <div class="editor-toolbar" id="edToolbar"></div>
@@ -21,9 +25,10 @@
 
         <div class="editor-foot-meta" id="edMeta"></div>
 
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="gallery-edit-grid" id="edGallery"></div>
+        <div class="side-card-box editor-checklist-box editor-checklist-mobile">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" data-checklist-pct>0%</span></h3>
+          <div class="checklist-bar"><i data-checklist-bar style="width:0%"></i></div>
+          <div class="checklist-items" data-checklist-list></div>
         </div>
 
         <div class="side-card-box" id="edSyllabusBox">
@@ -34,10 +39,15 @@
       </div>
 
       <aside class="editor-side">
-        <div class="side-card-box">
+        <div class="side-card-box editor-checklist-box editor-checklist-desktop">
           <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" id="edProgressPct">0%</span></h3>
-          <div class="checklist-bar"><i id="edProgressBar" style="width:0%"></i></div>
-          <div class="checklist-items" id="edChecklist"></div>
+          <div class="checklist-bar"><i id="edProgressBar" data-checklist-bar style="width:0%"></i></div>
+          <div class="checklist-items" id="edChecklist" data-checklist-list></div>
+        </div>
+
+        <div class="side-card-box course-templates-box editor-templates-desktop">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          <div class="tpl-list" data-editor-templates></div>
         </div>
 
         <div class="side-card-box">
@@ -45,19 +55,17 @@
           <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2"></textarea></div>
           <div class="field-row">
             <div class="field"><label class="label" id="lblCategory"></label><input class="input" id="edCategory"></div>
+            {% if is_admin_editor %}
             <div class="field">
               <label class="label" id="lblRole"></label>
-              {% if is_admin_editor %}
               <select class="select" id="edRole" required>
                 <option value="" data-trainer-placeholder>اختر مدرباً</option>
                 {% for trainer in admin_trainers %}
                 <option value="{{ trainer.pk }}">{{ trainer.display_name }}</option>
                 {% endfor %}
               </select>
-              {% else %}
-              <input class="input" id="edRole">
-              {% endif %}
             </div>
+            {% endif %}
           </div>
           <div class="field"><label class="label" id="lblDate"></label><input type="date" class="input" id="edDate"></div>
           <div class="field"><label class="label">GitHub</label><input class="input" id="edGithub" dir="ltr" placeholder="https://github.com/..."></div>
@@ -67,14 +75,24 @@
         <div class="side-card-box" id="edCourseMetaBox">
           <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
           <div class="field-row">
-            <div class="field"><label class="label" id="lblPrice"></label><input class="input" id="edPrice" dir="auto" placeholder="₪180"></div>
-            <div class="field"><label class="label" id="lblDuration"></label><input class="input" id="edDuration" dir="auto" placeholder="36 ساعة"></div>
+            <div class="field">
+              <label class="label" id="lblPrice"></label>
+              <div class="price-input-wrap">
+                <span aria-hidden="true">₪</span>
+                <input class="input" id="edPrice" type="number" min="0" step="0.01" dir="ltr" placeholder="180">
+              </div>
+            </div>
+            <div class="field"><label class="label" id="lblDuration"></label><input class="input" id="edDuration" type="number" min="0" step="0.5" dir="ltr" placeholder="36"></div>
           </div>
           <div class="field-row">
-            <div class="field"><label class="label" id="lblPeriod"></label><input class="input" id="edPeriod" dir="auto" placeholder="12 لقاءات"></div>
-            <div class="field"><label class="label" id="lblCredId"></label><input class="input" id="edCredId" dir="ltr"></div>
+            <div class="field">
+              <label class="label" id="lblPeriod"></label>
+              <div class="period-input-wrap">
+                <input class="input" id="edPeriod" type="number" min="1" step="1" dir="ltr" placeholder="12">
+                <span id="lblPeriodUnit">لقاءات</span>
+              </div>
+            </div>
           </div>
-          <div class="field"><label class="label" id="lblVerifyUrl2"></label><input class="input" id="edVerifyUrl" dir="ltr" placeholder="https://..."></div>
         </div>
 
         <div class="side-card-box">
@@ -85,31 +103,6 @@
           <div class="chips-suggest" id="edTagsSuggest"></div>
         </div>
 
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="dropzone" id="edFilesDrop">
-            <input type="file" multiple id="edFilesInput">
-            <span class="dz-ic"></span>
-            <span class="dz-label"></span>
-          </div>
-          <div class="files-list" id="edFilesList"></div>
-        </div>
-
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="tpl-list" id="edTemplates"></div>
-        </div>
-
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
-            <button class="btn-icon sm" id="edIdeaRefresh" title="فكرة أخرى"></button></h3>
-          <div class="ideas-list" id="edIdeas"></div>
-        </div>
-
-        <div class="side-card-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="social-preview" id="edSocialPreview"></div>
-        </div>
       </aside>
     </div>
 {% endblock %}
