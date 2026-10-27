@@ -210,6 +210,41 @@
     var backLink = document.getElementById('edBack');
     backLink.innerHTML = UI.icon(dirRtl ? 'arrow-right' : 'arrow-left', 18);
     backLink.addEventListener('click', function (event) {
+      if (page === 'edit-course') {
+        event.preventDefault();
+        UI.confirm(t('courseLeaveConfirm')).then(function (confirmed) {
+          if (!confirmed) return;
+          if (typeof window.courseEditorDiscardPendingChanges !== 'function') {
+            UI.toast(t('courseLeaveRestoreFailed'), 'error');
+            return;
+          }
+          window.courseEditorDiscardPendingChanges().then(function () {
+            var previousPage = null;
+            try {
+              previousPage = document.referrer ? new URL(document.referrer) : null;
+            } catch (error) {
+              console.warn('تعذر تحديد الصفحة السابقة لمحرر الدورة.', error);
+            }
+            var isEditorPage = previousPage &&
+              (/\/courses\/edit(?:\/|$)/.test(previousPage.pathname) ||
+                /\/projects\/edit(?:\/|$)/.test(previousPage.pathname));
+            var isLoginPage = previousPage && /\/(?:login|accounts\/login)\/?$/.test(previousPage.pathname);
+            var canGoBack = previousPage && previousPage.origin === window.location.origin &&
+              !isEditorPage && !isLoginPage && window.history.length > 1;
+            try {
+              window.sessionStorage.removeItem('dc-page-transition');
+            } catch (error) {
+              console.warn('تعذر مسح حالة انتقال الصفحة.', error);
+            }
+            if (canGoBack) window.history.back();
+            else window.location.href = backLink.href;
+          }).catch(function (error) {
+            console.error('تعذر استعادة آخر نسخة منشورة قبل مغادرة محرر الدورة.', error);
+            UI.toast(t('courseLeaveRestoreFailed'), 'error');
+          });
+        });
+        return;
+      }
       var previousPage;
       try {
         previousPage = document.referrer ? new URL(document.referrer) : null;
@@ -310,6 +345,7 @@
       status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     });
     if (isCourse) {
+      p.coverStorageName = p.coverStorageName || '';
       if (existing) {
         p.summary = existing.description || existing.summary || '';
         p.role = existing.instructor || existing.issuer || '';
@@ -330,7 +366,21 @@
       p.verifyUrl = p.verifyUrl || '';
     }
     var isNew = !existing;
+    var createdDuringSession = false;
+    var initialCourseSnapshot = isCourse && existing
+      ? JSON.parse(JSON.stringify(p))
+      : null;
     var dirty = false;
+    var syllabusDirty = false;
+    var saveInFlight = false;
+    var queuedSave = null;
+    var changeVersion = 0;
+    var syllabusVersion = 0;
+    var pendingDeletionHistory = [];
+    var deletionHistoryKey = isCourse ? 'dc-course-deletions:' + p.id : '';
+    var renderDeletionHistory = function () {};
+    var versionRestorePending = false;
+    var leaveRequested = false;
     var SERVER_SAVE = (page === 'edit-project' || page === 'edit-course');
 
     /* صناديق الدورة لا تظهر في محرر المشاريع (ولكنها تُحذف قبل ضبط عناوين البطاقات) */
@@ -356,6 +406,48 @@
     var titleEl = document.getElementById('edTitle');
     var titleEnglishEl = isCourse ? document.getElementById('edTitleEnglish') : null;
     var contentEl = document.getElementById('edContent');
+    var contentToggle = isCourse ? document.getElementById('edContentToggle') : null;
+    var contentPanel = isCourse ? document.getElementById('edContentPanel') : null;
+    var syllabusToggle = isCourse ? document.getElementById('edSyllabusToggle') : null;
+    var syllabusPanel = isCourse ? document.getElementById('edSyllabusPanel') : null;
+    function syncCourseEditorFlow() {
+      if (!isCourse) return;
+      var contentIsOpen = contentToggle && contentToggle.getAttribute('aria-expanded') === 'true';
+      var syllabusIsOpen = syllabusToggle && syllabusToggle.getAttribute('aria-expanded') === 'true';
+      document.body.classList.toggle('course-editor-flow', !!(contentIsOpen || syllabusIsOpen));
+    }
+    function setupSectionToggle(toggleId, panelId, labelId, labelKey, stateId, iconId) {
+      var toggle = document.getElementById(toggleId);
+      var panel = document.getElementById(panelId);
+      if (!toggle || !panel) return;
+      var label = document.getElementById(labelId);
+      var state = document.getElementById(stateId);
+      var icon = document.getElementById(iconId);
+      if (label) label.textContent = t(labelKey);
+      panel.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+      if (state) state.textContent = t('openSection');
+      if (icon) icon.innerHTML = UI.icon('chevron-down', 17);
+      toggle.addEventListener('click', function () {
+        var open = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        panel.hidden = !open;
+        if (state) state.textContent = t(open ? 'closeSection' : 'openSection');
+        if (icon) icon.style.transform = open ? 'rotate(180deg)' : '';
+        syncCourseEditorFlow();
+      });
+    }
+    if (isCourse) {
+      document.body.classList.remove('course-editor-flow');
+      setupSectionToggle(
+        'edContentToggle', 'edContentPanel', 'edContentToggleLabel',
+        'courseContentSection', 'edContentToggleState', 'edContentToggleIcon'
+      );
+      setupSectionToggle(
+        'edSyllabusToggle', 'edSyllabusPanel', 'edSyllabusToggleLabel',
+        'syllabusLabel', 'edSyllabusToggleState', 'edSyllabusToggleIcon'
+      );
+    }
     var slugEl = document.getElementById('edSlug');
     var summaryEl = document.getElementById('edSummary');
     var categoryEl = document.getElementById('edCategory');
@@ -589,15 +681,30 @@
           '</div></div>' +
           '<input type="file" accept="image/*" id="cvInput" class="hide">';
         coverHost.querySelector('#cvReplace').addEventListener('click', function () { coverHost.querySelector('#cvInput').click(); });
-        coverHost.querySelector('#cvRemove').addEventListener('click', function () { p.cover = ''; renderCover(); markDirty(); });
+        coverHost.querySelector('#cvRemove').addEventListener('click', function () {
+          p.cover = '';
+          p.coverStorageName = '';
+          renderCover();
+          markDirty();
+        });
         setupDropzone(coverHost.querySelector('.cover-preview'), coverHost.querySelector('#cvInput'), function (files) {
-          UI.compressImage(files[0], 1600, 0.85).then(function (d) { p.cover = d; renderCover(); markDirty(); });
+          UI.compressImage(files[0], 1600, 0.85).then(function (d) {
+            p.cover = d;
+            p.coverStorageName = '';
+            renderCover();
+            markDirty();
+          });
         });
       } else {
         coverHost.innerHTML = '<div class="dropzone" id="cvDrop"><input type="file" accept="image/*">' +
           UI.icon('upload', 20) + '<span>' + e(t('dropImages')) + '</span><span class="tiny" style="color:var(--faint)">' + e(t('coverUpload')) + '</span></div>';
         setupDropzone(coverHost.querySelector('#cvDrop'), coverHost.querySelector('input'), function (files) {
-          UI.compressImage(files[0], 1600, 0.85).then(function (d) { p.cover = d; renderCover(); markDirty(); });
+          UI.compressImage(files[0], 1600, 0.85).then(function (d) {
+            p.cover = d;
+            p.coverStorageName = '';
+            renderCover();
+            markDirty();
+          });
         });
       }
       updateChecklist();
@@ -660,7 +767,32 @@
       };
     }
 
-    function quizBuilderHTML(ls, li) {
+    function syllabusEntityKey(entity) {
+      if (entity.id != null) return 'id:' + entity.id;
+      if (!entity._editorKey) entity._editorKey = Store.uid('editor');
+      return 'editor:' + entity._editorKey;
+    }
+
+    function persistDeletionHistory() {
+      try {
+        if (pendingDeletionHistory.length) {
+          localStorage.setItem(deletionHistoryKey, JSON.stringify(pendingDeletionHistory));
+        } else {
+          localStorage.removeItem(deletionHistoryKey);
+        }
+      } catch (error) {
+        console.warn('تعذر حفظ سجل حذف الدورة محلياً.', error);
+        UI.toast(t('deleteHistoryStorageFailed'), 'error');
+      }
+      renderDeletionHistory();
+    }
+
+    function clearDeletionHistory() {
+      pendingDeletionHistory = [];
+      persistDeletionHistory();
+    }
+
+    function quizBuilderHTML(ls, li, lessonKey, lessonOpen) {
       var TYPE_OPTS = [
         { v: 'video', l: t('typeVideo') },
         { v: 'article', l: t('typeArticle') },
@@ -759,15 +891,22 @@
           '</div>';
       }
 
-      return '<div class="syl-lesson" data-li="' + (li != null ? li : 0) + '">' +
+      var lessonPanelId = 'edLessonDetails-' + li + '-' + String(lessonKey).replace(/[^a-zA-Z0-9_-]/g, '-');
+      return '<div class="syl-lesson" data-li="' + (li != null ? li : 0) + '" data-lesson-key="' + e(lessonKey) + '">' +
         '<div class="syl-l-row">' +
-        '<input class="input" data-k="title" value="' + e(ls.title || '') + '" placeholder="' + e(t('lessonTitleLabel')) + '">' +
-        '<input class="input syl-dur" data-k="duration" value="' + e(ls.duration || '') + '" placeholder="08:20" dir="ltr"' + (ls.type === 'video' ? '' : ' style="display:none"') + '>' +
-        typeSel +
-        '<label class="chip syl-free"><input type="checkbox" data-k="free"' + (ls.free ? ' checked' : '') + '> ' + e(t('lessonFreeLabel')) + '</label>' +
+        '<button type="button" class="btn-icon sm syl-lesson-toggle" data-act="lesson-toggle" aria-expanded="' + (lessonOpen ? 'true' : 'false') + '" aria-controls="' + lessonPanelId + '" title="' + e(t(lessonOpen ? 'closeSection' : 'openSection')) + '">' +
+        '<span class="syl-lesson-toggle-icon" aria-hidden="true">' + UI.icon('chevron-down', 14) + '</span>' +
+        '</button>' +
+        '<input class="input syl-lesson-title" data-k="title" value="' + e(ls.title || '') + '" placeholder="' + e(t('lessonTitleLabel')) + '">' +
         '<button type="button" class="btn-icon sm danger" data-act="lesson-del" title="' + e(t('lessonDel')) + '">' + UI.icon('trash', 14) + '</button>' +
         '</div>' +
+        '<div class="syl-lesson-details" id="' + lessonPanelId + '"' + (lessonOpen ? '' : ' hidden') + '>' +
+        '<div class="syl-l-row syl-lesson-meta-row">' +
+        '<input class="input syl-dur" data-k="duration" value="' + e(ls.duration || '') + '" placeholder="08:20" dir="ltr"' + (ls.type === 'video' ? '' : ' style="display:none"') + '>' +
+        typeSel +
+        '</div>' +
         body +
+        '</div>' +
         '</div>';
     }
 
@@ -775,30 +914,182 @@
       var host = document.getElementById('edSyllabus');
       var secAddBtn = document.getElementById('edSecAdd');
       if (!host || !secAddBtn) return;
+      var openSections = Object.create(null);
+      var openLessons = Object.create(null);
+      p.syllabus.forEach(function (section) {
+        syllabusEntityKey(section);
+        (section.lessons || []).forEach(syllabusEntityKey);
+      });
+      try {
+        var savedDeletionHistory = JSON.parse(localStorage.getItem(deletionHistoryKey) || '[]');
+        pendingDeletionHistory = Array.isArray(savedDeletionHistory)
+          ? savedDeletionHistory.filter(function (item) {
+            return item && (item.type === 'section' || item.type === 'lesson') &&
+              item.snapshot && typeof item.sectionKey === 'string';
+          })
+          : [];
+      } catch (error) {
+        console.warn('تعذر تحميل سجل حذف الدورة المحلي.', error);
+        pendingDeletionHistory = [];
+      }
+
+      function sectionByKey(key) {
+        return p.syllabus.filter(function (section) {
+          return syllabusEntityKey(section) === key;
+        })[0] || null;
+      }
+
+      function replayDeletionHistory() {
+        pendingDeletionHistory.forEach(function (entry) {
+          var sectionIndex = p.syllabus.findIndex(function (section) {
+            return syllabusEntityKey(section) === entry.sectionKey;
+          });
+          if (entry.type === 'section') {
+            if (sectionIndex >= 0) p.syllabus.splice(sectionIndex, 1);
+            return;
+          }
+          var section = sectionByKey(entry.sectionKey);
+          if (!section) return;
+          var lessonIndex = (section.lessons || []).findIndex(function (lesson) {
+            return syllabusEntityKey(lesson) === entry.lessonKey;
+          });
+          if (lessonIndex >= 0) section.lessons.splice(lessonIndex, 1);
+        });
+      }
+
+      function undoLastDeletion() {
+        var historyEntry = pendingDeletionHistory[pendingDeletionHistory.length - 1];
+        if (!historyEntry) return;
+        if (historyEntry.type === 'section') {
+          if (!sectionByKey(historyEntry.sectionKey)) {
+            var restoredSection = JSON.parse(JSON.stringify(historyEntry.snapshot));
+            p.syllabus.splice(
+              Math.max(0, Math.min(historyEntry.sectionIndex, p.syllabus.length)),
+              0,
+              restoredSection
+            );
+            (restoredSection.lessons || []).forEach(function (lesson) {
+              var isStillDeleted = pendingDeletionHistory.some(function (entry) {
+                return entry.type === 'lesson' && entry.sectionKey === historyEntry.sectionKey &&
+                  entry.lessonKey === syllabusEntityKey(lesson);
+              });
+              if (isStillDeleted) {
+                restoredSection.lessons.splice(restoredSection.lessons.indexOf(lesson), 1);
+              }
+            });
+          }
+        } else {
+          var parentSection = sectionByKey(historyEntry.sectionKey);
+          if (parentSection) {
+            var lessonExists = (parentSection.lessons || []).some(function (lesson) {
+              return syllabusEntityKey(lesson) === historyEntry.lessonKey;
+            });
+            if (!lessonExists) {
+              parentSection.lessons.splice(
+                Math.max(0, Math.min(historyEntry.lessonIndex, parentSection.lessons.length)),
+                0,
+                JSON.parse(JSON.stringify(historyEntry.snapshot))
+              );
+            }
+          } else {
+            var deletedParent = pendingDeletionHistory.filter(function (entry) {
+              return entry.type === 'section' && entry.sectionKey === historyEntry.sectionKey;
+            })[0];
+            if (!deletedParent) return;
+            deletedParent.snapshot.lessons = deletedParent.snapshot.lessons || [];
+            deletedParent.snapshot.lessons.splice(
+              Math.max(0, Math.min(historyEntry.lessonIndex, deletedParent.snapshot.lessons.length)),
+              0,
+              JSON.parse(JSON.stringify(historyEntry.snapshot))
+            );
+          }
+        }
+        pendingDeletionHistory.pop();
+        persistDeletionHistory();
+        render();
+        markSyllabusDirty();
+      }
+
+      replayDeletionHistory();
+      if (pendingDeletionHistory.length) {
+        syllabusDirty = true;
+        dirty = true;
+        setStatusDraft();
+      }
+
+      renderDeletionHistory = function () {
+        var history = document.getElementById('edDeletionHistory');
+        var title = document.getElementById('edDeletionHistoryTitle');
+        var list = document.getElementById('edDeletionHistoryList');
+        if (!history || !title || !list) return;
+        history.hidden = !pendingDeletionHistory.length;
+        title.textContent = t('deleteHistoryTitle');
+        list.innerHTML = pendingDeletionHistory.map(function (entry, index) {
+          var entryName = entry.name || t(entry.type === 'section' ? 'secDel' : 'lessonDel');
+          var undo = index === pendingDeletionHistory.length - 1
+            ? '<button class="btn btn-ghost btn-sm" type="button" data-act="delete-undo">' +
+              UI.icon('undo-2', 14) + ' ' + e(t('deleteHistoryUndo')) + '</button>'
+            : '<span class="tiny muted">' + e(t('deleteHistoryUndoLatest')) + '</span>';
+          return '<div class="course-delete-history-item"><span>' +
+            UI.icon('trash', 14) + ' ' + e(entryName) + '</span>' + undo + '</div>';
+        }).join('');
+      };
+      var deletionHistoryList = document.getElementById('edDeletionHistoryList');
+      if (deletionHistoryList) {
+        deletionHistoryList.addEventListener('click', function (event) {
+          var undoButton = event.target.closest('[data-act="delete-undo"]');
+          if (undoButton) undoLastDeletion();
+        });
+      }
+      document.addEventListener('course-editor:discard-pending-changes', clearDeletionHistory);
+
       secAddBtn.innerHTML = UI.icon('plus', 15) + e(t('secAdd'));
 
       function render() {
         if (!p.syllabus.length) {
           host.innerHTML = '<div class="tiny muted" style="padding:8px 2px">' + UI.icon('list', 16) + ' ' + e(t('syllabusEmpty')) + '</div>';
+          renderDeletionHistory();
           updateChecklist();
           return;
         }
         host.innerHTML = p.syllabus.map(function (sec, si) {
+          var sectionKey = String(sec.id != null ? sec.id : 'new-' + si);
+          var sectionOpen = openSections[sectionKey] === true;
+          var lessonsPanelId = 'edSectionLessons-' + si;
           var lessons = (sec.lessons || []).map(function (ls, li) {
             if (ls.type == null) ls.type = 'video';
-            return quizBuilderHTML(ls, li);
+            var lessonKey = sectionKey + '-' + String(ls.id != null ? ls.id : 'new-' + li);
+            var lessonOpen = openLessons[lessonKey] === true;
+            return quizBuilderHTML(ls, li, lessonKey, lessonOpen);
           }).join('');
           return '<div class="syl-section" data-si="' + si + '">' +
             '<div class="syl-sec-head">' +
             '<input class="input syl-sec-title" data-sec="title" value="' + e(sec.title || '') + '" placeholder="' + e(t('secTitle')) + '">' +
+            '<button type="button" class="btn btn-soft btn-sm syl-section-toggle" data-act="sec-toggle" aria-expanded="' + (sectionOpen ? 'true' : 'false') + '" aria-controls="' + lessonsPanelId + '">' +
+            '<span>' + e(t('sectionLessons')) + ' (' + (sec.lessons || []).length + ')</span>' +
+            '<span class="syl-section-toggle-icon" aria-hidden="true">' + UI.icon('chevron-down', 14) + '</span>' +
+            '</button>' +
             '<button type="button" class="btn-icon sm danger" data-act="sec-del" title="' + e(t('secDel')) + '">' + UI.icon('trash', 14) + '</button>' +
             '</div>' +
+            '<div class="syl-section-lessons" id="' + lessonsPanelId + '"' + (sectionOpen ? '' : ' hidden') + '>' +
             '<div class="syl-lessons">' + lessons + '</div>' +
             '<button type="button" class="btn btn-ghost btn-sm" data-act="sec-add-lesson">' + UI.icon('plus', 14) + e(t('lessonAdd')) + '</button>' +
+            '</div>' +
             '</div>';
         }).join('');
+        renderDeletionHistory();
         updateChecklist();
       }
+
+      host.addEventListener('course:restore-version', function (event) {
+        p.syllabus = Array.isArray(event.detail) ? event.detail : [];
+        p.syllabus.forEach(function (section) {
+          syllabusEntityKey(section);
+          (section.lessons || []).forEach(syllabusEntityKey);
+        });
+        render();
+        markSyllabusDirty();
+      });
 
       function lessonFromEl(el) {
         var secEl = el.closest('.syl-section');
@@ -817,7 +1108,7 @@
         if (!secEl) return;
         var sec = p.syllabus[+secEl.getAttribute('data-si')];
         if (!sec) return;
-        if (el.getAttribute('data-sec') === 'title') { sec.title = el.value; markDirty(); return; }
+        if (el.getAttribute('data-sec') === 'title') { sec.title = el.value; markSyllabusDirty(); return; }
 
         /* حقول الكويز: إعدادات ثم أسئلة ثم اختيارات */
         var qk = el.getAttribute('data-qk');
@@ -840,7 +1131,7 @@
             var c = q2 && (q2.choices || [])[+cEl.getAttribute('data-ci')];
             if (c) c[cck] = el.value;
           }
-          markDirty();
+          markSyllabusDirty();
           return;
         }
 
@@ -860,7 +1151,7 @@
         } else if (k === 'projectId') {
           render();
         }
-        markDirty();
+        markSyllabusDirty();
       }
       host.addEventListener('input', onEdit);
       host.addEventListener('change', onEdit);
@@ -903,30 +1194,84 @@
             return;
           }
           render();
-          markDirty();
+          markSyllabusDirty();
           return;
         }
 
         var btn = ev.target.closest ? ev.target.closest('[data-act]') : null;
         if (!btn) return;
+        if (btn.getAttribute('data-act') === 'lesson-toggle') {
+          var lessonEl = btn.closest('.syl-lesson');
+          if (!lessonEl) return;
+          var lessonKey = lessonEl.getAttribute('data-lesson-key');
+          openLessons[lessonKey] = openLessons[lessonKey] !== true;
+          render();
+          return;
+        }
         var secEl = btn.closest('.syl-section');
         if (!secEl) return;
         var sec = p.syllabus[+secEl.getAttribute('data-si')];
         if (!sec) return;
         var act2 = btn.getAttribute('data-act');
-        if (act2 === 'sec-del') {
-          p.syllabus.splice(+secEl.getAttribute('data-si'), 1);
+        if (act2 === 'sec-toggle') {
+          var sectionKey = String(sec.id != null ? sec.id : 'new-' + secEl.getAttribute('data-si'));
+          openSections[sectionKey] = openSections[sectionKey] !== true;
+          render();
+          return;
+        } else if (act2 === 'sec-del') {
+          var sectionIndex = +secEl.getAttribute('data-si');
+          var sectionToDelete = p.syllabus[sectionIndex];
+          if (!sectionToDelete) return;
+          UI.confirm(t('sectionDeleteConfirm')).then(function (confirmed) {
+            if (!confirmed || p.syllabus[sectionIndex] !== sectionToDelete) return;
+            pendingDeletionHistory.push({
+              type: 'section',
+              sectionKey: syllabusEntityKey(sectionToDelete),
+              sectionIndex: sectionIndex,
+              name: sectionToDelete.title || t('secDel'),
+              snapshot: JSON.parse(JSON.stringify(sectionToDelete)),
+              deletedAt: new Date().toISOString()
+            });
+            p.syllabus.splice(sectionIndex, 1);
+            persistDeletionHistory();
+            render();
+            markSyllabusDirty();
+          });
+          return;
         } else if (act2 === 'sec-add-lesson') {
           sec.lessons = sec.lessons || [];
           sec.lessons.push({ title: '', duration: '', type: 'video', free: false, content: '', videoUrl: '' });
         } else if (act2 === 'lesson-del') {
           var lesEl2 = btn.closest('.syl-lesson');
-          if (lesEl2) (sec.lessons || []).splice(+lesEl2.getAttribute('data-li'), 1);
+          if (lesEl2) {
+            var lessonIndex = +lesEl2.getAttribute('data-li');
+            var lessonToDelete = (sec.lessons || [])[lessonIndex];
+            if (!lessonToDelete) return;
+            UI.confirm(t('lessonDeleteConfirm')).then(function (confirmed) {
+              if (!confirmed) return;
+              if (p.syllabus.indexOf(sec) === -1 || sec.lessons[lessonIndex] !== lessonToDelete) return;
+              pendingDeletionHistory.push({
+                type: 'lesson',
+                sectionKey: syllabusEntityKey(sec),
+                lessonKey: syllabusEntityKey(lessonToDelete),
+                sectionIndex: p.syllabus.indexOf(sec),
+                lessonIndex: lessonIndex,
+                name: lessonToDelete.title || t('lessonDel'),
+                snapshot: JSON.parse(JSON.stringify(lessonToDelete)),
+                deletedAt: new Date().toISOString()
+              });
+              sec.lessons.splice(lessonIndex, 1);
+              persistDeletionHistory();
+              render();
+              markSyllabusDirty();
+            });
+            return;
+          }
         } else {
           return;
         }
         render();
-        markDirty();
+        markSyllabusDirty();
       });
 
       secAddBtn.addEventListener('click', function () {
@@ -935,12 +1280,148 @@
           lessons: [{ title: '', duration: '', type: 'video', free: false, content: '', videoUrl: '' }]
         });
         render();
-        markDirty();
+        markSyllabusDirty();
       });
 
       render();
     }
     if (isCourse) initSyllabusBuilder();
+
+    function initCourseVersionHistory() {
+      var historyHost = document.getElementById('edVersionHistory');
+      var syllabusHost = document.getElementById('edSyllabus');
+      var versionSelect = document.getElementById('edVersionSelect');
+      var previousButton = document.getElementById('edVersionPrev');
+      var nextButton = document.getElementById('edVersionNext');
+      var loadButton = document.getElementById('edVersionLoad');
+      var versionTitle = document.getElementById('edVersionTitle');
+      var versionCount = document.getElementById('edVersionCount');
+      if (!historyHost || !versionSelect || !previousButton || !nextButton || !loadButton) return;
+
+      var versions = [];
+      var selectedIndex = -1;
+      versionTitle.textContent = t('versionHistoryTitle');
+      previousButton.innerHTML = UI.icon('chevron-right', 14);
+      previousButton.title = t('versionHistoryPrevious');
+      nextButton.innerHTML = UI.icon('chevron-left', 14);
+      nextButton.title = t('versionHistoryNext');
+      loadButton.textContent = t('versionHistoryLoad');
+
+      function updateControls() {
+        historyHost.hidden = !versions.length;
+        versionCount.textContent = I18n.t('versionHistoryCount', { count: versions.length });
+        versionSelect.innerHTML = versions.map(function (version, index) {
+          var publishedAt = new Date(version.createdAt);
+          var dateLabel = isNaN(publishedAt.getTime())
+            ? ''
+            : ' · ' + publishedAt.toLocaleString(I18n.getLang() === 'en' ? 'en' : 'ar');
+          return '<option value="' + index + '">' + e('#' + version.number + dateLabel) + '</option>';
+        }).join('');
+        if (selectedIndex >= 0) versionSelect.value = String(selectedIndex);
+        previousButton.disabled = selectedIndex <= 0;
+        nextButton.disabled = selectedIndex < 0 || selectedIndex >= versions.length - 1;
+      }
+
+      function selectVersion(index) {
+        if (index < 0 || index >= versions.length) return;
+        selectedIndex = index;
+        versionSelect.value = String(index);
+        updateControls();
+      }
+
+      function loadSelectedVersion() {
+        if (selectedIndex < 0 || !versions[selectedIndex]) return;
+        var confirmLoad = pendingDeletionHistory.length
+          ? UI.confirm(t('versionHistoryDiscardDeletes'))
+          : Promise.resolve(true);
+        confirmLoad.then(function (allowPendingDeleteDiscard) {
+          if (!allowPendingDeleteDiscard) return false;
+          return UI.confirm(t('versionHistoryConfirm'));
+        }).then(function (confirmed) {
+          if (!confirmed) return;
+          var url = SITE.u('courseVersions', p.id) + '?version=' +
+            encodeURIComponent(versions[selectedIndex].number);
+          fetch(url, { credentials: 'same-origin' })
+            .then(function (response) {
+              if (!response.ok) throw new Error('version_load_failed');
+              return response.json();
+            })
+            .then(function (result) {
+              if (!result.ok || !result.snapshot) throw new Error('version_snapshot_missing');
+              if (pendingDeletionHistory.length) clearDeletionHistory();
+              var snapshot = result.snapshot;
+              p.title = snapshot.title || '';
+              p.titleEnglish = snapshot.titleEnglish || '';
+              p.summary = snapshot.summary || snapshot.description || '';
+              p.description = p.summary;
+              p.category = snapshot.category || '';
+              p.content = snapshot.content || '';
+              p.price = snapshot.price || '';
+              p.duration = snapshot.duration || '';
+              p.period = snapshot.period || '';
+              p.credentialId = snapshot.credentialId || '';
+              p.verifyUrl = snapshot.verifyUrl || '';
+              p.tags = Array.isArray(snapshot.skills) ? snapshot.skills.slice() : [];
+              p.cover = snapshot.cover || '';
+              p.coverStorageName = snapshot.coverStorageName || '';
+              p.status = 'draft';
+
+              titleEl.value = p.title;
+              if (titleEnglishEl) titleEnglishEl.value = p.titleEnglish;
+              summaryEl.value = p.summary;
+              categoryEl.value = p.category;
+              contentEl.innerHTML = p.content;
+              priceEl.value = String(p.price).replace(/[₪\s]/g, '');
+              durationEl.value = durationHours(p.duration, snapshot.durationEnglish);
+              var periodMatch = String(p.period).match(/[0-9٠-٩۰-۹]+/);
+              periodEl.value = periodMatch
+                ? periodMatch[0].replace(/[٠-٩۰-۹]/g, function (digit) {
+                  return String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10);
+                })
+                : '';
+              if (trainerEl && snapshot.trainerId) trainerEl.value = String(snapshot.trainerId);
+              renderCover();
+              renderTags();
+              syllabusHost.dispatchEvent(new CustomEvent('course:restore-version', {
+                detail: Array.isArray(snapshot.syllabus) ? snapshot.syllabus : []
+              }));
+              versionRestorePending = true;
+              markDirty();
+              setStatusDraft();
+              UI.toast(t('versionHistoryLoaded'), 'success');
+            })
+            .catch(function (error) {
+              console.error('تعذر تحميل نسخة الدورة.', error);
+              UI.toast(t('versionHistoryFailed'), 'error');
+            });
+        });
+      }
+
+      versionSelect.addEventListener('change', function () {
+        selectVersion(+versionSelect.value);
+      });
+      previousButton.addEventListener('click', function () { selectVersion(selectedIndex - 1); });
+      nextButton.addEventListener('click', function () { selectVersion(selectedIndex + 1); });
+      loadButton.addEventListener('click', loadSelectedVersion);
+
+      if (!existing) return;
+      fetch(SITE.u('courseVersions', p.id), { credentials: 'same-origin' })
+        .then(function (response) {
+          if (!response.ok) throw new Error('version_list_failed');
+          return response.json();
+        })
+        .then(function (result) {
+          if (!result.ok || !Array.isArray(result.versions)) throw new Error('version_list_missing');
+          versions = result.versions;
+          selectedIndex = versions.length - 1;
+          updateControls();
+        })
+        .catch(function (error) {
+          console.error('تعذر تحميل سجل نسخ الدورة.', error);
+        });
+    }
+
+    if (isCourse) initCourseVersionHistory();
 
     if (!isCourse) {
       /* files */
@@ -1050,8 +1531,10 @@
     updateMeta();
 
     var auto = UI.debounce(function () {
+      if (leaveRequested) return;
       var status = p.status === 'published' ? 'published' : 'draft';
       if (isCourse) {
+        if (versionRestorePending) return;
         serverSave(status, false, true);
         return;
       }
@@ -1060,12 +1543,19 @@
 
     function markDirty() {
       dirty = true;
+      changeVersion += 1;
       setStatus('saving');
       syncSlug();
       updateChecklist();
       updateSocialPreview();
       updateMeta();
       auto();
+    }
+
+    function markSyllabusDirty() {
+      syllabusDirty = true;
+      syllabusVersion += 1;
+      markDirty();
     }
 
     [titleEl, titleEnglishEl, summaryEl, categoryEl, roleEl, dateEl, githubEl, demoEl].concat(courseMetaEls).filter(Boolean).forEach(function (el) {
@@ -1097,17 +1587,20 @@
         p.price = priceEl.value.trim();
         p.duration = durationEl.value.trim();
         p.period = periodEl.value;
-        p.syllabus = (p.syllabus || []).map(function (sec) {
-          return Object.assign({}, sec, {
-            lessons: (sec.lessons || []).map(function (ls) {
-              var lesson = Object.assign({}, ls);
-              if (lesson.type !== 'quiz') delete lesson.quiz;
-              if (lesson.type !== 'project') delete lesson.projectId;
-              delete lesson.project;
-              return lesson;
-            })
+        if (syllabusDirty) {
+          p.syllabus = (p.syllabus || []).map(function (sec) {
+            var cleanSection = Object.assign({}, sec, {
+              lessons: (sec.lessons || []).map(function (ls) {
+                var lesson = Object.assign({}, ls);
+                if (lesson.type !== 'quiz') delete lesson.quiz;
+                if (lesson.type !== 'project') delete lesson.projectId;
+                delete lesson.project;
+                return lesson;
+              })
+            });
+            return cleanSection;
           });
-        });
+        }
       }
       p.updatedAt = new Date().toISOString();
     }
@@ -1122,8 +1615,19 @@
     }
 
     function serverSave(status, redirect, silent) {
-      collect();
+      if (leaveRequested) return;
       p.status = status;
+      if (saveInFlight) {
+        queuedSave = {
+          status: status,
+          redirect: !!redirect || !!(queuedSave && queuedSave.redirect && status === 'published'),
+          silent: !!silent
+        };
+        dirty = true;
+        setStatus('saving');
+        return;
+      }
+      collect();
       if (!isCourse && ownerIdEl && !ownerIdEl.value) {
         setStatusDraft();
         UI.toast(I18n.getLang() === 'en'
@@ -1137,6 +1641,11 @@
         return;
       }
       setStatus('saving');
+      saveInFlight = true;
+      var submittedVersion = changeVersion;
+      var submittedSyllabusVersion = syllabusVersion;
+      var syllabusIncluded = isCourse && syllabusDirty &&
+        !(silent && pendingDeletionHistory.length);
       var payload = isCourse ? {
         id: existing ? p.id : '',
         trainerId: trainerEl ? trainerEl.value : '',
@@ -1152,7 +1661,8 @@
         verifyUrl: p.verifyUrl,
         tags: p.tags,
         cover: p.cover,
-        syllabus: p.syllabus,
+        coverStorageName: p.coverStorageName || '',
+        recordVersion: !silent,
         status: status
       } : {
         id: existing ? p.id : '',
@@ -1172,6 +1682,19 @@
         files: p.files,
         status: status
       };
+      if (syllabusIncluded) {
+        payload.syllabus = p.syllabus.map(function (section) {
+          var cleanSection = Object.assign({}, section);
+          delete cleanSection._editorKey;
+          cleanSection.lessons = (section.lessons || []).map(function (lesson) {
+            var cleanLesson = Object.assign({}, lesson);
+            delete cleanLesson._editorKey;
+            return cleanLesson;
+          });
+          return cleanSection;
+        });
+      }
+      var submittedCover = isCourse ? p.cover : '';
       fetch(SITE.u(isCourse ? 'courseSave' : 'projectSave'), {
         method: 'POST',
         credentials: 'same-origin',
@@ -1184,10 +1707,10 @@
         return r.json().catch(function () { return { ok: false }; });
       }).then(function (res) {
         if (!res || !res.ok) {
-          setStatusDraft();
           var errorKey = (res && res.error) || 'required';
           if (errorKey === 'project_incomplete') errorKey = 'projectPublishRequirements';
           if (errorKey === 'course_incomplete') errorKey = 'coursePublishRequirements';
+          if (errorKey === 'invalid_cover_version') errorKey = 'versionHistoryCoverMissing';
           if (errorKey === 'coursePublishRequirements') {
             var serverMissing = res && res.missing || [];
             var focusByField = {
@@ -1208,19 +1731,114 @@
             }
             if (focusTarget) focusTarget.focus();
           }
-          UI.toast(t(errorKey), 'error');
+          throw { saveError: errorKey, response: res };
+        }
+        var previousId = p.id;
+        p.id = res.id;
+        if (isCourse && previousId !== p.id) {
+          createdDuringSession = true;
+          var previousHistoryKey = deletionHistoryKey;
+          deletionHistoryKey = 'dc-course-deletions:' + p.id;
+          try {
+            if (pendingDeletionHistory.length) {
+              localStorage.setItem(deletionHistoryKey, JSON.stringify(pendingDeletionHistory));
+            } else {
+              localStorage.removeItem(deletionHistoryKey);
+            }
+            localStorage.removeItem(previousHistoryKey);
+          } catch (error) {
+            console.warn('تعذر تحديث مفتاح سجل حذف الدورة.', error);
+          }
+        }
+        existing = true;
+        if (isCourse && res.cover && p.cover === submittedCover) {
+          p.cover = res.cover;
+          p.image = res.cover;
+        }
+        if (submittedVersion === changeVersion) {
+          dirty = isCourse && syllabusDirty && !syllabusIncluded;
+        } else {
+          dirty = true;
+        }
+        if (syllabusIncluded && submittedSyllabusVersion === syllabusVersion) {
+          syllabusDirty = false;
+          versionRestorePending = false;
+          if (pendingDeletionHistory.length) clearDeletionHistory();
+        }
+        if (redirect && !queuedSave && submittedVersion === changeVersion) {
+          location.href = res.url;
           return;
         }
-        p.id = res.id;
-        existing = true;
-        dirty = false;
-        if (redirect) { location.href = res.url; return; }
-        setStatus('saved');
-        if (!silent) UI.toast(t('savedOk'), 'success');
-      }).catch(function () {
+        if (!queuedSave && submittedVersion === changeVersion) {
+          if (dirty) setStatusDraft();
+          else setStatus('saved');
+          if (!silent) UI.toast(t('savedOk'), 'success');
+        }
+      }).catch(function (error) {
         setStatusDraft();
-        UI.toast(t('required'), 'error');
+        UI.toast(t(error && error.saveError ? error.saveError : 'required'), 'error');
+      }).then(function () {
+        saveInFlight = false;
+        if (queuedSave) {
+          var nextSave = queuedSave;
+          queuedSave = null;
+          serverSave(nextSave.status, nextSave.redirect, nextSave.silent);
+        }
       });
+    }
+
+    function waitForSaveIdle() {
+      return new Promise(function (resolve) {
+        function check() {
+          if (!saveInFlight && !queuedSave) {
+            resolve();
+            return;
+          }
+          window.setTimeout(check, 30);
+        }
+        check();
+      });
+    }
+
+    if (isCourse) {
+      window.courseEditorDiscardPendingChanges = function () {
+        leaveRequested = true;
+        queuedSave = null;
+        return waitForSaveIdle().then(function () {
+          if (isNew && !createdDuringSession) {
+            clearDeletionHistory();
+            return { ok: true };
+          }
+          return fetch(SITE.u('courseDiscard'), {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': editorCsrf()
+            },
+            body: JSON.stringify({
+              id: p.id,
+              discardNew: createdDuringSession,
+              baseline: initialCourseSnapshot
+            })
+          }).then(function (response) {
+            return response.json().catch(function () { return { ok: false }; });
+          }).then(function (result) {
+            if (!result || !result.ok) {
+              throw new Error((result && result.error) || 'restore_failed');
+            }
+            clearDeletionHistory();
+            return result;
+          });
+        }).catch(function (error) {
+          leaveRequested = false;
+          throw error;
+        }).then(function (result) {
+          dirty = false;
+          syllabusDirty = false;
+          return result;
+        });
+      };
     }
 
     document.getElementById('edPreviewBtn').addEventListener('click', function () {
@@ -1283,6 +1901,15 @@
     });
 
     window.addEventListener('beforeunload', function (ev) {
+      if (dirty && isCourse && SERVER_SAVE) {
+        if (window.courseEditorLeaveConfirmed) {
+          window.courseEditorLeaveConfirmed = false;
+          return;
+        }
+        ev.preventDefault();
+        ev.returnValue = '';
+        return;
+      }
       if (dirty) { collect(); Store.upsert(COL, Object.assign({}, p, { status: p.status === 'published' ? 'published' : 'draft' })); }
     });
   }
@@ -1438,8 +2065,15 @@
 
     var auto = UI.debounce(function () { persist(post.status === 'published' ? 'published' : 'draft', true); }, 1100);
 
+    function markSyllabusDirty() {
+      syllabusDirty = true;
+      syllabusVersion += 1;
+      markDirty();
+    }
+
     function markDirty() {
       dirty = true;
+      changeVersion += 1;
       setStatus('saving');
       updateMeta();
       auto();

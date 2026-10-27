@@ -9,6 +9,17 @@
   {% include "partials/hero_banner.html" with hero_crumb="المستقلون" hero_badge="خدمات تبدأ من 4$ — بدون أي عمولات" hero_title="مستقلون مهرة لتنفيذ أي مشروع" hero_sub="تصفّح ملفات المستقلين، تابع أعمالهم وتقييماتهم وتواصل معهم مباشرة — اطلب خدمتك بسعر يبدأ من 4$ فقط وبدون أي عمولات على المنصة." %}
 {% endblock %}
 {% block listing_tools %}
+  {% if can_reorder_freelancers %}
+    <div class="course-reorder-tools" id="freelancerReorderTools">
+      <p>يمكنك سحب البطاقات لترتيب ظهورها لجميع الزوار.</p>
+      <div class="course-reorder-actions">
+        <button class="btn btn-soft" id="freelancerReorderStart" type="button">إعادة ترتيب المستقلين</button>
+        <button class="btn btn-primary" id="freelancerReorderSave" type="button" hidden>حفظ الترتيب</button>
+        <button class="btn btn-soft" id="freelancerReorderCancel" type="button" hidden>إلغاء</button>
+      </div>
+      <p class="course-reorder-status" id="freelancerReorderStatus" aria-live="polite"></p>
+    </div>
+  {% endif %}
   <div class="freelancers-search-wrap">
     <label class="freelancers-search" for="freelancersSearch">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>

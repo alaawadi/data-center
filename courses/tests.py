@@ -6,12 +6,15 @@ import tempfile
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
+from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import Client, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from users.models import User, UserRole
+from users.models import Profile, User, UserRole
 
 from projects.models import Project, ProjectFile, ProjectImage, ProjectStatus, ProjectTag
 
@@ -21,6 +24,7 @@ from .models import (
     CourseProgress,
     CourseSection,
     CourseStatus,
+    CourseVersion,
     InPersonWorkshop,
     Lesson,
     LessonType,
@@ -130,6 +134,7 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(course.slug, data['id'])
         self.assertEqual(course.title_en, 'Python for Beginners')
         self.assertEqual(course.duration, '20 ساعة')
+        self.assertEqual(data['cover'], course.cover.url)
         self.assertEqual(course.price, '150')
         self.assertEqual(course.to_public_dict()['price'], '₪150')
         self.assertEqual(course.skills, ['Python', 'Basics'])
@@ -234,6 +239,425 @@ class CoursePermissionsTests(TestCase):
         lesson.refresh_from_db()
         self.assertEqual(lesson.title, 'درس معدّل')
         self.assertEqual(lesson.type, 'article')
+
+    def test_manual_publish_records_immutable_course_versions(self):
+        course = Course.objects.create(owner=self.trainer, title='نسخة أولى')
+        self.client.force_login(self.trainer)
+
+        first = self.client.post(
+            self.save_url,
+            data=json.dumps(_payload(id=course.slug, title='الإصدار الأول', recordVersion=True)),
+            content_type='application/json',
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(first.json()['version'], 1)
+
+        second = self.client.post(
+            self.save_url,
+            data=json.dumps(_payload(id=course.slug, title='الإصدار الثاني', recordVersion=True)),
+            content_type='application/json',
+        )
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(second.json()['version'], 2)
+
+        versions = CourseVersion.objects.filter(course=course).order_by('version_number')
+        self.assertEqual(versions.count(), 2)
+        self.assertEqual(versions[0].snapshot['title'], 'الإصدار الأول')
+        self.assertEqual(versions[1].snapshot['title'], 'الإصدار الثاني')
+
+        listing = self.client.get(reverse('courses:versions', kwargs={'pk': course.slug}))
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual([item['number'] for item in listing.json()['versions']], [1, 2])
+        detail = self.client.get(
+            reverse('courses:versions', kwargs={'pk': course.slug}),
+            {'version': 1},
+        )
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['snapshot']['title'], 'الإصدار الأول')
+
+    def test_autosave_does_not_create_published_version(self):
+        course = Course.objects.create(owner=self.trainer, title='دورة محفوظة')
+        self.client.force_login(self.trainer)
+        response = self.client.post(
+            self.save_url,
+            data=json.dumps(_payload(
+                id=course.slug,
+                title='حفظ تلقائي',
+                status='published',
+                recordVersion=False,
+            )),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(CourseVersion.objects.filter(course=course).exists())
+
+    def test_course_version_history_is_private_to_owner_and_admin(self):
+        course = Course.objects.create(owner=self.trainer, title='سجل خاص')
+        CourseVersion.objects.create(
+            course=course,
+            version_number=1,
+            snapshot={'title': 'سجل خاص'},
+            created_by=self.trainer,
+        )
+        url = reverse('courses:versions', kwargs={'pk': course.slug})
+
+        self.client.force_login(self.other_trainer)
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+        self.client.force_login(self.trainer)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_discard_changes_restores_latest_published_snapshot(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='النسخة المنشورة',
+            title_en='Published version',
+            category='برمجة',
+            summary='الملخص المنشور',
+            content='المحتوى المنشور',
+            price='150',
+            duration='20 ساعة',
+            duration_en='20 hours',
+            period='8 لقاءات',
+            skills=['Python'],
+            credential_id='PY-ORIGINAL',
+            verify_url='https://example.com/original',
+            status=CourseStatus.PUBLISHED,
+        )
+        course.cover.save('published.png', ContentFile(b'published-cover'), save=True)
+        published_cover_name = course.cover.name
+        section = CourseSection.objects.create(course=course, title='القسم المنشور')
+        lesson = Lesson.objects.create(
+            section=section,
+            title='الاختبار المنشور',
+            type=LessonType.QUIZ,
+            content='محتوى الاختبار',
+        )
+        quiz = Quiz.objects.create(
+            lesson=lesson,
+            instructions='تعليمات الاختبار',
+            max_attempts=4,
+            pass_score=75,
+        )
+        question = QuizQuestion.objects.create(
+            quiz=quiz,
+            text='السؤال المنشور',
+            explanation='شرح الإجابة',
+        )
+        QuizChoice.objects.create(question=question, text='الإجابة الصحيحة', is_correct=True)
+        QuizChoice.objects.create(question=question, text='إجابة أخرى', is_correct=False)
+        CourseVersion.objects.create(
+            course=course,
+            version_number=1,
+            snapshot=course.to_version_snapshot(),
+            created_by=self.trainer,
+        )
+
+        Course.objects.filter(pk=course.pk).update(
+            title='تغييرات تلقائية',
+            title_en='Autosaved changes',
+            summary='ملخص معدّل',
+            status=CourseStatus.DRAFT,
+        )
+        course.sections.all().delete()
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(
+            reverse('courses:discard-changes'),
+            data=json.dumps({'id': course.slug}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['ok'])
+        course.refresh_from_db()
+        self.assertEqual(course.title, 'النسخة المنشورة')
+        self.assertEqual(course.title_en, 'Published version')
+        self.assertEqual(course.summary, 'الملخص المنشور')
+        self.assertEqual(course.price, '150')
+        self.assertEqual(course.skills, ['Python'])
+        self.assertEqual(course.credential_id, 'PY-ORIGINAL')
+        self.assertEqual(course.status, CourseStatus.PUBLISHED)
+        self.assertEqual(course.cover.name, published_cover_name)
+        restored_lesson = Lesson.objects.get(section__course=course)
+        self.assertEqual(restored_lesson.title, 'الاختبار المنشور')
+        restored_quiz = Quiz.objects.get(lesson=restored_lesson)
+        self.assertEqual(restored_quiz.instructions, 'تعليمات الاختبار')
+        self.assertEqual(restored_quiz.questions.get().text, 'السؤال المنشور')
+        self.assertEqual(
+            list(restored_quiz.questions.get().choices.order_by('order').values_list(
+                'text', 'is_correct'
+            )),
+            [('الإجابة الصحيحة', True), ('إجابة أخرى', False)],
+        )
+        self.assertEqual(CourseVersion.objects.filter(course=course).count(), 1)
+
+    def test_discard_changes_denies_other_trainers_and_allows_admin(self):
+        course = Course.objects.create(owner=self.trainer, title='دورة للإدارة')
+        CourseVersion.objects.create(
+            course=course,
+            version_number=1,
+            snapshot={
+                'title': 'نسخة منشورة',
+                'titleEnglish': 'Published',
+                'summary': 'ملخص',
+                'content': 'محتوى',
+                'category': 'برمجة',
+                'price': '10',
+                'duration': '2 ساعة',
+                'durationEnglish': '2 hours',
+                'period': '1 لقاءات',
+                'skills': ['Python'],
+                'credentialId': '',
+                'verifyUrl': '',
+                'status': CourseStatus.PUBLISHED,
+                'trainerId': str(self.trainer.pk),
+                'coverStorageName': '',
+                'syllabus': [],
+            },
+            created_by=self.trainer,
+        )
+        url = reverse('courses:discard-changes')
+        payload = json.dumps({'id': course.slug})
+
+        self.client.force_login(self.other_trainer)
+        denied = self.client.post(url, data=payload, content_type='application/json')
+        self.assertEqual(denied.status_code, 404)
+
+        self.client.force_login(self.admin)
+        restored = self.client.post(url, data=payload, content_type='application/json')
+        self.assertEqual(restored.status_code, 200, restored.content)
+        course.refresh_from_db()
+        self.assertEqual(course.title, 'نسخة منشورة')
+
+    def test_discard_changes_without_version_or_baseline_fails_safely(self):
+        course = Course.objects.create(owner=self.trainer, title='مسودة محفوظة')
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(
+            reverse('courses:discard-changes'),
+            data=json.dumps({'id': course.slug}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(response.json()['ok'])
+        course.refresh_from_db()
+        self.assertEqual(course.title, 'مسودة محفوظة')
+
+    def test_discard_changes_uses_editor_baseline_when_no_version_exists(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='حالة فتح المحرر',
+            title_en='Editor baseline',
+            status=CourseStatus.DRAFT,
+        )
+        baseline = course.to_public_dict(include_answers=True)
+        baseline['coverStorageName'] = ''
+        course.title = 'تغيير محفوظ تلقائياً'
+        course.save(update_fields=['title', 'updated_at'])
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(
+            reverse('courses:discard-changes'),
+            data=json.dumps({'id': course.slug, 'baseline': baseline}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.title, 'حالة فتح المحرر')
+        self.assertEqual(course.status, CourseStatus.DRAFT)
+
+    def test_discarding_new_unpublished_course_deletes_it(self):
+        course = Course.objects.create(owner=self.trainer, title='مسودة جديدة')
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(
+            reverse('courses:discard-changes'),
+            data=json.dumps({'id': course.slug, 'discardNew': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(Course.objects.filter(pk=course.pk).exists())
+
+    def test_course_metadata_save_without_syllabus_preserves_lessons_and_quizzes(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة بايثون للمبتدئين',
+            title_en='Python for Beginners',
+            category='برمجة',
+            summary='ملخص الدورة',
+            content='<p>' + ' '.join(['وصف تفصيلي'] * 50) + '</p>',
+            price='150',
+            duration='20 ساعة',
+            duration_en='20 hours',
+            period='8 لقاءات',
+            skills=['Python', 'Basics'],
+            credential_id='PY-2026-1',
+            verify_url='https://example.com/verify/PY-2026-1',
+        )
+        section = CourseSection.objects.create(course=course, title='البداية')
+        lesson = Lesson.objects.create(
+            section=section,
+            title='اختبار البداية',
+            type=LessonType.QUIZ,
+            content='مراجعة المفاهيم',
+        )
+        quiz = Quiz.objects.create(lesson=lesson)
+        question = QuizQuestion.objects.create(quiz=quiz, text='سؤال محفوظ')
+        QuizChoice.objects.create(question=question, text='إجابة صحيحة', is_correct=True)
+        QuizChoice.objects.create(question=question, text='إجابة أخرى')
+
+        payload = _payload(id=course.slug, status='published')
+        payload.pop('syllabus')
+        response = self._post(payload, self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.status, CourseStatus.PUBLISHED)
+        self.assertTrue(CourseSection.objects.filter(pk=section.pk).exists())
+        self.assertTrue(Lesson.objects.filter(pk=lesson.pk).exists())
+        self.assertTrue(Quiz.objects.filter(pk=quiz.pk).exists())
+        self.assertTrue(QuizQuestion.objects.filter(pk=question.pk).exists())
+        self.assertEqual(QuizChoice.objects.filter(question=question).count(), 2)
+
+    def test_unchanged_syllabus_save_skips_database_updates(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة بايثون للمبتدئين',
+            title_en='Python for Beginners',
+            category='برمجة',
+            summary='ملخص الدورة',
+            content='<p>' + ' '.join(['وصف تفصيلي'] * 50) + '</p>',
+            price='150',
+            duration='20 ساعة',
+            duration_en='20 hours',
+            period='8 لقاءات',
+            skills=['Python', 'Basics'],
+            credential_id='PY-2026-1',
+            verify_url='https://example.com/verify/PY-2026-1',
+        )
+        section = CourseSection.objects.create(course=course, title='البداية')
+        lesson = Lesson.objects.create(
+            section=section,
+            title='اختبار البداية',
+            duration='08:20',
+            type=LessonType.QUIZ,
+            is_free=True,
+            content='محتوى الدرس',
+            video_url='https://example.com/v1.mp4',
+        )
+        quiz = Quiz.objects.create(lesson=lesson)
+        question = QuizQuestion.objects.create(
+            quiz=quiz, text='ما ناتج 1 + 1؟', explanation='الجمع يعطي 2.'
+        )
+        QuizChoice.objects.create(question=question, text='2', is_correct=True)
+        QuizChoice.objects.create(question=question, text='3', order=1)
+        syllabus = [{
+            'id': section.pk,
+            'title': section.title,
+            'lessons': [{
+                'id': lesson.pk,
+                'title': lesson.title,
+                'duration': lesson.duration,
+                'type': lesson.type,
+                'free': lesson.is_free,
+                'content': lesson.content,
+                'videoUrl': lesson.video_url,
+                'quiz': {
+                    'instructions': '',
+                    'maxAttempts': 3,
+                    'questionsCount': 0,
+                    'passScore': 60,
+                    'shuffleQuestions': True,
+                    'shuffleChoices': True,
+                    'questions': [{
+                        'text': question.text,
+                        'explanation': question.explanation,
+                        'choices': [
+                            {'text': '2', 'correct': True},
+                            {'text': '3', 'correct': False},
+                        ],
+                    }],
+                },
+            }],
+        }]
+
+        payload = _payload(id=course.slug, status='draft', syllabus=syllabus, cover='')
+        with CaptureQueriesContext(connection) as captured:
+            response = self._post(payload, self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        updates = [
+            query['sql'] for query in captured
+            if query['sql'].lstrip().upper().startswith('UPDATE ')
+            and any(
+                f'"{table.upper()}"' in query['sql'].upper()
+                for table in (
+                    'courses_course',
+                    'courses_coursesection',
+                    'courses_lesson',
+                    'courses_quiz',
+                    'courses_quizquestion',
+                    'courses_quizchoice',
+                )
+            )
+        ]
+        self.assertEqual(updates, [])
+
+        syllabus[0]['lessons'][0]['content'] = 'محتوى الدرس المعدل'
+        payload['syllabus'] = syllabus
+        with CaptureQueriesContext(connection) as captured:
+            response = self._post(payload, self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        updates = [
+            query['sql'] for query in captured
+            if query['sql'].lstrip().upper().startswith('UPDATE ')
+            and any(
+                f'"{table.upper()}"' in query['sql'].upper()
+                for table in (
+                    'courses_course',
+                    'courses_coursesection',
+                    'courses_lesson',
+                    'courses_quiz',
+                    'courses_quizquestion',
+                    'courses_quizchoice',
+                )
+            )
+        ]
+        self.assertEqual(len(updates), 1)
+
+        quiz_data = syllabus[0]['lessons'][0]['quiz']
+        quiz_data['questions'][0]['text'] = 'ما ناتج 2 + 2؟'
+        quiz_data['questions'].append({
+            'text': 'ما ناتج 3 + 3؟',
+            'explanation': 'الجمع يعطي 6.',
+            'choices': [
+                {'text': '6', 'correct': True},
+                {'text': '7', 'correct': False},
+            ],
+        })
+        payload['syllabus'] = syllabus
+        response = self._post(payload, self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(QuizQuestion.objects.filter(quiz=quiz).count(), 2)
+        self.assertEqual(
+            QuizQuestion.objects.get(quiz=quiz, order=0).text,
+            'ما ناتج 2 + 2؟',
+        )
+        self.assertEqual(
+            QuizChoice.objects.filter(
+                question__quiz=quiz, is_correct=True
+            ).count(),
+            2,
+        )
 
     def test_owner_can_update_english_course_title(self):
         course = Course.objects.create(
@@ -370,10 +794,33 @@ class CoursePageTests(TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertContains(res, 'id="courses-data"')
         self.assertContains(res, 'id="coursesSearch"')
+        self.assertContains(res, 'id="coursesCategoryFilter"')
         self.assertContains(res, 'id="coursesMore"')
+        self.assertFalse(res.context['can_reorder_courses'])
+        self.assertNotContains(res, 'id="courseReorderTools"')
         titles = [c['title'] for c in res.context['courses_json']]
         self.assertIn('دورة منشورة', titles)
         self.assertNotIn('دورة مسودة', titles)
+        self.assertEqual(res.context['courses_json'][0]['syllabus'], [])
+        self.assertEqual(res.context['courses_json'][0]['content'], '')
+
+    def test_list_page_does_not_query_each_course_owner_profile(self):
+        for index in range(4):
+            Course.objects.create(
+                owner=self.trainer,
+                title=f'دورة إضافية {index}',
+                status=CourseStatus.PUBLISHED,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse('courses:list'))
+
+        self.assertEqual(response.status_code, 200)
+        profile_queries = [
+            query for query in queries
+            if 'FROM "users_profile"' in query['sql']
+        ]
+        self.assertEqual(profile_queries, [])
 
     def test_list_page_hides_drafts_even_from_their_owner(self):
         self.client.force_login(self.trainer)
@@ -381,17 +828,172 @@ class CoursePageTests(TestCase):
         titles = [c['title'] for c in res.context['courses_json']]
         self.assertIn('دورة منشورة', titles)
         self.assertNotIn('دورة مسودة', titles)
+        self.assertFalse(res.context['can_reorder_courses'])
+
+    def test_admin_can_access_course_reordering_controls(self):
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('courses:list'))
+
+        self.assertTrue(response.context['can_reorder_courses'])
+        self.assertContains(response, 'id="courseReorderTools"')
+        self.assertContains(response, 'id="courseReorderSave"')
+
+    def test_course_order_endpoint_saves_published_course_order(self):
+        second = Course.objects.create(
+            owner=self.other_trainer, title='دورة ثانية', status=CourseStatus.PUBLISHED
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('courses:reorder'),
+            data=json.dumps({'order': [second.slug, self.published.slug]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['ok'])
+        self.assertEqual(
+            list(
+                Course.objects.filter(status=CourseStatus.PUBLISHED)
+                .order_by('display_order')
+                .values_list('slug', flat=True)
+            ),
+            [second.slug, self.published.slug],
+        )
+        list_response = self.client.get(reverse('courses:list'))
+        self.assertEqual(
+            [course['id'] for course in list_response.context['courses_json']],
+            [second.slug, self.published.slug],
+        )
+
+    def test_course_order_endpoint_rejects_non_admin_and_stale_lists(self):
+        url = reverse('courses:reorder')
+        payload = json.dumps({'order': [self.published.slug]})
+
+        self.client.force_login(self.trainer)
+        forbidden = self.client.post(url, data=payload, content_type='application/json')
+        self.assertEqual(forbidden.status_code, 403)
+
+        self.client.force_login(self.admin)
+        stale = self.client.post(url, data=json.dumps({'order': []}), content_type='application/json')
+        self.assertEqual(stale.status_code, 409)
+        self.assertIsNone(self.published.display_order)
+
+    def test_admin_can_toggle_coming_soon_and_public_cards_hide_syllabus(self):
+        section = self.published.sections.first()
+        Lesson.objects.create(section=section, title='محتوى قريبًا', order=1)
+        self.client.force_login(self.admin)
+        url = reverse('courses:coming-soon', kwargs={'pk': self.published.slug})
+
+        enabled = self.client.post(
+            url,
+            data=json.dumps({'comingSoon': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(enabled.status_code, 200, enabled.content)
+        self.assertTrue(self.published.__class__.objects.get(pk=self.published.pk).is_coming_soon)
+
+        public_response = self.client.get(reverse('courses:list'))
+        payload = next(
+            item for item in public_response.context['courses_json']
+            if item['id'] == self.published.slug
+        )
+        self.assertTrue(payload['comingSoon'])
+        self.assertEqual(payload['syllabus'], [])
+
+        disabled = self.client.post(
+            url,
+            data=json.dumps({'comingSoon': False}),
+            content_type='application/json',
+        )
+        self.assertEqual(disabled.status_code, 200, disabled.content)
+        self.assertFalse(self.published.__class__.objects.get(pk=self.published.pk).is_coming_soon)
+
+    def test_only_admin_can_toggle_coming_soon(self):
+        url = reverse('courses:coming-soon', kwargs={'pk': self.published.slug})
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(
+            url,
+            data=json.dumps({'comingSoon': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(self.published.is_coming_soon)
+
+    def test_coming_soon_course_details_are_public_but_playlist_stays_restricted(self):
+        self.published.is_coming_soon = True
+        self.published.save(update_fields=['is_coming_soon'])
+        detail_url = reverse('courses:detail', kwargs={'pk': self.published.slug})
+        playlist_url = reverse('courses:playlist', kwargs={'pk': self.published.slug})
+
+        public_detail = self.client.get(detail_url)
+        self.assertEqual(public_detail.status_code, 200)
+        payload = public_detail.context['courses_json'][0]
+        self.assertTrue(payload['comingSoon'])
+        self.assertContains(public_detail, 'courses-data')
+        self.assertEqual(self.client.get(playlist_url).status_code, 404)
+
+        self.client.force_login(self.student)
+        self.assertEqual(self.client.get(detail_url).status_code, 200)
+        self.assertEqual(self.client.get(playlist_url).status_code, 404)
+
+        self.client.force_login(self.trainer)
+        self.assertEqual(self.client.get(detail_url).status_code, 200)
+        self.assertEqual(self.client.get(playlist_url).status_code, 200)
+
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.get(detail_url).status_code, 200)
+        self.assertEqual(self.client.get(playlist_url).status_code, 200)
+
+    def test_coming_soon_paid_course_cannot_be_redeemed(self):
+        self.published.price = '150'
+        self.published.is_coming_soon = True
+        self.published.save(update_fields=['price', 'is_coming_soon'])
+        self.client.force_login(self.student)
+
+        response = self.client.post(
+            reverse('courses:redeem-points', kwargs={'pk': self.published.slug})
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(
+            CourseProgress.objects.filter(student=self.student, course=self.published).exists()
+        )
+
+    def test_course_sheet_data_is_available_on_every_base_page(self):
+        self.client.force_login(self.trainer)
+        response = self.client.get(reverse('courses:create'))
+
+        self.assertEqual(response.status_code, 200)
+        sheet_courses = response.context['courses_sheet_json']
+        self.assertEqual(len(sheet_courses), 1)
+        self.assertEqual(sheet_courses[0]['id'], self.published.slug)
+        self.assertEqual(sheet_courses[0]['title'], self.published.title)
+        self.assertNotIn('syllabus', sheet_courses[0])
+        self.assertContains(response, 'id="courses-sheet-data"')
 
     def test_detail_page_payload_shape(self):
-        res = self.client.get(reverse('courses:detail', kwargs={'pk': self.published.slug}))
-        self.assertEqual(res.status_code, 200)
-        payload = res.context['courses_json'][0]
-        self.assertEqual(payload['id'], self.published.slug)
-        self.assertEqual(payload['instructor'], 'مدرّب المنصة')
-        self.assertEqual(payload['handle'], self.trainer.handle)
-        self.assertEqual(payload['syllabus'][0]['lessons'][0]['duration'], '08:20')
-        self.assertFalse(res.context['is_course_enrolled'])
-        self.assertContains(res, 'id="course-enrollment-data"')
+        self.published.content = '<p>وصف الدورة الكامل</p>'
+        self.published.save(update_fields=['content'])
+        profile, _ = Profile.objects.get_or_create(user=self.trainer)
+        profile.avatar.save('trainer.png', ContentFile(b'test-avatar'), save=True)
+        try:
+            res = self.client.get(reverse('courses:detail', kwargs={'pk': self.published.slug}))
+            self.assertEqual(res.status_code, 200)
+            payload = res.context['courses_json'][0]
+            self.assertEqual(payload['id'], self.published.slug)
+            self.assertEqual(payload['instructor'], 'مدرّب المنصة')
+            self.assertEqual(payload['handle'], self.trainer.handle)
+            self.assertEqual(payload['owner']['handle'], self.trainer.handle)
+            self.assertEqual(payload['owner']['avatar'], profile.avatar.url)
+            self.assertEqual(payload['content'], self.published.content)
+            self.assertEqual(payload['syllabus'][0]['lessons'][0]['duration'], '08:20')
+            self.assertFalse(res.context['is_course_enrolled'])
+            self.assertContains(res, 'id="course-enrollment-data"')
+        finally:
+            profile.avatar.delete(save=False)
 
     def test_detail_page_marks_student_enrolled_only_with_course_progress(self):
         url = reverse('courses:detail', kwargs={'pk': self.published.slug})
@@ -483,6 +1085,12 @@ class CoursePageTests(TestCase):
         self.assertLess(editor_html.index('id="edTitle"'), editor_html.index('id="edTitleEnglish"'))
         self.assertLess(editor_html.index('id="edTitleEnglish"'), editor_html.index('id="edCoverHost"'))
         self.assertIn('class="title-input" id="edTitleEnglish"', editor_html)
+        self.assertIn('id="edContentPanel" hidden', editor_html)
+        self.assertIn('id="edContentToggle"', editor_html)
+        self.assertIn('id="edSyllabusPanel" hidden', editor_html)
+        self.assertIn('id="edSyllabusToggle"', editor_html)
+        self.assertNotIn('data-k="free"', editor_html)
+        self.assertNotIn('lessonFreeLabel', editor_html)
         self.assertNotIn('class="slug-row"', editor_html)
         self.assertLess(editor_html.index('id="edCoverHost"'), editor_html.index('editor-templates-mobile'))
         self.assertLess(editor_html.index('id="edChecklist"'), editor_html.index('editor-templates-desktop'))
@@ -534,6 +1142,12 @@ class CoursePageTests(TestCase):
         self.assertNotContains(res, 'id="edSocialPreview"')
         self.assertIn('editor-checklist-mobile', editor_html)
         self.assertLess(editor_html.index('editor-checklist-mobile'), editor_html.index('id="edSyllabusBox"'))
+        self.assertIn('id="edContentPanel" hidden', editor_html)
+        self.assertIn('id="edContentToggle"', editor_html)
+        self.assertIn('id="edSyllabusPanel" hidden', editor_html)
+        self.assertIn('id="edSyllabusToggle"', editor_html)
+        self.assertNotIn('data-k="free"', editor_html)
+        self.assertNotIn('lessonFreeLabel', editor_html)
         self.assertContains(res, 'id="edPeriod" type="number"')
         self.assertContains(res, 'id="lblPeriodUnit">لقاءات</span>')
         self.assertNotContains(res, '<select class="select" id="edRole"')
@@ -802,6 +1416,7 @@ class CourseProgressTests(TestCase):
         payload = res.context['courses_json'][0]
         self.assertNotIn('earned', payload)
         self.assertEqual(payload['title'], 'دورة الشبكات الأساسية')
+        self.assertNotContains(res, 'vendor/plyr/')
 
     def test_certificate_page_anonymous_other_student_not_earned(self):
         cert_url = reverse('courses:certificate', kwargs={'pk': self.course.slug})
@@ -1976,6 +2591,7 @@ class EarnedCertificateDetailTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         certificate_data = response.context['courses_json'][0]
+        self.assertTrue(certificate_data['workshop'])
         self.assertEqual(certificate_data['studentNameArabic'], self.student.full_name_ar)
         self.assertEqual(certificate_data['studentNameEnglish'], self.student.full_name_en)
         self.assertEqual(certificate_data['titleEnglish'], 'Design Fundamentals Workshop')

@@ -7,6 +7,7 @@
   var PKEY = 'dc_playlist_progress_v1';
 
   var course = null, syllabus = [], flat = [], progress = {}, currentKey = null;
+  var openedSectionIndex = 0;
   var trainerMode = false;
   var serverProgress = null;      /* {done: [lesson ids], complete: bool} من السيرفر */
   var idKeyMap = {};              /* معرّف الدرس في قاعدة البيانات ← المفتاح الموضعي */
@@ -164,6 +165,30 @@
 
   function pct() {
     return flat.length ? Math.round(doneCount() * 100 / flat.length) : 0;
+  }
+
+  function sectionIsDone(sectionIndex) {
+    var lessons = syllabus[sectionIndex] && syllabus[sectionIndex].lessons || [];
+    if (!lessons.length) return false;
+    return lessons.every(function (_lesson, lessonIndex) {
+      return !!progress['s' + sectionIndex + 'l' + lessonIndex];
+    });
+  }
+
+  function syncSections() {
+    document.querySelectorAll('.pl-sec').forEach(function (section, index) {
+      var isOpen = index === openedSectionIndex;
+      var head = section.querySelector('.pl-sec-head');
+      var list = section.querySelector('.pl-sec-list');
+      var complete = section.querySelector('.pl-sec-complete');
+      if (head) {
+        head.classList.toggle('collapsed', !isOpen);
+        head.classList.toggle('is-complete', sectionIsDone(index));
+        head.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      }
+      if (list) list.classList.toggle('collapsed', !isOpen);
+      if (complete) complete.hidden = !sectionIsDone(index);
+    });
   }
 
   /* ---------- بناء القائمة المسطّحة ---------- */
@@ -510,14 +535,19 @@
       }).join('');
 
       var d = secDuration(sec);
+      var isOpen = si === openedSectionIndex;
+      var isComplete = sectionIsDone(si);
       return '' +
         '<section class="pl-sec">' +
-        '<button type="button" class="pl-sec-head" data-act="sec" data-si="' + si + '">' +
+        '<button type="button" class="pl-sec-head' + (isOpen ? '' : ' collapsed') + (isComplete ? ' is-complete' : '') +
+          '" data-act="sec" data-si="' + si + '" aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
         UI.icon('chevron-down', 16) +
         '<span class="pl-sec-main"><b>' + e(sec.title) + '</b>' +
         '<span>' + lessonsLabel(secLessons(sec)) + (d ? ' · ' + e(fmtTotal(d)) : '') + '</span></span>' +
+        '<span class="pl-sec-complete" aria-label="' + e(t('plSectionComplete')) + '"' + (isComplete ? '' : ' hidden') + '>' +
+          UI.icon('check-circle', 17) + '</span>' +
         '</button>' +
-        '<ul class="pl-sec-list">' + items + '</ul>' +
+        '<ul class="pl-sec-list' + (isOpen ? '' : ' collapsed') + '">' + items + '</ul>' +
         '</section>';
     }).join('');
 
@@ -637,6 +667,7 @@
           num.innerHTML = done ? UI.icon('check', 13) : lessonIcon(f ? f.lesson.type : 'video');
         }
       });
+      syncSections();
       var q = pct();
       document.querySelectorAll('.pl-progress-box .pl-bar span, .pl-list-progress .pl-bar span').forEach(function (s) {
         s.style.width = q + '%';
@@ -664,6 +695,8 @@
   function selectLesson(key, scroll) {
     if (!flat.some(function (x) { return x.key === key; })) return;
     currentKey = key;
+    var selected = flat.find(function (x) { return x.key === key; });
+    if (selected) openedSectionIndex = selected.si;
     if (quizState && quizState.lessonId !== idOf(key)) quizState = null;
     syncURL();
     renderPlayer();
@@ -975,9 +1008,12 @@
     var act = el.getAttribute('data-act');
 
     if (act === 'sec') {
-      el.classList.toggle('collapsed');
-      var list = el.nextElementSibling;
-      if (list) list.classList.toggle('collapsed');
+      var sectionIndex = parseInt(el.getAttribute('data-si'), 10);
+      openedSectionIndex = openedSectionIndex === sectionIndex ? -1 : sectionIndex;
+      syncSections();
+      if (openedSectionIndex === sectionIndex) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       return;
     }
     if (act === 'toggle') {
@@ -1078,8 +1114,10 @@
       completeFlag = true;
     }
     var wanted = params.get('l');
-    var firstOpen = flat.find(function (x) { return !progress[x.key]; }) || flat[0];
+    var firstOpen = flat.find(function (x) { return !progress[x.key]; }) || flat[flat.length - 1];
     currentKey = (wanted && flat.some(function (x) { return x.key === wanted; }) ? wanted : (firstOpen ? firstOpen.key : ''));
+    var activeLesson = flat.find(function (x) { return x.key === currentKey; });
+    openedSectionIndex = activeLesson ? activeLesson.si : 0;
   }
   SiteChrome.mount();
   render();

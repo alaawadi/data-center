@@ -18,12 +18,22 @@
           <div class="tpl-list" data-editor-templates></div>
         </div>
 
-        <div class="rich-editor">
-          <div class="editor-toolbar" id="edToolbar"></div>
-          <div class="editable" id="edContent" contenteditable="true" spellcheck="false"></div>
+        <div class="editor-content-toggle">
+          <button class="editor-content-toggle-btn" type="button" id="edContentToggle"
+            aria-expanded="false" aria-controls="edContentPanel">
+            <span id="edContentToggleLabel">المحتوى</span>
+            <span class="editor-content-toggle-state" id="edContentToggleState">فتح</span>
+            <span class="editor-content-toggle-icon" id="edContentToggleIcon" aria-hidden="true"></span>
+          </button>
         </div>
 
-        <div class="editor-foot-meta" id="edMeta"></div>
+        <div id="edContentPanel" hidden>
+          <div class="rich-editor">
+            <div class="editor-toolbar" id="edToolbar"></div>
+            <div class="editable" id="edContent" contenteditable="true" spellcheck="false"></div>
+          </div>
+          <div class="editor-foot-meta" id="edMeta"></div>
+        </div>
 
         <div class="side-card-box editor-checklist-box editor-checklist-mobile">
           <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" data-checklist-pct>0%</span></h3>
@@ -31,10 +41,37 @@
           <div class="checklist-items" data-checklist-list></div>
         </div>
 
-        <div class="side-card-box" id="edSyllabusBox">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
-            <button class="btn btn-soft btn-sm" type="button" id="edSecAdd"></button></h3>
-          <div class="syllabus-list" id="edSyllabus"></div>
+        <div class="editor-content-toggle">
+          <button class="editor-content-toggle-btn" type="button" id="edSyllabusToggle"
+            aria-expanded="false" aria-controls="edSyllabusPanel">
+            <span id="edSyllabusToggleLabel">المحتوى التعليمي (الأقسام والدروس)</span>
+            <span class="editor-content-toggle-state" id="edSyllabusToggleState">فتح</span>
+            <span class="editor-content-toggle-icon" id="edSyllabusToggleIcon" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <div id="edSyllabusPanel" hidden>
+          <div class="side-card-box" id="edSyllabusBox">
+            <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
+              <button class="btn btn-soft btn-sm" type="button" id="edSecAdd"></button></h3>
+            <section class="course-version-history" id="edVersionHistory" hidden>
+              <div class="course-version-heading">
+                <strong id="edVersionTitle"></strong>
+                <span id="edVersionCount"></span>
+              </div>
+              <div class="course-version-controls">
+                <button class="btn btn-ghost btn-sm" type="button" id="edVersionPrev" aria-label="Previous version"></button>
+                <select class="select" id="edVersionSelect" aria-label="Course version"></select>
+                <button class="btn btn-ghost btn-sm" type="button" id="edVersionNext" aria-label="Next version"></button>
+              </div>
+              <button class="btn btn-soft btn-sm" type="button" id="edVersionLoad"></button>
+            </section>
+            <section class="course-deletion-history" id="edDeletionHistory" hidden>
+              <strong id="edDeletionHistoryTitle"></strong>
+              <div id="edDeletionHistoryList"></div>
+            </section>
+            <div class="syllabus-list" id="edSyllabus"></div>
+          </div>
         </div>
       </div>
 

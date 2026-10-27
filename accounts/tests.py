@@ -1,10 +1,12 @@
+from pathlib import Path
+
 from django.test import TestCase
 from django.urls import reverse
 
 from courses.models import Course, CourseCertificate, CourseStatus
 from courses.models import StudentPointTransaction, StudentReferralLink
 from projects.models import Project, ProjectInteraction, ProjectStatus
-from users.models import User, UserRole
+from users.models import Profile, User, UserRole
 
 
 class SavedProjectsProfileTests(TestCase):
@@ -178,8 +180,136 @@ class FreelancerListTests(TestCase):
             reverse('accounts:profile', kwargs={'handle': student.handle})
         )
         self.assertNotIn('canScanWorkshops', public_response.context['profile_json'])
+        self.assertNotIn('referral_points', public_response.context['profile_json'])
+        self.assertNotIn('referral_visits', public_response.context['profile_json'])
+        self.assertNotContains(public_response, 'إجمالي نقاط الإحالة')
+        self.assertNotContains(public_response, 'زيارات روابطك')
         self.client.force_login(trainer)
         other_user_response = self.client.get(
             reverse('accounts:profile', kwargs={'handle': student.handle})
         )
         self.assertNotIn('canScanWorkshops', other_user_response.context['profile_json'])
+        self.assertNotIn('referral_points', other_user_response.context['profile_json'])
+        self.assertNotIn('referral_visits', other_user_response.context['profile_json'])
+
+    def test_trainer_profile_never_exposes_student_referral_statistics(self):
+        trainer = self._user('059900112', 'مدرب الملف الشخصي', UserRole.TRAINER)
+        self.client.force_login(trainer)
+
+        response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': trainer.handle})
+        )
+
+        self.assertNotIn('referral_points', response.context['profile_json'])
+        self.assertNotIn('referral_visits', response.context['profile_json'])
+        self.assertNotContains(response, 'إجمالي نقاط الإحالة')
+        self.assertNotContains(response, 'زيارات روابطك')
+
+    def test_public_profile_avatar_disables_image_dragging(self):
+        owner = self._user('059900113', 'صاحب صورة', UserRole.STUDENT)
+
+        response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': owner.handle})
+        )
+
+        profile_script = (
+            Path(__file__).resolve().parent.parent / 'static' / 'js' / 'user-profile.js'
+        ).read_text(encoding='utf-8')
+        self.assertContains(response, 'id="profileHost"')
+        self.assertIn('draggable="false"', profile_script)
+        self.assertIn("avatarImage.addEventListener('contextmenu'", profile_script)
+        self.assertIn("avatarImage.addEventListener('dragstart'", profile_script)
+
+
+class FreelancerReorderingTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='059901201',
+            password='pass1234',
+            full_name='مدير الترتيب',
+            role=UserRole.ADMIN,
+        )
+        self.first = User.objects.create_user(
+            phone='059901202',
+            password='pass1234',
+            full_name='مستقل أول',
+            role=UserRole.STUDENT,
+        )
+        self.second = User.objects.create_user(
+            phone='059901203',
+            password='pass1234',
+            full_name='مدرب ثاني',
+            role=UserRole.TRAINER,
+        )
+        self.first.profile.display_order = None
+        self.first.profile.save(update_fields=['display_order'])
+        self.second.profile.display_order = None
+        self.second.profile.save(update_fields=['display_order'])
+
+    def test_reordering_controls_are_available_to_admin_only(self):
+        admin_response = self.client.get(reverse('accounts:list'))
+        self.assertFalse(admin_response.context['can_reorder_freelancers'])
+        self.assertNotContains(admin_response, 'id="freelancerReorderTools"')
+
+        self.client.force_login(self.admin)
+        admin_response = self.client.get(reverse('accounts:list'))
+        self.assertTrue(admin_response.context['can_reorder_freelancers'])
+        self.assertContains(admin_response, 'id="freelancerReorderTools"')
+
+        self.client.force_login(self.first)
+        member_response = self.client.get(reverse('accounts:list'))
+        self.assertFalse(member_response.context['can_reorder_freelancers'])
+        self.assertNotContains(member_response, 'id="freelancerReorderTools"')
+
+    def test_admin_can_save_and_view_freelancer_order(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('accounts:reorder'),
+            data={'order': [self.first.handle, self.second.handle]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            list(
+                Profile.objects.filter(
+                    user__in=[self.first, self.second]
+                ).order_by('display_order').values_list('user__handle', flat=True)
+            ),
+            [self.first.handle, self.second.handle],
+        )
+        profiles = self.client.get(reverse('accounts:list')).context['profiles_json']
+        self.assertEqual(
+            [profile['handle'] for profile in profiles],
+            [self.first.handle, self.second.handle],
+        )
+
+    def test_non_admin_cannot_reorder_freelancers(self):
+        self.client.force_login(self.first)
+
+        response = self.client.post(
+            reverse('accounts:reorder'),
+            data={'order': [self.first.handle, self.second.handle]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_reorder_rejects_duplicate_or_changed_freelancer_lists(self):
+        self.client.force_login(self.admin)
+        url = reverse('accounts:reorder')
+
+        duplicate_response = self.client.post(
+            url,
+            data={'order': [self.first.handle, self.first.handle]},
+            content_type='application/json',
+        )
+        changed_response = self.client.post(
+            url,
+            data={'order': [self.first.handle]},
+            content_type='application/json',
+        )
+
+        self.assertEqual(duplicate_response.status_code, 400)
+        self.assertEqual(changed_response.status_code, 409)

@@ -333,6 +333,9 @@ class Profile(models.Model):
 
     # ── إعدادات ──
     is_public = models.BooleanField('ملف عام', default=True)
+    display_order = models.PositiveIntegerField(
+        'ترتيب الظهور', null=True, blank=True, db_index=True
+    )
     created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
     updated_at = models.DateTimeField('حُدّث في', auto_now=True)
 

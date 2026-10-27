@@ -7,8 +7,9 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from users.models import User, UserRole
+from courses.models import Course, CourseProgress, CourseSection, CourseStatus, Lesson
 
-from .models import Project, ProjectInteraction, ProjectStatus, ProjectVisibility
+from .models import Project, ProjectImage, ProjectInteraction, ProjectStatus, ProjectVisibility
 
 
 class ProjectVisibilityTests(TestCase):
@@ -337,6 +338,285 @@ class ProjectVisibilityTests(TestCase):
         res = self.client.get(reverse('projects:detail', kwargs={'pk': project.slug}))
         self.assertEqual(res.status_code, 404)
 
+    def test_published_course_project_details_are_reachable_from_public_course(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة عامة',
+            status=CourseStatus.PUBLISHED,
+        )
+        section = CourseSection.objects.create(course=course, title='المشاريع')
+        lesson = Lesson.objects.create(section=section, title='المشروع')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع تابع للدورة',
+            status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+        )
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['projects_json'][0]['title'], project.title)
+        self.assertFalse(response.context['projects_json'][0]['canDownloadFiles'])
+        self.assertGreaterEqual(response.context['projects_json'][0]['displayLikes'], 200)
+        self.assertGreaterEqual(response.context['projects_json'][0]['displayViews'], 1800)
+
+    def test_course_project_display_counts_are_different_and_stable(self):
+        projects = []
+        for title in ('مشروع أول', 'مشروع ثان'):
+            course = Course.objects.create(
+                owner=self.trainer,
+                title=f'دورة {title}',
+                status=CourseStatus.PUBLISHED,
+            )
+            section = CourseSection.objects.create(course=course, title='المشاريع')
+            lesson = Lesson.objects.create(section=section, title='مشروع')
+            projects.append(Project.objects.create(
+                owner=self.trainer,
+                title=title,
+                status=ProjectStatus.DRAFT,
+                visibility=ProjectVisibility.COURSES,
+                source_lesson=lesson,
+            ))
+
+        counts = []
+        for project in projects:
+            response = self.client.get(
+                reverse('projects:detail', kwargs={'pk': project.slug})
+            )
+            self.assertEqual(response.status_code, 200)
+            data = response.context['projects_json'][0]
+            counts.append((data['displayLikes'], data['displayViews']))
+
+        self.assertNotEqual(counts[0], counts[1])
+        for likes, views in counts:
+            self.assertGreaterEqual(likes, 200)
+            self.assertGreaterEqual(views, 1800)
+
+    def test_course_project_display_views_increment_on_each_new_visit(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة لمشاهدة المشروع',
+            status=CourseStatus.PUBLISHED,
+        )
+        section = CourseSection.objects.create(course=course, title='المشاريع')
+        lesson = Lesson.objects.create(section=section, title='مشروع')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع يحسب المشاهدات',
+            status=ProjectStatus.DRAFT,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+            views=2,
+        )
+        detail_url = reverse('projects:detail', kwargs={'pk': project.slug})
+
+        first_visit = self.client.get(detail_url)
+        first_displayed_views = first_visit.context['projects_json'][0]['displayViews']
+        project.refresh_from_db()
+        self.assertEqual(project.views, 3)
+
+        second_visit = self.client.get(detail_url)
+        second_displayed_views = second_visit.context['projects_json'][0]['displayViews']
+        project.refresh_from_db()
+
+        self.assertEqual(project.views, 4)
+        self.assertEqual(second_displayed_views, first_displayed_views + 1)
+
+    def test_project_detail_shows_real_likes_and_incremented_view_count(self):
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع بإحصاءات',
+            status=ProjectStatus.PUBLISHED,
+            views=7,
+            likes=3,
+        )
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        project_data = response.context['projects_json'][0]
+        self.assertEqual(project_data['views'], 8)
+        self.assertEqual(project_data['likes'], 3)
+        project.refresh_from_db()
+        self.assertEqual(project.views, 8)
+
+    def test_project_detail_includes_gallery_images_in_frontend_payload(self):
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع بمعرض صور',
+            status=ProjectStatus.PUBLISHED,
+        )
+        ProjectImage.objects.create(
+            project=project,
+            image='projects/gallery/detail-preview.svg',
+        )
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        project_data = response.context['projects_json'][0]
+        self.assertEqual(
+            project_data['gallery'],
+            ['/media/projects/gallery/detail-preview.svg'],
+        )
+
+    def test_project_of_coming_soon_course_is_reachable_without_file_access(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة قريبًا',
+            status=CourseStatus.PUBLISHED,
+            is_coming_soon=True,
+        )
+        section = CourseSection.objects.create(course=course, title='المشاريع')
+        lesson = Lesson.objects.create(section=section, title='المشروع')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع قريبًا',
+            status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+        )
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['projects_json'][0]['title'], project.title)
+        self.assertFalse(response.context['projects_json'][0]['canDownloadFiles'])
+
+    def test_logged_in_user_can_view_draft_project_of_coming_soon_course(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة مستقبلية',
+            status=CourseStatus.PUBLISHED,
+            is_coming_soon=True,
+        )
+        section = CourseSection.objects.create(course=course, title='المشاريع')
+        lesson = Lesson.objects.create(section=section, title='مشروع مستقبلي')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع دورة مستقبلية',
+            status=ProjectStatus.DRAFT,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+        )
+        self.client.force_login(self.student)
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['projects_json'][0]['canDownloadFiles'])
+
+    def test_draft_project_linked_to_published_course_can_be_viewed_and_liked(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة عامة قريبًا',
+            status=CourseStatus.PUBLISHED,
+            is_coming_soon=True,
+        )
+        section = CourseSection.objects.create(course=course, title='المشاريع')
+        lesson = Lesson.objects.create(section=section, title='مشروع الدورة')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع مسودة مرتبط بدورة عامة',
+            status=ProjectStatus.DRAFT,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+            views=2,
+        )
+        detail_url = reverse('projects:detail', kwargs={'pk': project.slug})
+
+        detail = self.client.get(detail_url)
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.context['projects_json'][0]['views'], 3)
+        self.assertFalse(detail.context['projects_json'][0]['canDownloadFiles'])
+
+        self.client.force_login(self.student)
+        interaction = self.client.post(
+            reverse('projects:interaction'),
+            data=json.dumps({'id': project.slug, 'field': 'like'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(interaction.status_code, 200, interaction.content)
+        self.assertTrue(interaction.json()['liked'])
+        self.assertEqual(interaction.json()['likes'], 1)
+        self.assertEqual(interaction.json()['displayLikes'], 200 + project.pk + 1)
+        project.refresh_from_db()
+        self.assertEqual(project.views, 3)
+        self.assertEqual(project.likes, 1)
+
+    def test_project_linked_to_unpublished_course_stays_hidden_from_anonymous(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة مسودة',
+            status=CourseStatus.DRAFT,
+            is_coming_soon=True,
+        )
+        section = CourseSection.objects.create(course=course, title='المشاريع')
+        lesson = Lesson.objects.create(section=section, title='المشروع')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع دورة مسودة',
+            status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+        )
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_course_project_file_requires_enrolled_student(self):
+        course = Course.objects.create(
+            owner=self.trainer, title='دورة الملفات', status=CourseStatus.PUBLISHED,
+        )
+        section = CourseSection.objects.create(course=course, title='مشاريع الدورة')
+        lesson = Lesson.objects.create(section=section, title='المشروع')
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='ملفات مشروع الدورة',
+            status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.COURSES,
+            source_lesson=lesson,
+        )
+        project_file = project.files.create(original_name='guide.txt', size=4)
+        project_file.file.save('guide.txt', ContentFile(b'test'), save=True)
+        download_url = reverse('projects:file-download', args=[project_file.pk])
+        detail_url = reverse('projects:detail', kwargs={'pk': project.slug})
+        self.assertEqual(project.to_public_dict()['files'][0]['url'], download_url)
+        self.assertEqual(project.to_public_dict()['files'][0]['dataUrl'], download_url)
+
+        self.client.force_login(self.student)
+        try:
+            detail = self.client.get(detail_url)
+            self.assertEqual(detail.status_code, 200)
+            self.assertFalse(detail.context['projects_json'][0]['canDownloadFiles'])
+            self.assertEqual(self.client.get(download_url).status_code, 404)
+
+            CourseProgress.objects.create(student=self.student, course=course)
+            enrolled_detail = self.client.get(detail_url)
+            self.assertTrue(enrolled_detail.context['projects_json'][0]['canDownloadFiles'])
+            response = self.client.get(download_url)
+            self.assertEqual(response.status_code, 200)
+            response.close()
+        finally:
+            project_file.file.delete(save=False)
+
     def test_copy_for_student_is_public(self):
         # نسخة الطالب من مشروع دورة تبقى «عامة» لتظهر في بروفايله.
         project = Project.objects.create(owner=self.trainer, title='دورات')
@@ -358,7 +638,16 @@ class ProjectVisibilityTests(TestCase):
             content_type='application/json',
         )
         self.assertEqual(liked.status_code, 200)
-        self.assertEqual(liked.json(), {'ok': True, 'liked': True, 'saved': False, 'likes': 1})
+        self.assertEqual(
+            liked.json(),
+            {
+                'ok': True,
+                'liked': True,
+                'saved': False,
+                'likes': 1,
+                'displayLikes': 1,
+            },
+        )
 
         unliked = self.client.post(
             url,
@@ -411,4 +700,107 @@ class ProjectVisibilityTests(TestCase):
             data=json.dumps({'id': project.slug, 'field': 'like'}),
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()['error'], 'authentication_required')
+
+
+class ProjectReorderingTests(TestCase):
+    def setUp(self):
+        self.trainer = User.objects.create_user(
+            phone='059800001', password='pass1234', full_name='مدرب الترتيب',
+            role=UserRole.TRAINER,
+        )
+        self.admin = User.objects.create_user(
+            phone='059800002', password='pass1234', full_name='مدير الترتيب',
+            is_staff=True,
+        )
+        self.first = Project.objects.create(
+            owner=self.trainer, title='مشروع أول', status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.PUBLIC, display_order=0,
+        )
+        self.second = Project.objects.create(
+            owner=self.trainer, title='مشروع ثان', status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.PUBLIC, display_order=1,
+        )
+
+    def test_only_admin_sees_project_reordering_controls(self):
+        anonymous_response = self.client.get(reverse('projects:list'))
+        self.assertFalse(anonymous_response.context['can_reorder_projects'])
+        self.assertNotContains(anonymous_response, 'id="projectReorderTools"')
+
+        self.client.force_login(self.trainer)
+        trainer_response = self.client.get(reverse('projects:list'))
+        self.assertFalse(trainer_response.context['can_reorder_projects'])
+        self.assertNotContains(trainer_response, 'id="projectReorderTools"')
+
+        self.client.force_login(self.admin)
+        admin_response = self.client.get(reverse('projects:list'))
+        self.assertTrue(admin_response.context['can_reorder_projects'])
+        self.assertContains(admin_response, 'id="projectReorderTools"')
+        self.assertContains(admin_response, 'id="projectReorderSave"')
+
+    def test_admin_can_save_order_for_public_trainer_projects(self):
+        private_project = Project.objects.create(
+            owner=self.trainer, title='مشروع دورة', status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.COURSES,
+        )
+        draft = Project.objects.create(
+            owner=self.trainer, title='مشروع مسودة', status=ProjectStatus.DRAFT,
+            visibility=ProjectVisibility.PUBLIC,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('projects:reorder'),
+            data=json.dumps({'order': [self.second.slug, self.first.slug]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['ok'])
+        self.assertEqual(
+            list(
+                Project.objects.filter(
+                    status=ProjectStatus.PUBLISHED,
+                    visibility=ProjectVisibility.PUBLIC,
+                    owner__role=UserRole.TRAINER,
+                )
+                .order_by('display_order')
+                .values_list('slug', flat=True)
+            ),
+            [self.second.slug, self.first.slug],
+        )
+        listing = self.client.get(reverse('projects:list'))
+        self.assertEqual(
+            [project['id'] for project in listing.context['projects_json']],
+            [self.second.slug, self.first.slug],
+        )
+        private_project.refresh_from_db()
+        draft.refresh_from_db()
+        self.assertIsNone(private_project.display_order)
+        self.assertIsNone(draft.display_order)
+
+    def test_non_admin_cannot_reorder_and_stale_or_duplicate_orders_are_rejected(self):
+        url = reverse('projects:reorder')
+        payload = json.dumps({'order': [self.first.slug, self.second.slug]})
+
+        self.client.force_login(self.trainer)
+        forbidden = self.client.post(url, data=payload, content_type='application/json')
+        self.assertEqual(forbidden.status_code, 403)
+
+        self.client.force_login(self.admin)
+        stale = self.client.post(
+            url, data=json.dumps({'order': [self.first.slug]}), content_type='application/json'
+        )
+        self.assertEqual(stale.status_code, 409)
+
+        duplicate = self.client.post(
+            url,
+            data=json.dumps({'order': [self.first.slug, self.first.slug]}),
+            content_type='application/json',
+        )
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertEqual(duplicate.json()['error'], 'duplicate_projects')
+        self.first.refresh_from_db()
+        self.second.refresh_from_db()
+        self.assertEqual((self.first.display_order, self.second.display_order), (0, 1))

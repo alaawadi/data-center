@@ -86,8 +86,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
             if user.is_trainer:
                 my_courses = (
                     Course.objects.filter(owner=user)
-                    .select_related('owner')
-                    .prefetch_related('sections__lessons')
+                    .select_related('owner', 'owner__profile')
                 )
-                context['my_courses_json'] = [c.to_public_dict() for c in my_courses]
+                context['my_courses_json'] = [
+                    c.to_public_dict(include_syllabus=False, include_content=False)
+                    for c in my_courses
+                ]
         return context

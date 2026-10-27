@@ -49,6 +49,10 @@ class Course(models.Model):
     status = models.CharField(
         'الحالة', max_length=16, choices=CourseStatus.choices, default=CourseStatus.DRAFT
     )
+    display_order = models.PositiveIntegerField(
+        'ترتيب العرض', null=True, blank=True, db_index=True
+    )
+    is_coming_soon = models.BooleanField('متاحة قريبًا', default=False)
 
     created_at = models.DateTimeField('أُنشئت في', auto_now_add=True)
     updated_at = models.DateTimeField('حُدّثت في', auto_now=True)
@@ -106,7 +110,7 @@ class Course(models.Model):
     def lessons_count(self):
         return Lesson.objects.filter(section__course=self).count()
 
-    def to_public_dict(self, include_answers=False):
+    def to_public_dict(self, include_answers=False, include_syllabus=True, include_content=True):
         """Shape expected by the client-side course pages (cards/detail/playlist/editor).
 
         include_answers=True يُستخدم في محرر الدورة (لصاحبها فقط) ليحمل نصوص
@@ -138,7 +142,7 @@ class Course(models.Model):
                 ],
             }
             for section in self.sections.all()
-        ]
+        ] if include_syllabus else []
         return {
             'id': self.slug or str(self.pk),
             'pk': self.pk,
@@ -148,7 +152,7 @@ class Course(models.Model):
             'category': self.category,
             'description': self.summary,
             'summary': self.summary,
-            'content': self.content,
+            'content': self.content if include_content else '',
             'price': f'₪{price_amount}' if price_amount else '',
             'duration': self.duration,
             'durationEnglish': self.duration_en,
@@ -163,6 +167,7 @@ class Course(models.Model):
             'credentialId': self.credential_id,
             'verifyUrl': self.verify_url,
             'status': self.status,
+            'comingSoon': self.is_coming_soon,
             'handle': owner.handle if owner else '',
             'trainerId': str(owner.pk) if owner else '',
             'owner': {
@@ -181,6 +186,47 @@ class Course(models.Model):
             'createdAt': self.created_at.isoformat(),
             'updatedAt': self.updated_at.isoformat(),
         }
+
+    def to_version_snapshot(self):
+        snapshot = self.to_public_dict(include_answers=True)
+        snapshot['coverStorageName'] = self.cover.name if self.cover else ''
+        return snapshot
+
+
+class CourseVersion(models.Model):
+    """Immutable snapshot created when a course is published from the editor."""
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='versions',
+        verbose_name='الدورة',
+    )
+    version_number = models.PositiveIntegerField('رقم النسخة')
+    snapshot = models.JSONField('نسخة الدورة')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='published_course_versions',
+        verbose_name='نشرها',
+    )
+    created_at = models.DateTimeField('تاريخ النشر', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'نسخة دورة'
+        verbose_name_plural = 'نسخ الدورات'
+        ordering = ['version_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['course', 'version_number'],
+                name='unique_course_version_number',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.course_id} — v{self.version_number}'
 
 
 class CourseSection(models.Model):

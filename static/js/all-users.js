@@ -6,6 +6,11 @@
   var visibleLimit = INITIAL_LIMIT;
   var searchQuery = '';
   var isLoadingMore = false;
+  var reorderTools = document.getElementById('freelancerReorderTools');
+  var reorderMode = false;
+  var orderedUsers = null;
+  var originalOrder = [];
+  var draggedUserHandle = '';
 
   function addPerson(map, p) {
     if (!p || !p.handle) return;
@@ -72,7 +77,7 @@
   }
 
   function collect() {
-    if (EMBEDDED_USERS) return collectDbUsers();
+    if (orderedUsers) return orderedUsers.slice();
     var map = {};
     var prof = Store.state.profile;
 
@@ -102,6 +107,8 @@
         return (b.certificates + b.projects) - (a.certificates + a.projects);
       });
   }
+
+  if (EMBEDDED_USERS) orderedUsers = collectDbUsers();
 
   function normalizeSearchText(value) {
     return String(value || '').toLowerCase()
@@ -152,6 +159,7 @@
     var host = document.getElementById('allUsersGrid');
     if (!host) return;
     var query = normalizeSearchText(searchQuery);
+    host.classList.toggle('is-reordering', reorderMode);
     var list = collect().filter(function (user) {
       return matchesSearch(user, query);
     });
@@ -173,9 +181,78 @@
       if (emptyMoreWrap) emptyMoreWrap.hidden = true;
       return;
     }
-    host.innerHTML = list.slice(0, visibleLimit).map(renderCard).join('');
+    var visibleUsers = reorderMode ? list : list.slice(0, visibleLimit);
+    host.innerHTML = visibleUsers.map(renderCard).join('');
+    if (reorderMode) addReorderControls(host, visibleUsers);
     var moreWrap = document.getElementById('freelancersMoreWrap');
-    if (moreWrap) moreWrap.hidden = list.length <= visibleLimit;
+    if (moreWrap) moreWrap.hidden = reorderMode || list.length <= visibleLimit;
+    if (resultCount && reorderMode) {
+      resultCount.textContent = 'اسحب مقبض البطاقة أو استخدم أزرار التحريك لتغيير ترتيب المستقلين.';
+    }
+  }
+
+  function addReorderControls(host, users) {
+    host.querySelectorAll('.user-card').forEach(function (card, index) {
+      var user = users[index];
+      if (!user) return;
+      card.dataset.userHandle = user.handle;
+      var controls = document.createElement('div');
+      controls.className = 'freelancer-sort-controls';
+      controls.setAttribute('aria-label', 'أدوات ترتيب ' + user.name);
+      controls.innerHTML =
+        '<button class="course-drag-handle" type="button" draggable="true" aria-label="اسحب لإعادة ترتيب ' +
+        escapeAttribute(user.name) + '" title="اسحب لإعادة الترتيب">⠿</button>' +
+        '<button class="course-move-button" type="button" data-freelancer-move="-1" aria-label="تحريك لأعلى" title="تحريك لأعلى"' +
+        (index === 0 ? ' disabled' : '') + '>↑</button>' +
+        '<button class="course-move-button" type="button" data-freelancer-move="1" aria-label="تحريك لأسفل" title="تحريك لأسفل"' +
+        (index === users.length - 1 ? ' disabled' : '') + '>↓</button>';
+      card.prepend(controls);
+    });
+  }
+
+  function escapeAttribute(value) {
+    return String(value || '').replace(/[&<>"']/g, function (character) {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[character];
+    });
+  }
+
+  function moveUser(sourceHandle, targetHandle, after) {
+    var sourceIndex = orderedUsers.findIndex(function (user) {
+      return user.handle === sourceHandle;
+    });
+    if (sourceIndex < 0) return;
+    var moved = orderedUsers.splice(sourceIndex, 1)[0];
+    var targetIndex = targetHandle
+      ? orderedUsers.findIndex(function (user) { return user.handle === targetHandle; })
+      : orderedUsers.length;
+    if (targetIndex < 0) targetIndex = orderedUsers.length;
+    orderedUsers.splice(targetIndex + (after && targetHandle ? 1 : 0), 0, moved);
+    renderUsers();
+  }
+
+  function setReorderMode(enabled) {
+    reorderMode = enabled;
+    searchQuery = '';
+    if (searchInput) {
+      searchInput.value = '';
+      searchInput.disabled = enabled;
+    }
+    document.getElementById('freelancerReorderStart').hidden = enabled;
+    document.getElementById('freelancerReorderSave').hidden = !enabled;
+    document.getElementById('freelancerReorderCancel').hidden = !enabled;
+    var status = document.getElementById('freelancerReorderStatus');
+    if (status) {
+      status.textContent = enabled
+        ? 'اسحب مقبض البطاقة أو استخدم أزرار التحريك، ثم احفظ الترتيب.'
+        : '';
+    }
+    renderUsers();
   }
 
   SiteChrome.mount();
@@ -203,14 +280,143 @@
     UI.observeNearViewport(document.getElementById('freelancersMoreWrap'), loadMore);
   }
 
+  if (reorderTools) {
+    var startButton = document.getElementById('freelancerReorderStart');
+    var saveButton = document.getElementById('freelancerReorderSave');
+    var cancelButton = document.getElementById('freelancerReorderCancel');
+    var status = document.getElementById('freelancerReorderStatus');
+    var grid = document.getElementById('allUsersGrid');
+
+    startButton.addEventListener('click', function () {
+      originalOrder = orderedUsers.map(function (user) { return user.handle; });
+      setReorderMode(true);
+    });
+
+    cancelButton.addEventListener('click', function () {
+      var usersByHandle = {};
+      orderedUsers.forEach(function (user) { usersByHandle[user.handle] = user; });
+      orderedUsers = originalOrder.map(function (handle) {
+        return usersByHandle[handle];
+      }).filter(Boolean);
+      setReorderMode(false);
+    });
+
+    saveButton.addEventListener('click', async function () {
+      saveButton.disabled = true;
+      status.textContent = 'جارٍ حفظ الترتيب...';
+      try {
+        var response = await fetch(SITE_URLS.freelancerReorder, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify({
+            order: orderedUsers.map(function (user) { return user.handle; })
+          })
+        });
+        var result = await response.json();
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error || 'تعذر حفظ الترتيب.');
+        }
+        setReorderMode(false);
+        status.textContent = 'تم حفظ ترتيب المستقلين.';
+      } catch (error) {
+        status.textContent = 'تعذر حفظ الترتيب. ' +
+          (error.message || 'يرجى المحاولة مرة أخرى.');
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
+
+    grid.addEventListener('click', function (event) {
+      var handle = event.target.closest('.course-drag-handle');
+      if (handle) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      var button = event.target.closest('[data-freelancer-move]');
+      if (!button || button.disabled || !reorderMode) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var card = button.closest('.user-card');
+      var index = orderedUsers.findIndex(function (user) {
+        return card && user.handle === card.dataset.userHandle;
+      });
+      var target = orderedUsers[index + Number(button.dataset.freelancerMove)];
+      if (target) {
+        moveUser(card.dataset.userHandle, target.handle, Number(button.dataset.freelancerMove) > 0);
+      }
+    });
+
+    grid.addEventListener('dragstart', function (event) {
+      var handle = event.target.closest('.course-drag-handle');
+      if (!reorderMode || !handle) {
+        event.preventDefault();
+        return;
+      }
+      var card = handle.closest('.user-card');
+      draggedUserHandle = card && card.dataset.userHandle;
+      if (!draggedUserHandle) {
+        event.preventDefault();
+        return;
+      }
+      card.classList.add('freelancer-card-dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', draggedUserHandle);
+    });
+
+    grid.addEventListener('dragover', function (event) {
+      if (!reorderMode || !draggedUserHandle) return;
+      var card = event.target.closest('.user-card');
+      if (card && card.dataset.userHandle !== draggedUserHandle) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      } else if (event.target === grid) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+      }
+    });
+
+    grid.addEventListener('drop', function (event) {
+      if (!reorderMode || !draggedUserHandle) return;
+      var card = event.target.closest('.user-card');
+      if (card) {
+        event.preventDefault();
+        if (card.dataset.userHandle === draggedUserHandle) return;
+        var rect = card.getBoundingClientRect();
+        moveUser(
+          draggedUserHandle,
+          card.dataset.userHandle,
+          event.clientY > rect.top + rect.height / 2
+        );
+      } else if (event.target === grid) {
+        event.preventDefault();
+        moveUser(draggedUserHandle, '', false);
+      }
+    });
+
+    grid.addEventListener('dragend', function () {
+      draggedUserHandle = '';
+      grid.querySelectorAll('.freelancer-card-dragging').forEach(function (card) {
+        card.classList.remove('freelancer-card-dragging');
+      });
+    });
+  }
+
   document.addEventListener('click', function (ev) {
     var card = ev.target.closest('.user-card');
     if (!card) return;
+    if (ev.target.closest('a, button, [data-act]')) return;
+    if (reorderMode) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
     var href = card.getAttribute('data-goto');
     if (!href) return;
-    if (ev.target.closest('a, button, [data-act]')) {
-      if (ev.target.closest('.user-card') !== card) return;
-    }
     ev.preventDefault();
     ev.stopPropagation();
     location.href = href;

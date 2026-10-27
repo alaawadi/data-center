@@ -1,6 +1,12 @@
 """Views for the public freelancer (users) pages, backed by the database."""
+import json
+
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q, Sum
+from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
 from courses.models import (
@@ -65,6 +71,7 @@ class FreelancerListView(ListView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         profiles = []
+        display_orders = {}
         for profile in context['profiles']:
             data = profile.to_public_dict()
             data['certificates'] = (
@@ -74,6 +81,8 @@ class FreelancerListView(ListView):
             data['projects'] = profile.published_projects_count
             data['courses'] = profile.published_courses_count
             profiles.append(data)
+            if profile.display_order is not None:
+                display_orders[profile.user.handle] = profile.display_order
 
         profiles.sort(
             key=lambda user: (
@@ -90,8 +99,63 @@ class FreelancerListView(ListView):
                 user['handle'].casefold(),
             )
         )
+        original_positions = {
+            profile['handle']: index for index, profile in enumerate(profiles)
+        }
+        profiles.sort(
+            key=lambda user: (
+                display_orders.get(user['handle']) is None,
+                display_orders.get(user['handle'], original_positions[user['handle']]),
+            )
+        )
         context['profiles_json'] = profiles
+        user = self.request.user
+        context['can_reorder_freelancers'] = bool(
+            user.is_authenticated and (user.is_staff or user.is_admin_role)
+        )
         return context
+
+
+@login_required
+@require_POST
+def freelancer_reorder(request):
+    if not (request.user.is_staff or request.user.is_admin_role):
+        return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_json'}, status=400)
+
+    order = payload.get('order') if isinstance(payload, dict) else None
+    if not isinstance(order, list) or any(
+        not isinstance(handle, str) or not handle for handle in order
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_order'}, status=400)
+    if len(order) != len(set(order)):
+        return JsonResponse({'ok': False, 'error': 'duplicate_freelancers'}, status=400)
+
+    with transaction.atomic():
+        profiles = list(
+            Profile.objects.select_for_update()
+            .select_related('user')
+            .filter(
+                is_public=True,
+                user__is_active=True,
+                user__role__in=(UserRole.TRAINER, UserRole.STUDENT),
+            )
+        )
+        profiles_by_handle = {profile.user.handle: profile for profile in profiles}
+        if set(order) != set(profiles_by_handle):
+            return JsonResponse(
+                {'ok': False, 'error': 'freelancer_list_changed'}, status=409
+            )
+
+        for position, handle in enumerate(order):
+            profiles_by_handle[handle].display_order = position
+        Profile.objects.bulk_update(profiles, ['display_order'])
+
+    return JsonResponse({'ok': True})
 
 
 class FreelancerDetailView(TemplateView):

@@ -62,6 +62,16 @@ html[lang='ar'] body { font-family: var(--font); }
 
 html { scroll-behavior: smooth; }
 
+body, body * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input, textarea, select, [contenteditable="true"], [contenteditable=""] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -449,7 +459,7 @@ html[dir='rtl'] .switch input:checked + .track::after { transform: translateX(-1
 #lightboxRoot .lightbox {
   position: fixed;
   inset: 0;
-  z-index: 180;
+  z-index: 7000;
   background: rgba(6, 10, 20, .92);
   display: none;
   align-items: center;

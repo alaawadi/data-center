@@ -2,7 +2,7 @@
 
 from django.db.models import Sum
 
-from courses.models import StudentPointTransaction, StudentReferralLink
+from courses.models import Course, CourseStatus, StudentPointTransaction, StudentReferralLink
 from users.models import UserRole
 
 from .models import PlatformSettings
@@ -88,6 +88,21 @@ def site_chrome(request):
         'is_landing': request.resolver_match.view_name == 'landing:home'
         if request.resolver_match else False,
         'site_settings': get_platform_settings(),
+        'courses_sheet_json': [
+            {
+                'id': course.slug or str(course.pk),
+                'title': course.title,
+                'image': course.cover.url if course.cover else '',
+                'duration': course.duration,
+                'period': course.period,
+                'price': f"₪{str(course.price or '').strip().replace('₪', '').strip()}"
+                if str(course.price or '').strip().replace('₪', '').strip()
+                else '',
+            }
+            for course in Course.objects.filter(status=CourseStatus.PUBLISHED)
+            .only('pk', 'slug', 'title', 'cover', 'duration', 'period', 'price')
+            .order_by('-created_at', '-pk')
+        ],
     }
 
 

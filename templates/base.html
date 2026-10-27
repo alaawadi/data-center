@@ -36,6 +36,7 @@
   {{ site_settings|json_script:"site-settings-data" }}
 
   {% include "partials/js_urls.html" %}
+  <script defer src="{% static_v 'js/content-protection.js' %}"></script>
   <script defer src="{% static_v 'js/page-transition.js' %}"></script>
   {% block scripts %}
     <script defer src="{% static_v 'js/store.js' %}"></script>

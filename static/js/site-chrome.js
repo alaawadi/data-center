@@ -132,7 +132,7 @@
      ---------------------------------------------------------- */
   function renderSheetCourses() {
     var list = document.getElementById('coursesSheetList');
-    if (!list || !window.Store) return;
+    if (!list) return;
     var titleEl = document.querySelector('.courses-sheet .sheet-title');
 
     /* على صفحة البلاي ليست: تعرض الورقة دروس الدورة الحالية بدل الدورات */
@@ -146,7 +146,18 @@
     list.dataset.mode = 'courses';
     if (titleEl) titleEl.textContent = 'دورات مركز داتا';
 
-    var certs = Store.collection('certificates');
+    var coursesData = document.getElementById('courses-sheet-data');
+    var certs = null;
+    if (coursesData) {
+      try {
+        var parsedCourses = JSON.parse(coursesData.textContent);
+        if (Array.isArray(parsedCourses)) certs = parsedCourses;
+      } catch (err) {
+        certs = null;
+      }
+    }
+    if (!certs && window.Store) certs = Store.collection('certificates');
+    certs = certs || [];
     if (!certs.length) {
       list.innerHTML = '<div class="csi-empty">لا توجد دورات حالياً</div>';
       return;

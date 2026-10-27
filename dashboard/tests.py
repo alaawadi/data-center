@@ -224,6 +224,13 @@ class AdminTrainerListTests(TestCase):
             price='₪100',
             status=CourseStatus.DRAFT,
         )
+        Course.objects.create(
+            owner=trainer,
+            title='دورة مدفوعة قريبًا',
+            price='₪100',
+            status=CourseStatus.PUBLISHED,
+            is_coming_soon=True,
+        )
         self.client.force_login(self.admin)
 
         response = self.client.get(reverse('dashboard:home'))

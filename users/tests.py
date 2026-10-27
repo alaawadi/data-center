@@ -70,6 +70,20 @@ class LoginSecurityTests(TestCase):
 
         self.assertRedirects(response, reverse('portfolio:home'), fetch_redirect_response=False)
 
+    def test_login_preserves_local_next_redirect(self):
+        next_url = '/projects/target-project/'
+
+        login_page = self.client.get(self.url, {'next': next_url})
+        self.assertEqual(login_page.context['next'], next_url)
+
+        response = self.client.post(self.url, {
+            'username': PHONE,
+            'password': PASSWORD,
+            'next': next_url,
+        })
+
+        self.assertRedirects(response, next_url, fetch_redirect_response=False)
+
     def test_same_device_can_login_again(self):
         self._post()
         response = self._post()

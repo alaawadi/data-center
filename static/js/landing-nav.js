@@ -19,25 +19,30 @@
   var e = UI.esc;
   function t(key) { return TEXT[key] || key; }
 
-  function certCard(c, from) {
-    var skills = (c.skills || []).slice(0, 2).map(function (s) { return '<span class="chip sm cert-skill">' + e(s) + '</span>'; }).join('');
-    var params = [];
-    if (from) params.push('from=' + encodeURIComponent(from));
-    if (from === 'landing') {
-      params.push('return=' + encodeURIComponent(location.pathname + location.search + '#nav'));
-    }
-    return '<a class="cert-card" href="' + SITE.u('course', e(c.id)) + (params.length ? '?' + params.join('&') : '') + '">' +
+  function certCard(c) {
+    var skills = (c.skills || []).slice(0, 2).map(function (skill) {
+      return '<span class="chip sm cert-skill">' + e(skill) + '</span>';
+    }).join('');
+    var returnTo = location.pathname + location.search + '#nav';
+    var detailUrl = SITE.u('course', e(c.id)) +
+      '?from=landing&return=' + encodeURIComponent(returnTo);
+    var comingSoon = !!c.comingSoon;
+    return '<a class="cert-card' + (comingSoon ? ' is-coming-soon' : '') +
+      '" href="' + detailUrl + '">' +
       '<div class="cert-thumb">' +
       (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">' : '') +
       '<span class="cert-cat">' + e(c.category || '') + '</span>' +
       (c.price ? '<span class="cert-price-tag">' + e(c.price) + '</span>' : '') +
+      (comingSoon
+        ? '<span class="course-coming-soon-badge">' + e(I18n.t('courseComingSoon')) + '</span>'
+        : '') +
       '</div>' +
       '<div class="cert-body">' +
       '<h3>' + e(c.title) + '</h3>' +
-      ((c.skills && c.skills.length) ? '<div class="cert-skills">' + skills + '</div>' : '') +
+      (skills ? '<div class="cert-skills">' + skills + '</div>' : '') +
       '<div class="cert-foot">' +
-        (c.duration ? '<span class="cert-meta">' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
-        '<span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certApproved')) + '</span>' +
+      (c.duration ? '<span class="cert-meta">' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
+      '<span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certApproved')) + '</span>' +
       '</div>' +
       '</div></a>';
   }
@@ -46,7 +51,7 @@
     var host = document.getElementById('nav');
     if (!host) return;
     var grid = Store.collection('certificates').slice(0, 9).map(function (c) {
-      return certCard(c, 'landing');
+      return certCard(c);
     }).join('');
     host.innerHTML =
       '<div class="card nav-card">' +

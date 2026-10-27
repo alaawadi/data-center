@@ -225,8 +225,19 @@
      ---------------------------------------------------------- */
   function renderSheetCourses() {
     var list = $('#coursesSheetList');
-    if (!list || typeof Store === 'undefined') return;
-    var certs = Store.collection('certificates');
+    if (!list) return;
+    var certs = null;
+    var coursesData = document.getElementById('courses-sheet-data');
+    if (coursesData) {
+      try {
+        var parsedCourses = JSON.parse(coursesData.textContent);
+        if (Array.isArray(parsedCourses)) certs = parsedCourses;
+      } catch (err) {
+        certs = null;
+      }
+    }
+    if (!certs && typeof Store !== 'undefined') certs = Store.collection('certificates');
+    certs = certs || [];
     if (!certs.length) {
       list.innerHTML = '<div class="csi-empty">لا توجد دورات حالياً</div>';
       return;
@@ -480,15 +491,6 @@
   }
 
   /* ----------------------------------------------------------
-     حماية المحتوى (نسخ/قص/قائمة السياق)
-     ---------------------------------------------------------- */
-  function initProtect() {
-    ['copy', 'cut', 'contextmenu'].forEach(function (evt) {
-      document.addEventListener(evt, function (e) { e.preventDefault(); });
-    });
-  }
-
-  /* ----------------------------------------------------------
      شاشة التحميل
      ---------------------------------------------------------- */
   function initLoader() {
@@ -515,7 +517,6 @@
     initBrands();
     initNav();
     initWhatsapp();
-    initProtect();
     initLoader();
 
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });

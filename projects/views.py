@@ -18,6 +18,7 @@ from django.utils.html import strip_tags
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import TemplateView
 
+from courses.models import CourseProgress, CourseStatus
 from users.models import User, UserRole
 
 from .models import (
@@ -97,6 +98,32 @@ def _find_project(key, queryset):
     return project
 
 
+def _can_download_project_files(project, user):
+    if project.is_published and project.visibility == ProjectVisibility.PUBLIC:
+        return True
+    if not user.is_authenticated:
+        return False
+    if user.is_staff or user.role == UserRole.ADMIN or project.owner_id == user.pk:
+        return True
+    if (
+        user.role != UserRole.STUDENT
+        or project.visibility != ProjectVisibility.COURSES
+        or not project.source_lesson_id
+    ):
+        return False
+    return CourseProgress.objects.filter(
+        student=user,
+        course_id=project.source_lesson.section.course_id,
+    ).exists()
+
+
+def _course_project_display_counts(project):
+    return {
+        'displayLikes': 200 + project.pk + project.likes,
+        'displayViews': 1800 + project.pk * 10 + project.views,
+    }
+
+
 class ProjectListView(TemplateView):
     """all-projects.html — only projects owned by trainers."""
 
@@ -104,9 +131,53 @@ class ProjectListView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        queryset = _published_projects().filter(owner__role=UserRole.TRAINER)
+        queryset = _published_projects().filter(owner__role=UserRole.TRAINER).order_by(
+            F('display_order').asc(nulls_last=True), '-project_date', '-created_at'
+        )
         context['projects_json'] = _projects_with_interactions(queryset, self.request.user)
+        user = self.request.user
+        context['can_reorder_projects'] = bool(
+            user.is_authenticated and (user.is_staff or user.is_admin_role)
+        )
         return context
+
+
+@login_required
+@require_POST
+def project_reorder(request):
+    if not (request.user.is_staff or request.user.is_admin_role):
+        return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_json'}, status=400)
+
+    order = payload.get('order') if isinstance(payload, dict) else None
+    if not isinstance(order, list) or any(
+        not isinstance(project_id, str) or not project_id for project_id in order
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_order'}, status=400)
+    if len(order) != len(set(order)):
+        return JsonResponse({'ok': False, 'error': 'duplicate_projects'}, status=400)
+
+    with transaction.atomic():
+        projects = list(
+            Project.objects.select_for_update().filter(
+                status=ProjectStatus.PUBLISHED,
+                visibility=ProjectVisibility.PUBLIC,
+                owner__role=UserRole.TRAINER,
+            )
+        )
+        projects_by_slug = {project.slug: project for project in projects}
+        if set(order) != set(projects_by_slug):
+            return JsonResponse({'ok': False, 'error': 'project_list_changed'}, status=409)
+
+        for position, project_id in enumerate(order):
+            projects_by_slug[project_id].display_order = position
+        Project.objects.bulk_update(projects, ['display_order'])
+
+    return JsonResponse({'ok': True})
 
 
 class ProjectDetailView(TemplateView):
@@ -120,11 +191,27 @@ class ProjectDetailView(TemplateView):
         # المشاريع العامة متاحة للجميع.
         queryset = _published_projects()
         project = _find_project(key, queryset)
+        if project is None and not self.request.user.is_authenticated:
+            course_projects = (
+                Project.objects.filter(
+                    visibility=ProjectVisibility.COURSES,
+                    source_lesson__section__course__status=CourseStatus.PUBLISHED,
+                )
+                .select_related('owner')
+                .prefetch_related(*_PREFETCH)
+            )
+            project = _find_project(key, course_projects)
         # المستخدم المسجّل يصل أيضاً لمشاريع «مخصّص للدورات» المنشورة (عبر الدروس)
         # ولمشاريعه الخاصة (بما فيها المسودّات).
         if project is None and self.request.user.is_authenticated:
             accessible = (
-                Project.objects.filter(status=ProjectStatus.PUBLISHED)
+                Project.objects.filter(
+                    Q(status=ProjectStatus.PUBLISHED)
+                    | Q(
+                        visibility=ProjectVisibility.COURSES,
+                        source_lesson__section__course__status=CourseStatus.PUBLISHED,
+                    )
+                )
                 .select_related('owner')
                 .prefetch_related(*_PREFETCH)
             )
@@ -145,8 +232,13 @@ class ProjectDetailView(TemplateView):
             project = _find_project(key, owned)
         if project is None:
             raise Http404('المشروع غير موجود')
-        if project.is_published:
+        if project.is_published or (
+            project.visibility == ProjectVisibility.COURSES
+            and project.source_lesson_id
+            and project.source_lesson.section.course.status == CourseStatus.PUBLISHED
+        ):
             Project.objects.filter(pk=project.pk).update(views=F('views') + 1)
+            project.refresh_from_db(fields=['views'])
         related = (
             _published_projects()
             .filter(owner__role=UserRole.TRAINER)
@@ -157,6 +249,11 @@ class ProjectDetailView(TemplateView):
         context['project'] = project
         context['projects_json'] = _projects_with_interactions(
             [project, *related], self.request.user
+        )
+        if project.visibility == ProjectVisibility.COURSES:
+            context['projects_json'][0].update(_course_project_display_counts(project))
+        context['projects_json'][0]['canDownloadFiles'] = _can_download_project_files(
+            project, self.request.user
         )
         return context
 
@@ -389,12 +486,7 @@ def project_file_download(request, pk):
     project = project_file.project
     user = request.user
     is_admin = user.is_authenticated and (user.is_staff or user.role == UserRole.ADMIN)
-    can_access_published = project.status == ProjectStatus.PUBLISHED and (
-        project.visibility == ProjectVisibility.PUBLIC or user.is_authenticated
-    )
-    if not can_access_published and not (
-        user.is_authenticated and (project.owner_id == user.pk or is_admin)
-    ):
+    if not _can_download_project_files(project, user):
         raise Http404('ملف المشروع غير موجود')
 
     try:
@@ -430,10 +522,15 @@ def project_delete(request):
     return JsonResponse({'ok': True, 'url': reverse('portfolio:home')})
 
 
-@login_required
 @require_POST
 def project_interaction(request):
     """Toggle the current user's like or bookmark for a published project."""
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {'ok': False, 'error': 'authentication_required'},
+            status=401,
+        )
+
     try:
         payload = json.loads(request.body.decode('utf-8'))
     except (ValueError, UnicodeDecodeError):
@@ -450,7 +547,12 @@ def project_interaction(request):
 
     with transaction.atomic():
         accessible = Project.objects.select_for_update().filter(
-            Q(status=ProjectStatus.PUBLISHED) | Q(owner=request.user)
+            Q(status=ProjectStatus.PUBLISHED)
+            | Q(owner=request.user)
+            | Q(
+                visibility=ProjectVisibility.COURSES,
+                source_lesson__section__course__status=CourseStatus.PUBLISHED,
+            )
         )
         project = _find_project(key, accessible)
         if project is None:
@@ -468,11 +570,14 @@ def project_interaction(request):
             project.likes = max(0, project.likes + (1 if new_state else -1))
             project.save(update_fields=['likes'])
 
-    return JsonResponse(
-        {
-            'ok': True,
-            'liked': interaction.liked,
-            'saved': interaction.saved,
-            'likes': project.likes,
-        }
-    )
+    result = {
+        'ok': True,
+        'liked': interaction.liked,
+        'saved': interaction.saved,
+        'likes': project.likes,
+    }
+    if project.visibility == ProjectVisibility.COURSES:
+        result.update(_course_project_display_counts(project))
+    else:
+        result['displayLikes'] = project.likes
+    return JsonResponse(result)

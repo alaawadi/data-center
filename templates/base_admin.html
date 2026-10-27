@@ -35,6 +35,7 @@
   {{ point_redemption_courses_json|json_script:"admin-point-redemption-courses-data" }}
   {{ admin_workshops_json|json_script:"admin-workshops-data" }}
   {% include "partials/js_urls.html" %}
+  <script src="{% static_v 'js/content-protection.js' %}"></script>
   <script defer src="{% static_v 'js/page-transition.js' %}"></script>
   {% block scripts %}
     <script src="{% static_v 'js/store.js' %}"></script>

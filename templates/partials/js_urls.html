@@ -11,6 +11,10 @@
       courseCreate: "{% url 'courses:create' %}",
       courseEdit: "{% url 'courses:edit' pk='__ID__' %}",
       courseSave: "{% url 'courses:save' %}",
+      courseReorder: "{% url 'courses:reorder' %}",
+      courseComingSoon: "{% url 'courses:coming-soon' pk='__ID__' %}",
+      courseVersions: "{% url 'courses:versions' pk='__ID__' %}",
+      courseDiscard: "{% url 'courses:discard-changes' %}",
       courseDelete: "{% url 'courses:delete' %}",
       manualCertificateSubmit: "{% url 'courses:manual-certificate-submit' %}",
       courseProgress: "{% url 'courses:progress' %}",
@@ -18,12 +22,14 @@
       courseQuizSubmit: "{% url 'courses:quiz_submit' %}",
       projects: "{% url 'projects:list' %}",
       project: "{% url 'projects:detail' pk='__ID__' %}",
+      projectReorder: "{% url 'projects:reorder' %}",
       projectCreate: "{% url 'projects:create' %}",
       projectEdit: "{% url 'projects:edit' pk='__ID__' %}",
       projectSave: "{% url 'projects:save' %}",
       projectDelete: "{% url 'projects:delete' %}",
       projectInteraction: "{% url 'projects:interaction' %}",
       users: "{% url 'accounts:list' %}",
+      freelancerReorder: "{% url 'accounts:reorder' %}",
       profile: "{% url 'accounts:profile' handle='HANDLE' %}",
       panel: "{% url 'dashboard:home' %}",
       trainerSave: "{% url 'dashboard:trainer-save' %}",
@@ -58,6 +64,7 @@
     window.CSRF_TOKEN = "{{ csrf_token }}";
   </script>
   <script src="{% static_v 'js/site-urls.js' %}"></script>
+  {{ courses_sheet_json|json_script:"courses-sheet-data" }}
   {% if server_profile %}{{ server_profile|json_script:"my-profile-data" }}{% endif %}
   {% if projects_json != "" %}{{ projects_json|json_script:"projects-data" }}{% endif %}
   {% if saved_projects_json != "" %}{{ saved_projects_json|json_script:"saved-projects-data" }}{% endif %}

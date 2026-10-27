@@ -21,13 +21,26 @@
     return String(prof.handle).toLowerCase() === String(userHandle).toLowerCase();
   }
 
-  function renderUserProfileHeader(p) {
+  function profileBackUrl() {
+    try {
+      var returnPath = new URLSearchParams(location.search).get('return');
+      if (returnPath) {
+        var returnUrl = new URL(returnPath, location.origin);
+        if (returnUrl.origin === location.origin && returnUrl.pathname !== location.pathname) {
+          return returnUrl.pathname + returnUrl.search + returnUrl.hash;
+        }
+      }
+    } catch (err) { /* Use the profiles listing for invalid return URLs. */ }
+    return SITE.u('users');
+  }
+
+  function renderUserProfileHeader(p, selfProfile) {
     var host = document.getElementById('profileHost');
     if (!host) return;
-    var cover = p.avatar || UI.initialsAvatar(p.name || p.handle, 280);
+    var avatar = p.avatar || UI.initialsAvatar(p.name || p.handle, 280);
 
     host.innerHTML =
-      '<a class="detail-back" href="' + SITE.u('users') + '">' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(t('back')) + '</a>' +
+      '<a class="detail-back" href="' + e(profileBackUrl()) + '">' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(t('back')) + '</a>' +
       '<section class="card profile-card">' +
       '<div class="profile-banner"' + (p.cover ? ' style="background-image:url(\'' + e(p.cover) + '\')"' : '') + '>' +
       '<span class="bub" style="width:160px;height:160px;top:-60px;inset-inline-end:12%"></span>' +
@@ -36,7 +49,7 @@
       '<div class="profile-body">' +
       '<div class="profile-top">' +
       '<div class="profile-avatar-wrap">' +
-      '<img class="profile-avatar" src="' + e(cover) + '" alt="' + e(p.name || p.handle) + '" fetchpriority="high">' +
+      '<img class="profile-avatar" src="' + e(avatar) + '" alt="' + e(p.name || p.handle) + '" fetchpriority="high" draggable="false">' +
       '</div>' +
       '<div class="profile-head">' +
       '<div class="name-row"><h1>' + e(p.name || p.handle) + '</h1>' + (p.verified ? UI.verifiedBadge(20) : '') + '</div>' +
@@ -49,7 +62,7 @@
       (p.email ? '<span class="pm">' + UI.icon('message-circle', 14) + e(p.email) + '</span>' : '') +
       (p.joined ? '<span class="pm">' + UI.icon('calendar', 14) + e(t('joined')) + ' ' + e(UI.formatDate(p.joined)) + '</span>' : '') +
       '</div></div>' +
-      (typeof p.referral_points === 'number'
+      (selfProfile && typeof p.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
           '<div class="referral-stat referral-stat-points">' +
           '<span class="referral-stat-icon referral-stat-star" aria-hidden="true">⭐</span>' +
@@ -61,6 +74,12 @@
           '</div></div>'
         : '') +
       '</section>';
+
+    var avatarImage = host.querySelector('.profile-avatar');
+    if (avatarImage) {
+      avatarImage.addEventListener('contextmenu', function (event) { event.preventDefault(); });
+      avatarImage.addEventListener('dragstart', function (event) { event.preventDefault(); });
+    }
   }
 
   function renderUserSkills(p) {
@@ -328,7 +347,7 @@
     user.certificates = userCerts.length;
 
     if (window.SiteChrome && SiteChrome.mount) SiteChrome.mount();
-    renderUserProfileHeader(user);
+    renderUserProfileHeader(user, self);
     renderUserSkills(user);
 
     var userProjs = projsAll.filter(function (p) {

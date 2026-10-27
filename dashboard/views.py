@@ -1557,7 +1557,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['point_redemption_courses_json'] = [
             {'id': course.slug, 'title': course.title, 'price': course.price}
             for course in courses
-            if course.is_published and course.is_paid
+            if course.is_published and course.is_paid and not course.is_coming_soon
         ]
         admin_projects = (
             Project.objects.select_related('owner', 'source_lesson__section__course')

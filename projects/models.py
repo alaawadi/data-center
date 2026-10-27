@@ -75,6 +75,9 @@ class Project(models.Model):
         choices=ProjectVisibility.choices,
         default=ProjectVisibility.PUBLIC,
     )
+    display_order = models.PositiveIntegerField(
+        'ترتيب العرض', null=True, blank=True, db_index=True
+    )
     views = models.PositiveIntegerField('المشاهدات', default=0)
     likes = models.PositiveIntegerField('الإعجابات', default=0)
 
@@ -139,8 +142,8 @@ class Project(models.Model):
                     'id': f.pk,
                     'name': f.display_name,
                     'size': f.size,
-                    'url': f.file.url,
-                    'dataUrl': f.file.url,
+                    'url': reverse('projects:file-download', args=[f.pk]),
+                    'dataUrl': reverse('projects:file-download', args=[f.pk]),
                     'downloadUrl': reverse('projects:file-download', args=[f.pk]),
                     'downloads': f.downloads,
                 }

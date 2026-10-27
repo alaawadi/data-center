@@ -53,20 +53,22 @@ function isAuthenticatedHtml(response) {
   });
 }
 
-function networkFirstPage(request, url) {
-  return fetch(request).then(function (response) {
-    if (response.ok && !response.redirected && response.type === 'basic' && isPublicPage(url)) {
-      return isAuthenticatedHtml(response).then(function (authenticated) {
-        if (!authenticated) {
-          return caches.open(CACHE_NAME).then(function (cache) {
-            return cache.put(request, response.clone()).then(function () { return response; });
-          });
-        }
-        return response;
-      });
-    }
-    return response;
-  }).catch(function () {
+function cachePublicPage(request, url, response) {
+  if (!response.ok || response.redirected || response.type !== 'basic' || !isPublicPage(url)) {
+    return Promise.resolve();
+  }
+  return isAuthenticatedHtml(response).then(function (authenticated) {
+    if (authenticated) return;
+    return caches.open(CACHE_NAME).then(function (cache) {
+      return cache.put(request, response.clone());
+    });
+  }).catch(function (error) {
+    console.warn('Public page cache update failed.', error);
+  });
+}
+
+function networkFirstPage(request, networkResponse) {
+  return networkResponse.catch(function () {
     return caches.open(CACHE_NAME).then(function (cache) {
       return cache.match(request).then(function (cached) {
         if (cached) return cached;
@@ -84,7 +86,13 @@ self.addEventListener('fetch', function (event) {
   if (url.origin !== self.location.origin) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirstPage(request, url));
+    var networkResponse = fetch(request);
+    event.respondWith(networkFirstPage(request, networkResponse));
+    event.waitUntil(networkResponse.then(function (response) {
+      return cachePublicPage(request, url, response);
+    }, function () {
+      return Promise.resolve();
+    }));
     return;
   }
 

@@ -176,6 +176,9 @@
   flex-direction: column;
 }
 .plat-nav .cert-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--brand-3); }
+.plat-nav .cert-card.is-coming-soon { opacity: .68; }
+[data-theme='dark'] .plat-nav .cert-card.is-coming-soon { opacity: .78; border-color: rgba(148, 163, 184, .38); }
+.plat-nav .course-coming-soon-badge { position: absolute; z-index: 2; inset-inline-start: 12px; bottom: 12px; padding: 6px 12px; border: 1px solid rgba(255,255,255,.5); border-radius: 999px; background: rgba(20, 31, 49, .88); color: #fff; font-size: 13px; font-weight: 800; box-shadow: 0 3px 12px rgba(0,0,0,.2); }
 .plat-nav .cert-thumb {
   height: 118px;
   position: relative;

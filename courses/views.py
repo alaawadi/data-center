@@ -13,15 +13,16 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.images import get_image_dimensions
+from django.core.files.storage import default_storage
 from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import F, Max, Sum
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.html import strip_tags
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import TemplateView
 
 from projects.models import Project, ProjectFile, ProjectImage, ProjectStatus
@@ -33,6 +34,7 @@ from .models import (
     CourseProgress,
     CourseSection,
     CourseStatus,
+    CourseVersion,
     Lesson,
     LessonType,
     ManualCertificate,
@@ -81,17 +83,36 @@ def _decode_data_url(data_url):
     return f'{uuid.uuid4().hex}{ext}', content
 
 
-def _published_courses():
-    return Course.objects.filter(status=CourseStatus.PUBLISHED).select_related('owner').prefetch_related(*_PREFETCH)
+def _published_courses(include_syllabus=True):
+    queryset = Course.objects.filter(status=CourseStatus.PUBLISHED).select_related(
+        'owner', 'owner__profile'
+    )
+    if include_syllabus:
+        queryset = queryset.prefetch_related(*_PREFETCH)
+    return queryset
 
 
 def published_courses_payload():
     """قائمة الدورات المنشورة بصيغة الواجهة (تُحقن كـ JSON في الصفحات)."""
-    return [course.to_public_dict() for course in _published_courses()]
+    return [
+        course.to_public_dict(include_syllabus=False, include_content=False)
+        for course in _published_courses(include_syllabus=False).order_by(
+            F('display_order').asc(nulls_last=True), '-created_at'
+        )
+    ]
 
 
 def _can_view(course, user):
     """دورات منشورة يراها الجميع + مسودّات صاحبها (أو الأدمن)."""
+    if course.is_coming_soon:
+        return bool(
+            user.is_authenticated
+            and (
+                user.is_admin_role
+                or user.is_staff
+                or course.owner_id == user.pk
+            )
+        )
     if course.is_published:
         return True
     if not user.is_authenticated:
@@ -132,9 +153,74 @@ class CourseListView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        queryset = _published_courses()
-        context['courses_json'] = [c.to_public_dict() for c in queryset]
+        queryset = _published_courses(include_syllabus=False).order_by(
+            F('display_order').asc(nulls_last=True), '-created_at'
+        )
+        context['courses_json'] = [
+            course.to_public_dict(include_syllabus=False, include_content=False)
+            for course in queryset
+        ]
+        user = self.request.user
+        context['can_reorder_courses'] = bool(
+            user.is_authenticated and (user.is_staff or user.is_admin_role)
+        )
         return context
+
+
+@login_required
+@require_POST
+def course_reorder(request):
+    if not (request.user.is_staff or request.user.is_admin_role):
+        return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_json'}, status=400)
+
+    order = payload.get('order') if isinstance(payload, dict) else None
+    if not isinstance(order, list) or any(
+        not isinstance(course_id, str) or not course_id for course_id in order
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_order'}, status=400)
+    if len(order) != len(set(order)):
+        return JsonResponse({'ok': False, 'error': 'duplicate_courses'}, status=400)
+
+    with transaction.atomic():
+        courses = list(
+            Course.objects.select_for_update().filter(status=CourseStatus.PUBLISHED)
+        )
+        courses_by_slug = {course.slug: course for course in courses}
+        if set(order) != set(courses_by_slug):
+            return JsonResponse({'ok': False, 'error': 'course_list_changed'}, status=409)
+
+        for position, course_id in enumerate(order):
+            courses_by_slug[course_id].display_order = position
+        Course.objects.bulk_update(courses, ['display_order'])
+
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def course_set_coming_soon(request, pk):
+    if not (request.user.is_staff or request.user.is_admin_role):
+        return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_json'}, status=400)
+    if not isinstance(payload, dict) or not isinstance(payload.get('comingSoon'), bool):
+        return JsonResponse({'ok': False, 'error': 'invalid_coming_soon'}, status=400)
+
+    course = _find_course(pk, _published_courses())
+    if course is None:
+        return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+
+    course.is_coming_soon = payload['comingSoon']
+    course.save(update_fields=['is_coming_soon', 'updated_at'])
+    return JsonResponse({'ok': True, 'comingSoon': course.is_coming_soon})
 
 
 class CourseDetailView(TemplateView):
@@ -145,11 +231,16 @@ class CourseDetailView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         key = kwargs['pk']
-        course = _find_course(key, _published_courses())
+        course = _find_course(
+            key,
+            _published_courses().prefetch_related(*_PREFETCH),
+        )
         if course is None:
             course = _find_course(key)
-            if course is not None and not _can_view(course, self.request.user):
-                course = None
+        if course is not None and not (
+            course.is_coming_soon and course.is_published
+        ) and not _can_view(course, self.request.user):
+            course = None
         if course is None:
             raise Http404('الدورة غير موجودة')
         referral_code = self.request.GET.get('ref')
@@ -167,12 +258,15 @@ class CourseDetailView(TemplateView):
                     self.request.session['student_course_referral_code'] = str(referral.code)
                     self.request.session.modified = True
         related = (
-            _published_courses()
+            _published_courses(include_syllabus=False)
             .exclude(pk=course.pk)
             .order_by('-created_at')[:3]
         )
         context['course'] = course
-        context['courses_json'] = [course.to_public_dict()] + [r.to_public_dict() for r in related]
+        context['courses_json'] = [course.to_public_dict()] + [
+            related_course.to_public_dict(include_syllabus=False, include_content=False)
+            for related_course in related
+        ]
         context['is_course_enrolled'] = (
             self.request.user.is_authenticated
             and CourseProgress.objects.filter(
@@ -223,8 +317,8 @@ def redeem_course_points(request, pk):
     course = _find_course(pk, _published_courses())
     if course is None:
         course = _find_course(pk)
-        if course is not None and not _can_view(course, request.user):
-            course = None
+    if course is not None and not _can_view(course, request.user):
+        course = None
     if course is None:
         raise Http404('الدورة غير موجودة')
     if request.user.role != UserRole.STUDENT:
@@ -313,8 +407,8 @@ class CertificateDetailView(TemplateView):
         course = _find_course(key, _published_courses())
         if course is None:
             course = _find_course(key)
-            if course is not None and not _can_view(course, self.request.user):
-                course = None
+        if course is not None and not _can_view(course, self.request.user):
+            course = None
         if course is None:
             raise Http404('الدورة غير موجودة')
         context['course'] = course
@@ -336,8 +430,8 @@ class PlaylistView(TemplateView):
         course = _find_course(kwargs['pk'], _published_courses())
         if course is None:
             course = _find_course(kwargs['pk'])
-            if course is not None and not _can_view(course, request.user):
-                course = None
+        if course is not None and not _can_view(course, request.user):
+            course = None
         if course is None:
             raise Http404('الدورة غير موجودة')
         if not _has_course_access(course, request.user):
@@ -351,8 +445,8 @@ class PlaylistView(TemplateView):
         course = _find_course(key, _published_courses())
         if course is None:
             course = _find_course(key)
-            if course is not None and not _can_view(course, self.request.user):
-                course = None
+        if course is not None and not _can_view(course, self.request.user):
+            course = None
         if course is None:
             raise Http404('الدورة غير موجودة')
         context['course'] = course
@@ -395,7 +489,9 @@ class CourseEditorView(LoginRequiredMixin, TemplateView):
             if course is None:
                 raise Http404('الدورة غير موجودة')
             # محرر الدورة يحتاج نصوص الأسئلة والإجابات الصحيحة.
-            context['courses_json'] = [course.to_public_dict(include_answers=True)]
+            course_data = course.to_public_dict(include_answers=True)
+            course_data['coverStorageName'] = course.cover.name if course.cover else ''
+            context['courses_json'] = [course_data]
             context['course_title_en'] = course.title_en
         else:
             if not self.request.user.is_trainer and not is_admin:
@@ -418,7 +514,135 @@ class CourseEditorView(LoginRequiredMixin, TemplateView):
         return context
 
 
-def _sync_quiz(lesson, data):
+@login_required
+@require_GET
+def course_versions(request, pk):
+    is_admin = request.user.is_staff or request.user.is_admin_role
+    queryset = Course.objects.all() if is_admin else Course.objects.filter(owner=request.user)
+    course = _find_course(pk, queryset)
+    if course is None:
+        return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+
+    version_number = request.GET.get('version')
+    versions = CourseVersion.objects.filter(course=course).order_by('version_number')
+    if version_number:
+        try:
+            version_number = int(version_number)
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'error': 'invalid_version'}, status=400)
+        version = versions.filter(version_number=version_number).first()
+        if version is None:
+            return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+        return JsonResponse({'ok': True, 'snapshot': version.snapshot})
+
+    return JsonResponse({
+        'ok': True,
+        'versions': [
+            {
+                'number': version.version_number,
+                'createdAt': version.created_at.isoformat(),
+                'title': version.snapshot.get('title', course.title),
+            }
+            for version in versions
+        ],
+    })
+
+
+@login_required
+@require_POST
+@transaction.atomic
+def course_discard_changes(request):
+    """Restore the last published snapshot before the editor is left."""
+    is_admin = request.user.is_staff or request.user.is_admin_role
+    if not request.user.is_trainer and not is_admin:
+        return JsonResponse({'ok': False, 'error': 'not_trainer'}, status=403)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (ValueError, UnicodeDecodeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_payload'}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'invalid_payload'}, status=400)
+
+    key = str(payload.get('id') or '').strip()
+    if not key:
+        return JsonResponse({'ok': False, 'error': 'required'}, status=400)
+
+    queryset = Course.objects.select_for_update()
+    if not is_admin:
+        queryset = queryset.filter(owner=request.user)
+    course = _find_course(key, queryset)
+    if course is None:
+        return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+
+    latest_version = CourseVersion.objects.filter(course=course).order_by(
+        '-version_number'
+    ).first()
+    if latest_version is not None:
+        snapshot = latest_version.snapshot
+    elif payload.get('discardNew'):
+        course.delete()
+        return JsonResponse({'ok': True, 'deleted': True})
+    else:
+        snapshot = payload.get('baseline')
+        if not isinstance(snapshot, dict):
+            return JsonResponse({'ok': False, 'error': 'no_published_version'}, status=409)
+
+    if not isinstance(snapshot, dict):
+        return JsonResponse({'ok': False, 'error': 'invalid_snapshot'}, status=409)
+    syllabus = snapshot.get('syllabus')
+    if not isinstance(syllabus, list):
+        return JsonResponse({'ok': False, 'error': 'invalid_snapshot'}, status=409)
+
+    owner = course.owner
+    if is_admin and snapshot.get('trainerId'):
+        trainer = User.objects.filter(
+            pk=snapshot['trainerId'], role=UserRole.TRAINER, is_active=True
+        ).first()
+        if trainer is None:
+            return JsonResponse({'ok': False, 'error': 'invalid_snapshot'}, status=409)
+        owner = trainer
+
+    duration, duration_en = _format_course_duration(
+        snapshot.get('duration'), snapshot.get('durationEnglish', course.duration_en)
+    )
+    fields = {
+        'owner': owner,
+        'title': str(snapshot.get('title') or 'دورة بدون عنوان').strip()[:200],
+        'title_en': str(snapshot.get('titleEnglish', snapshot.get('title_en', '')) or '').strip()[:200],
+        'category': str(snapshot.get('category') or '').strip()[:120],
+        'summary': str(snapshot.get('summary') or snapshot.get('description') or '').strip()[:320],
+        'content': str(snapshot.get('content') or ''),
+        'price': _normalize_course_price(snapshot.get('price')),
+        'duration': duration,
+        'duration_en': duration_en,
+        'period': _format_course_period(snapshot.get('period')),
+        'credential_id': str(snapshot.get('credentialId', snapshot.get('credential_id', '')) or '').strip()[:60],
+        'verify_url': str(snapshot.get('verifyUrl', snapshot.get('verify_url', '')) or '').strip()[:200],
+        'status': (
+            CourseStatus.PUBLISHED
+            if latest_version is not None or snapshot.get('status') == CourseStatus.PUBLISHED
+            else CourseStatus.DRAFT
+        ),
+    }
+    for field, value in fields.items():
+        setattr(course, field, value)
+    course.skills = snapshot.get('skills', snapshot.get('tags', []))
+    if not isinstance(course.skills, list):
+        course.skills = []
+
+    cover_storage_name = str(snapshot.get('coverStorageName') or '').strip()
+    if cover_storage_name and not default_storage.exists(cover_storage_name):
+        return JsonResponse({'ok': False, 'error': 'invalid_snapshot'}, status=409)
+    course.cover.name = cover_storage_name
+    course.save()
+
+    _sync_syllabus(course, syllabus)
+
+    return JsonResponse({'ok': True, 'deleted': False})
+
+
+def _sync_quiz(lesson, data, quiz=None):
     """مزامنة أسئلة الكويز مع محتوى الطلب (لدروس نوع «اختبار» فقط).
 
     data=None يعني عدم إرسال بيانات الكويز (محرر قديم/لوحة إدارة) فنُبقي الموجود.
@@ -435,14 +659,26 @@ def _sync_quiz(lesson, data):
             value = default
         return max(low, min(value, high))
 
-    quiz, _created = Quiz.objects.get_or_create(lesson=lesson)
-    quiz.instructions = str(data.get('instructions') or '').strip()
-    quiz.max_attempts = _int(data.get('maxAttempts'), 3, 1, 10)
-    quiz.questions_count = _int(data.get('questionsCount'), 0, 0, _MAX_QUIZ_QUESTIONS)
-    quiz.pass_score = _int(data.get('passScore'), 60, 0, 100)
-    quiz.shuffle_questions = bool(data.get('shuffleQuestions', True))
-    quiz.shuffle_choices = bool(data.get('shuffleChoices', True))
-    quiz.save()
+    if quiz is None:
+        quiz = Quiz.objects.filter(lesson=lesson).first()
+    if quiz is None:
+        quiz = Quiz.objects.create(lesson=lesson)
+
+    quiz_fields = {
+        'instructions': str(data.get('instructions') or '').strip(),
+        'max_attempts': _int(data.get('maxAttempts'), 3, 1, 10),
+        'questions_count': _int(data.get('questionsCount'), 0, 0, _MAX_QUIZ_QUESTIONS),
+        'pass_score': _int(data.get('passScore'), 60, 0, 100),
+        'shuffle_questions': bool(data.get('shuffleQuestions', True)),
+        'shuffle_choices': bool(data.get('shuffleChoices', True)),
+    }
+    changed_quiz_fields = []
+    for field, value in quiz_fields.items():
+        if getattr(quiz, field) != value:
+            setattr(quiz, field, value)
+            changed_quiz_fields.append(field)
+    if changed_quiz_fields:
+        quiz.save(update_fields=[*changed_quiz_fields, 'updated_at'])
 
     raw_questions = data.get('questions')
     if not isinstance(raw_questions, list):
@@ -483,47 +719,88 @@ def _sync_quiz(lesson, data):
             }
         )
 
-    existing_questions = list(quiz.questions.all().order_by('order', 'id'))
-    for extra in existing_questions[len(cleaned):]:
-        extra.delete()
-    existing_questions = existing_questions[: len(cleaned)]
+    existing_questions = list(quiz.questions.all())
+    extra_questions = existing_questions[len(cleaned):]
+    if extra_questions:
+        QuizQuestion.objects.filter(
+            pk__in=[question.pk for question in extra_questions]
+        ).delete()
+    existing_questions = existing_questions[:len(cleaned)]
 
+    changed_questions = []
+    new_questions = []
+    changed_choices = []
+    new_choices = []
+    extra_choice_ids = []
     for index, spec in enumerate(cleaned):
         if index < len(existing_questions):
             question = existing_questions[index]
-            question.text = spec['text']
-            question.explanation = spec['explanation']
-            question.order = spec['order']
-            question.save()
+            question_fields = {
+                'text': spec['text'],
+                'explanation': spec['explanation'],
+                'order': spec['order'],
+            }
+            question_changed = False
+            for field, value in question_fields.items():
+                if getattr(question, field) != value:
+                    setattr(question, field, value)
+                    question_changed = True
+            if question_changed:
+                changed_questions.append(question)
         else:
-            question = QuizQuestion.objects.create(
+            question = QuizQuestion(
                 quiz=quiz,
                 text=spec['text'],
                 explanation=spec['explanation'],
                 order=spec['order'],
             )
-        existing_choices = list(question.choices.all().order_by('order', 'id'))
+            new_questions.append(question)
+        existing_choices = list(question.choices.all()) if question.pk else []
         for choice_index, choice_spec in enumerate(spec['choices']):
             if choice_index < len(existing_choices):
                 choice = existing_choices[choice_index]
-                choice.text = choice_spec['text']
-                choice.is_correct = choice_spec['correct']
-                choice.order = choice_index
-                choice.save()
+                choice_fields = {
+                    'text': choice_spec['text'],
+                    'is_correct': choice_spec['correct'],
+                    'order': choice_index,
+                }
+                choice_changed = False
+                for field, value in choice_fields.items():
+                    if getattr(choice, field) != value:
+                        setattr(choice, field, value)
+                        choice_changed = True
+                if choice_changed:
+                    changed_choices.append(choice)
             else:
-                QuizChoice.objects.create(
+                new_choices.append(QuizChoice(
                     question=question,
                     text=choice_spec['text'],
                     is_correct=choice_spec['correct'],
                     order=choice_index,
-                )
-        for extra_choice in existing_choices[len(spec['choices']):]:
-            extra_choice.delete()
+                ))
+        extra_choice_ids.extend(
+            choice.pk for choice in existing_choices[len(spec['choices']):]
+        )
+
+    if changed_questions:
+        QuizQuestion.objects.bulk_update(
+            changed_questions, ['text', 'explanation', 'order']
+        )
+    if new_questions:
+        QuizQuestion.objects.bulk_create(new_questions)
+    if extra_choice_ids:
+        QuizChoice.objects.filter(pk__in=extra_choice_ids).delete()
+    if changed_choices:
+        QuizChoice.objects.bulk_update(
+            changed_choices, ['text', 'is_correct', 'order']
+        )
+    if new_choices:
+        QuizChoice.objects.bulk_create(new_choices)
 
     # لا يمكن عرض عدد أكبر من أسئلة المخزون
     if quiz.questions_count > len(cleaned):
         quiz.questions_count = 0
-        quiz.save(update_fields=['questions_count'])
+        quiz.save(update_fields=['questions_count', 'updated_at'])
 
 
 def _resolve_owner_project(owner, raw_id):
@@ -552,10 +829,17 @@ def _sync_syllabus(course, syllabus):
     existing_lessons = {
         lesson.pk: lesson for lesson in Lesson.objects.filter(section__course=course).select_related('section')
     }
+    quizzes = {
+        quiz.lesson_id: quiz
+        for quiz in Quiz.objects.filter(lesson_id__in=existing_lessons)
+        .prefetch_related('questions__choices')
+    }
 
     section_pks = []
     lesson_pks = []
+    removed_quiz_lesson_ids = []
     total_lessons = 0
+    changed_lessons = []
 
     for order, raw_section in enumerate(syllabus[:_MAX_SECTIONS]):
         if not isinstance(raw_section, dict):
@@ -573,10 +857,17 @@ def _sync_syllabus(course, syllabus):
         section = existing_sections.get(section_id)
         if section is None:
             section = CourseSection(course=course, title=title, order=order)
+            section.save()
         else:
-            section.title = title
-            section.order = order
-        section.save()
+            section_fields = []
+            if section.title != title:
+                section.title = title
+                section_fields.append('title')
+            if section.order != order:
+                section.order = order
+                section_fields.append('order')
+            if section_fields:
+                section.save(update_fields=section_fields)
         section_pks.append(section.pk)
 
         lessons = raw_section.get('lessons')
@@ -619,22 +910,43 @@ def _sync_syllabus(course, syllabus):
             if lesson is None or lesson.section_id != section.pk:
                 if lesson is None:
                     lesson = Lesson(section=section, order=lesson_order, **fields)
+                    lesson.save()
                 else:
                     for name, value in fields.items():
                         setattr(lesson, name, value)
                     lesson.section = section
                     lesson.order = lesson_order
+                    changed_lessons.append(lesson)
             else:
+                lesson_fields = []
                 for name, value in fields.items():
-                    setattr(lesson, name, value)
-                lesson.order = lesson_order
-            lesson.save()
+                    if getattr(lesson, name) != value:
+                        setattr(lesson, name, value)
+                        lesson_fields.append(name)
+                if lesson.order != lesson_order:
+                    lesson.order = lesson_order
+                    lesson_fields.append('order')
+                if lesson_fields:
+                    lesson.save(update_fields=lesson_fields)
             if lesson_type == LessonType.QUIZ:
-                _sync_quiz(lesson, raw_lesson.get('quiz'))
+                _sync_quiz(
+                    lesson,
+                    raw_lesson.get('quiz'),
+                    quiz=quizzes.get(lesson.pk),
+                )
             else:
-                # تغيير النوع بعيداً عن «اختبار» يحذف الكويز مع أسئلته
-                Quiz.objects.filter(lesson=lesson).delete()
+                if lesson.pk in quizzes:
+                    removed_quiz_lesson_ids.append(lesson.pk)
             lesson_pks.append(lesson.pk)
+
+    if changed_lessons:
+        Lesson.objects.bulk_update(
+            changed_lessons,
+            ['section', 'title', 'duration', 'type', 'is_free', 'content',
+             'video_url', 'linked_project', 'order'],
+        )
+    if removed_quiz_lesson_ids:
+        Quiz.objects.filter(lesson_id__in=removed_quiz_lesson_ids).delete()
 
     course.sections.exclude(pk__in=section_pks).delete()
     Lesson.objects.filter(section__course=course).exclude(pk__in=lesson_pks).delete()
@@ -686,8 +998,20 @@ def _has_publishable_course_syllabus(syllabus):
     return False
 
 
+def _course_has_publishable_syllabus(course):
+    if course is None:
+        return False
+    return any(
+        section_title.strip() and lesson_title and lesson_title.strip()
+        for section_title, lesson_title in CourseSection.objects.filter(
+            course=course
+        ).values_list('title', 'lessons__title')
+    )
+
+
 @login_required
 @require_POST
+@transaction.atomic
 def course_save(request):
     """AJAX endpoint used by the client-side course editor (create & update).
 
@@ -707,7 +1031,11 @@ def course_save(request):
     key = str(payload.get('id') or '').strip()
     course = None
     if key:
-        queryset = Course.objects.all() if is_admin else Course.objects.filter(owner=request.user)
+        queryset = (
+            Course.objects.select_for_update()
+            if is_admin
+            else Course.objects.select_for_update().filter(owner=request.user)
+        )
         course = _find_course(key, queryset)
         if course is None:
             return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
@@ -739,6 +1067,16 @@ def course_save(request):
         if isinstance(cover, str) and cover.startswith('data:image')
         else None
     )
+    cover_storage_name = str(payload.get('coverStorageName') or '').strip()
+    if cover_storage_name and not decoded_cover:
+        allowed_cover_names = {course.cover.name} if course is not None and course.cover else set()
+        if course is not None:
+            allowed_cover_names.update(
+                version.snapshot.get('coverStorageName', '')
+                for version in CourseVersion.objects.filter(course=course).only('snapshot')
+            )
+        if cover_storage_name not in allowed_cover_names or not default_storage.exists(cover_storage_name):
+            return JsonResponse({'ok': False, 'error': 'invalid_cover_version'}, status=400)
     if status == CourseStatus.PUBLISHED:
         missing = []
         if not title:
@@ -759,7 +1097,12 @@ def course_save(request):
             missing.append('duration')
         if not skills:
             missing.append('tags')
-        if not _has_publishable_course_syllabus(payload.get('syllabus')):
+        has_syllabus = (
+            _has_publishable_course_syllabus(payload['syllabus'])
+            if 'syllabus' in payload
+            else _course_has_publishable_syllabus(course)
+        )
+        if not has_syllabus:
             missing.append('syllabus')
         if missing:
             return JsonResponse(
@@ -787,42 +1130,71 @@ def course_save(request):
             return JsonResponse({'ok': False, 'error': 'trainer_required'}, status=400)
         course.owner = trainer
 
-    course.title = title or 'دورة بدون عنوان'
-    course.title_en = title_en
-    course.category = category
-    course.summary = summary
-    course.content = content
-    course.price = price
-    course.duration, course.duration_en = _format_course_duration(
+    duration_ar, duration_en = _format_course_duration(
         payload.get('duration'),
         payload.get('durationEnglish', course.duration_en),
     )
-    course.period = _format_course_period(payload.get('period'))
-    course.credential_id = str(payload.get('credentialId') or payload.get('credential_id') or '').strip()[:60]
-    course.verify_url = str(payload.get('verifyUrl') or payload.get('verify_url') or '').strip()[:200]
-    course.status = status
-    course.save()
+    course_fields = {
+        'owner': course.owner,
+        'title': title or 'دورة بدون عنوان',
+        'title_en': title_en,
+        'category': category,
+        'summary': summary,
+        'content': content,
+        'price': price,
+        'duration': duration_ar,
+        'duration_en': duration_en,
+        'period': _format_course_period(payload.get('period')),
+        'credential_id': str(payload.get('credentialId') or payload.get('credential_id') or '').strip()[:60],
+        'verify_url': str(payload.get('verifyUrl') or payload.get('verify_url') or '').strip()[:200],
+        'status': status,
+    }
+    if isinstance(raw_skills, list):
+        course_fields['skills'] = skills
+
+    changed_course_fields = []
+    for field, value in course_fields.items():
+        if getattr(course, field) != value:
+            setattr(course, field, value)
+            changed_course_fields.append(field)
+    if created:
+        course.save()
+    elif changed_course_fields:
+        course.save(update_fields=[*changed_course_fields, 'updated_at'])
 
     if decoded_cover:
         name, image_content = decoded_cover
         course.cover.save(name, ContentFile(image_content), save=True)
+    elif cover_storage_name and course.cover.name != cover_storage_name:
+        course.cover.name = cover_storage_name
+        course.save(update_fields=['cover', 'updated_at'])
     elif cover == '':
         if course.cover:
             course.cover.delete(save=True)
 
-    if isinstance(raw_skills, list):
-        course.skills = skills
-        course.save(update_fields=['skills'])
-
     if 'syllabus' in payload:
         _sync_syllabus(course, payload.get('syllabus'))
+
+    version = None
+    if status == CourseStatus.PUBLISHED and payload.get('recordVersion'):
+        last_version = CourseVersion.objects.filter(course=course).aggregate(
+            number=Max('version_number')
+        )['number'] or 0
+        version = CourseVersion.objects.create(
+            course=course,
+            version_number=last_version + 1,
+            snapshot=course.to_version_snapshot(),
+            created_by=request.user,
+        )
 
     return JsonResponse(
         {
             'ok': True,
             'id': course.slug,
             'status': course.status,
+            'cover': course.cover.url if course.cover else '',
             'url': reverse('courses:detail', kwargs={'pk': course.slug}),
+            'version': version.version_number if version else None,
         }
     )
 

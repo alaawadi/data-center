@@ -58,8 +58,53 @@ class HomePageTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="courses-data"')
+        self.assertContains(response, 'id="courses-sheet-data"')
         titles = [course['title'] for course in response.context['courses_json']]
         self.assertEqual(titles, [published.title])
+        self.assertEqual(response.context['courses_json'][0]['syllabus'], [])
+        self.assertEqual(response.context['courses_json'][0]['content'], '')
+        sheet_titles = [course['title'] for course in response.context['courses_sheet_json']]
+        self.assertEqual(sheet_titles, [published.title])
+        self.assertNotIn('syllabus', response.context['courses_sheet_json'][0])
+
+    def test_homepage_courses_follow_the_saved_all_courses_order(self):
+        trainer = get_user_model().objects.create_user(
+            phone='059444401',
+            password='pass1234',
+            full_name='مدرب ترتيب الصفحة',
+            role=UserRole.TRAINER,
+        )
+        courses = [
+            Course.objects.create(
+                owner=trainer,
+                title=f'دورة مرتبة {index}',
+                status=CourseStatus.PUBLISHED,
+                display_order=10 - index,
+                is_coming_soon=index == 2,
+            )
+            for index in range(11)
+        ]
+
+        homepage = self.client.get(reverse('landing:home'))
+        all_courses = self.client.get(reverse('courses:list'))
+
+        homepage_order = [course['id'] for course in homepage.context['courses_json']]
+        all_courses_order = [course['id'] for course in all_courses.context['courses_json']]
+        self.assertEqual(homepage_order, all_courses_order)
+        self.assertEqual(
+            homepage_order[:9],
+            [course.slug for course in reversed(courses)][:9],
+        )
+        self.assertTrue(homepage.context['courses_json'][8]['comingSoon'])
+        landing_script = (
+            Path(__file__).resolve().parent.parent
+            / 'static'
+            / 'js'
+            / 'landing-nav.js'
+        ).read_text(encoding='utf-8')
+        self.assertIn('function certCard(c)', landing_script)
+        self.assertIn('course-coming-soon-badge', landing_script)
+        self.assertNotIn('AppPage.certCard', landing_script)
 
     def test_homepage_course_card_images_fill_and_crop_the_thumbnail(self):
         response = self.client.get(reverse('landing:home'))
@@ -69,11 +114,21 @@ class HomePageTests(TestCase):
             / 'css'
             / 'plat-nav.css'
         ).read_text(encoding='utf-8')
+        landing_script = (
+            Path(__file__).resolve().parent.parent
+            / 'static'
+            / 'js'
+            / 'landing-nav.js'
+        ).read_text(encoding='utf-8')
 
         self.assertContains(response, 'css/plat-nav.css')
         self.assertIn('.plat-nav .cert-thumb > img', styles)
         self.assertIn('position: absolute;', styles)
         self.assertIn('object-fit: cover;', styles)
+        self.assertIn('.plat-nav .cert-card.is-coming-soon { opacity: .68; }', styles)
+        self.assertIn('.plat-nav .course-coming-soon-badge', styles)
+        self.assertIn('c.comingSoon', landing_script)
+        self.assertIn('is-coming-soon', landing_script)
 
 
 class ProgressiveWebAppTests(TestCase):
@@ -102,6 +157,14 @@ class ProgressiveWebAppTests(TestCase):
         self.assertIn('/static/images/pwa-512.png', worker)
         self.assertIn('/static/vendor/jsQR.js', worker)
         self.assertIn('/static/css/workshops.css', worker)
+        self.assertIn(
+            'event.respondWith(networkFirstPage(request, networkResponse));',
+            worker,
+        )
+        self.assertIn(
+            'event.waitUntil(networkResponse.then(function (response)',
+            worker,
+        )
 
     def test_pwa_launcher_uses_platform_logo_in_a_white_box(self):
         pwa_script = (Path(__file__).resolve().parent.parent / 'static' / 'js' / 'pwa.js').read_text(

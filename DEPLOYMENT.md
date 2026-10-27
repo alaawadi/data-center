@@ -33,11 +33,13 @@ directories in a persistent, writable location. Add the production site's
 `<project>/staticfiles`) and its `/media/` mapping to `DJANGO_MEDIA_ROOT` in
 the PythonAnywhere Web tab.
 
-The settings enable HTTPS redirects and secure cookies when `DJANGO_DEBUG` is
-false. They trust `X-Forwarded-Proto` by default for PythonAnywhere's HTTPS
-proxy. One-year HSTS is enabled, but subdomain coverage and browser preload
-remain disabled; enable those only after confirming all subdomains support
-HTTPS.
+Keep `DJANGO_DEBUG` set to `False` in the PythonAnywhere WSGI configuration.
+Django only serves the custom `404.html` instead of its technical debug 404
+when debug mode is disabled. The settings enable HTTPS redirects and secure
+cookies in this mode and trust `X-Forwarded-Proto` by default for
+PythonAnywhere's HTTPS proxy. One-year HSTS is enabled, but subdomain coverage
+and browser preload remain disabled; enable those only after confirming all
+subdomains support HTTPS.
 
 If signup verification emails are used, configure the existing `EMAIL_HOST`,
 `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`, and

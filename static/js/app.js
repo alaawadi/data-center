@@ -178,6 +178,8 @@
     var skills = (c.skills || []).slice(0, 2).map(function (s) { return '<span class="chip sm cert-skill">' + e(s) + '</span>'; }).join('');
     var desc = c.description ? c.description.replace(/\s+/g, ' ').trim() : '';
     var isCourse = !!opts.course;
+    var isComingSoon = isCourse && !!c.comingSoon;
+    var cardNavigation = ' data-goto="' + detailUrl + '"';
     var isDraftCourse = isCourse && c.status === 'draft';
     var foot = isCourse
       ? '<div class="cert-foot">' +
@@ -187,7 +189,7 @@
             : '<span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certApproved')) + '</span>') +
         '</div>'
       : '<div class="cert-foot"><time>' + e(UI.formatDate(c.date)) + '</time><span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certVerified')) + '</span></div>';
-    return '<article class="cert-card" data-goto="' + detailUrl + '" data-search="' + e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
+    return '<article class="cert-card' + (isComingSoon ? ' is-coming-soon' : '') + '"' + cardNavigation + ' data-search="' + e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
       (opts.viewOnly || c.earned || !canManageCourse(c) ? '' : '<div class="card-actions">' +
           '<button class="btn-icon" data-act="goto" data-url="' + SITE.u('courseEdit', e(c.id)) + '" title="' + e(t('edit')) + '">' + UI.icon('pencil', 15) + '</button>' +
       (isCourse ? '' : '<button class="btn-icon danger" data-act="del-cert" data-id="' + e(c.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>') +
@@ -198,6 +200,7 @@
       (isCourse
         ? (c.price ? '<span class="cert-price-tag">' + e(c.price) + '</span>' : '')
         : '<span class="cert-seal">' + UI.verifiedBadge(19) + '</span>') +
+      (isComingSoon ? '<span class="course-coming-soon-badge">' + e(t('courseComingSoon')) + '</span>' : '') +
       '</div>' +
       '<div class="cert-body">' +
       '<h3>' + e(c.title) + '</h3>' +
@@ -790,6 +793,20 @@
 
   document.addEventListener('click', function (ev) {
     var target = ev.target;
+
+    var workshopBackEl = target.closest('[data-workshop-back]');
+    if (workshopBackEl) {
+      try {
+        var referrerUrl = new URL(document.referrer);
+        if (referrerUrl.origin === location.origin &&
+          (referrerUrl.pathname !== location.pathname || referrerUrl.search !== location.search) &&
+          history.length > 1) {
+          ev.preventDefault();
+          history.back();
+          return;
+        }
+      } catch (err) { }
+    }
 
     var smartBackEl = target.closest('[data-smart-back]');
     if (smartBackEl) {
@@ -1836,7 +1853,7 @@
       '<a class="btn btn-primary" href="' + SITE.u('users') + '">' + UI.icon('arrow-left', 15) + e(t('back')) + '</a></div>';
   }
 
-  function backLink(label, smart) {
+  function backLink(label, smart, returnToPreviousPage) {
     var from = '';
     try { from = new URLSearchParams(location.search).get('from') || ''; } catch (err) { }
     var dest = from === 'landing' || from === 'platform' ? SITE.u('landing')
@@ -1852,7 +1869,10 @@
         }
       }
     } catch (err) { }
-    return '<a class="detail-back" href="' + dest + '"' + (smart ? ' data-smart-back' : '') + '>' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(label || t('back')) + '</a>';
+    return '<a class="detail-back" href="' + dest + '"' +
+      (smart ? ' data-smart-back' : '') +
+      (returnToPreviousPage ? ' data-workshop-back' : '') +
+      '>' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(label || t('back')) + '</a>';
   }
 
   /* ---------- detail: certificate ---------- */
@@ -1893,7 +1913,7 @@
       '</div>';
 
     host.innerHTML =
-      backLink(t('certPageBack')) +
+      backLink(c.workshop ? t('back') : t('certPageBack'), false, !!c.workshop) +
       '<section class="cd-hero cert-hero' + (heroImg ? '' : '') + '"' + (heroImg ? ' style="background-image:url(\'' + e(heroImg) + '\'),linear-gradient(135deg,#2563eb,#7c3aed)"' : '') + '>' +
       '<div class="cd-hero-overlay"><div class="cd-hero-inner">' +
       '<span class="cert-hero-seal">' + UI.verifiedBadge(15) + e(t('certPageStatusValid')) + '</span>' +
@@ -1954,7 +1974,9 @@
       '<div class="cd-price"><b>' + e(t('certPageStatusValid')) + '</b><span>' + e(t('certPageKicker')) + '</span></div>' +
       '<button class="cd-btn cd-btn-buy" type="button" data-act="print-cert">' + UI.icon('download', 16) + e(t('certPagePrint')) + '</button>' +
       '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' + e(shareUrl) + '">' + UI.icon('share-2', 16) + e(t('shareCta')) + '</button>' +
-      '<a class="cd-btn cd-btn-edit" href="' + backDest + '">' + UI.icon('arrow-right', 15) + e(t('certPageBack')) + '</a>' +
+      (!c.workshop
+        ? '<a class="cd-btn cd-btn-edit" href="' + backDest + '">' + UI.icon('arrow-right', 15) + e(t('certPageBack')) + '</a>'
+        : '') +
       '<ul class="cd-includes">' +
       '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
       '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('certPageIssued')) + ': <b>' + e(issued) + '</b></span></li>' +
@@ -2111,6 +2133,7 @@
       }
     }
     if (!c) { renderNotFound(host); return; }
+    var isComingSoon = !!c.comingSoon;
     if (c.earned) { renderEarnedCertificate(host, c); return; }
     var related = Store.collection('certificates').filter(function (x) { return x.id !== c.id; }).slice(0, 3);
     var backDest = from === 'landing' || from === 'platform' ? SITE.u('landing') : from === 'all-courses' ? SITE.u('courses') : SITE.u('portfolio');
@@ -2128,8 +2151,18 @@
     var sub = (c.description || '').replace(/\s+/g, ' ').trim();
     if (sub.length > 130) sub = sub.slice(0, 127).trim() + '…';
     var skills = c.skills || [];
-   var heroImg = c.courseImage || c.image;
-   var instName = c.instructor || c.issuer;
+    var instName = c.instructor || c.issuer;
+    var instructor = c.owner || {};
+    var instructorProfileUrl = instructor.handle || c.handle
+      ? SITE.u('profile', instructor.handle || c.handle)
+      : '';
+    if (instructorProfileUrl) {
+      instructorProfileUrl += '?return=' + encodeURIComponent(
+        location.pathname + location.search + location.hash
+      );
+    }
+    var instructorAvatar = instructor.avatar || UI.userLetterAvatar(instName, 112);
+    var heroImg = c.courseImage || c.image;
 
    /* أول درس في الدورة (وفيديوه) لعرضه في صفحة التفاصيل بنفس آلية مشغّل الدروس */
    /* كل هذا داخل try/catch: أي خلل هنا لا يجوز أن يُفرغ الصفحة */
@@ -2181,8 +2214,12 @@
       '<h1 class="cd-title">' + e(c.title) + '</h1>' +
       (sub ? '<p class="cd-sub">' + e(sub) + '</p>' : '') +
       '<div class="cd-author">' +
-      '<img class="cd-author-av" src="' + UI.userLetterAvatar(instName, 64) + '" alt="">' +
-      '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b></span>' +
+      (instructorProfileUrl
+        ? '<a class="cd-author-profile" href="' + e(instructorProfileUrl) + '">' +
+          '<img class="cd-author-av" src="' + e(instructor.avatar || UI.userLetterAvatar(instName, 64)) + '" alt="">' +
+          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b></span></a>'
+        : '<img class="cd-author-av" src="' + e(UI.userLetterAvatar(instName, 64)) + '" alt="">' +
+          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b></span>') +
       '<span class="cd-verified">' + UI.verifiedBadge(14) + e(t('certVerified')) + '</span>' +
       '</div>' +
       '<div class="cd-pills">' +
@@ -2192,6 +2229,11 @@
       '</div>' +
       '</div></div>' +
       '</section>' +
+
+      (isComingSoon
+        ? '<div class="cd-coming-soon-alert" role="status">' +
+          UI.icon('clock', 18) + '<span>' + e(t('courseComingSoonNotice')) + '</span></div>'
+        : '') +
 
       '<div class="cd-grid">' +
       '<div class="cd-main">' +
@@ -2210,11 +2252,13 @@
       '</section>' : '') +
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('user', 18) + e(t('ucInstructor')) + '</h2>' +
-      '<div class="cd-inst">' +
-      '<img class="cd-inst-av" src="' + UI.userLetterAvatar(instName, 112) + '" alt="">' +
+      (instructorProfileUrl
+        ? '<a class="cd-inst cd-inst-link" href="' + e(instructorProfileUrl) + '">'
+        : '<div class="cd-inst">') +
+      '<img class="cd-inst-av" src="' + e(instructorAvatar) + '" alt="">' +
       '<div><div class="cd-inst-name">' + e(instName) + ' <span class="cd-verified">' + UI.verifiedBadge(14) + '</span></div>' +
       '<div class="cd-inst-sub">' + e(t('ucInstSub')) + (c.category ? ' · ' + e(c.category) : '') + '</div></div>' +
-      '</div>' +
+      (instructorProfileUrl ? '</a>' : '</div>') +
       '</section>' +
       (linkedProjects.length ?
       '<section class="cd-card">' +
@@ -2233,14 +2277,16 @@
        '<div class="cd-thumb">' + heroPlayerHTML + previewLabel + '</div>' +
       '<div class="cd-buy-body">' +
       '<div class="cd-price">' +
-      '<b>' + e(c.price || t('ucFree')) + '</b>' +
+      '<b>' + e(isComingSoon ? t('courseComingSoon') : (c.price || t('ucFree'))) + '</b>' +
       '<span>' + e(t('ucPriceNote')) + '</span>' +
       '</div>' +
-      (enrolled || trainerOwner
-        ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
-        : '<button class="cd-btn cd-btn-wa" type="button" data-act="enroll-course" data-title="' + e(c.title) + '">' + UI.icon('whatsapp', 17) + e(t('ucEnroll')) + '</button>') +
+      (isComingSoon
+        ? '<div class="cd-btn cd-btn-buy cd-coming-soon-notice" role="status">' + UI.icon('clock', 16) + e(t('courseComingSoon')) + '</div>'
+        : enrolled || trainerOwner
+          ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
+          : '<button class="cd-btn cd-btn-wa" type="button" data-act="enroll-course" data-title="' + e(c.title) + '">' + UI.icon('whatsapp', 17) + e(t('ucEnroll')) + '</button>') +
       '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' + e(rewardsData.shareUrl || SITE.u('course', e(c.id))) + '">' + UI.icon('share-2', 16) + e(t('shareCta')) + '</button>' +
-      (rewardsData.canRedeem
+      (!isComingSoon && rewardsData.canRedeem
         ? '<button class="cd-btn cd-btn-redeem" type="button" data-act="redeem-course-points" data-url="' + e(rewardsData.redeemUrl) + '">' + UI.icon('award', 16) + 'استبدل 100 نقطة باشتراك مجاني</button>'
         : '') +
       (canManageCourse(c)
@@ -2285,6 +2331,8 @@
         galleryItems.map(function (g, i) { return '<button class="gal-item" data-gal="' + i + '" type="button"><img src="' + e(g) + '" alt="" loading="lazy" decoding="async" draggable="false"></button>'; }).join('') +
         '</div>'
       : '';
+    var displayedViews = typeof p.displayViews === 'number' ? p.displayViews : (p.views || 0);
+    var displayedLikes = typeof p.displayLikes === 'number' ? p.displayLikes : (p.likes || 0);
 
     host.innerHTML =
       backLink(null, true) +
@@ -2298,11 +2346,13 @@
       '<button class="btn btn-ghost btn-sm" data-act="del-project" data-id="' + e(p.id) + '">' + UI.icon('trash', 14) + e(t('delete')) + '</button>' +
       '</div>' : '') + '</div>' +
       (p.summary ? '<p class="muted" style="font-size:15.5px;line-height:1.9;margin-bottom:12px">' + e(p.summary) + '</p>' : '') +
+      '<div class="project-detail-stats" aria-label="' + e(t('projectStats')) + '">' +
+      '<span class="project-detail-stat" data-project-stat="views">' + UI.icon('eye', 16) + '<b>' + displayedViews + '</b><span>' + e(t('views')) + '</span></span>' +
+      '</div>' +
       '<div class="detail-meta">' +
       (p.role ? '<span class="pm">' + UI.icon('briefcase', 15) + e(p.role) + '</span>' : '') +
       '<span class="pm">' + UI.icon('calendar', 15) + e(UI.formatDate(p.date)) + '</span>' +
       (p.category ? '<span class="pm">' + UI.icon('folder', 15) + e(p.category) + '</span>' : '') +
-      '<span class="pm">' + UI.icon('eye', 15) + (p.views || 0) + ' ' + e(t('views')) + '</span>' +
       '</div>' +
       (tags ? '<div class="stat-chips" style="margin-bottom:18px">' + tags + '</div>' : '') +
       '<div class="prose">' + UI.sanitize(p.content) + '</div>' +
@@ -2311,7 +2361,7 @@
       '<aside class="detail-side">' +
       '<div class="card side-card reveal reveal-2">' +
       '<div class="stat-chips" style="margin-bottom:12px">' +
-      '<button class="stat-chip' + (p.liked ? ' liked' : '') + '" data-act="like-project" data-id="' + e(p.id) + '">' + UI.iconFilled('heart', 15) + ' ' + (p.likes || 0) + '</button>' +
+      '<button class="stat-chip' + (p.liked ? ' liked' : '') + '" data-act="like-project" data-id="' + e(p.id) + '" aria-label="' + e(t(p.liked ? 'liked' : 'like')) + '" title="' + e(t(p.liked ? 'liked' : 'like')) + '">' + UI.iconFilled('heart', 15) + '<span class="project-like-count">' + displayedLikes + '</span></button>' +
       '<button class="stat-chip' + (p.saved ? ' liked' : '') + '" data-act="save-project" data-id="' + e(p.id) + '">' + UI.icon('bookmark', 15) + ' ' + e(p.saved ? t('saved') : t('save')) + '</button>' +
       '<button class="stat-chip" data-act="share" data-url="' + SITE.u('project', e(p.id)) + '">' + UI.icon('share-2', 15) + e(t('shareCta')) + '</button>' +
       '</div>' +
@@ -2324,7 +2374,10 @@
       ((p.files || []).length ? '<div class="card side-card"><h3>' + UI.icon('file', 16) + e(t('projFiles')) + '</h3><div class="file-list">' +
         p.files.map(function (f) {
           return '<div class="file-item"><span class="file-ic">' + UI.icon('file-text', 16) + '</span><div class="file-meta"><b>' + e(f.name) + '</b><span>' + e(UI.fileSize(f.size)) + '</span></div>' +
-            (f.dataUrl ? '<a class="btn-icon sm" download="' + e(f.name) + '" href="' + e(f.downloadUrl || f.dataUrl) + '">' + UI.icon('download', 15) + '</a>' : '') + '</div>';
+            (p.canDownloadFiles
+              ? '<a class="btn-icon sm" download="' + e(f.name) + '" href="' + e(f.downloadUrl || f.dataUrl) + '" aria-label="' + e(t('download')) + '">' + UI.icon('download', 15) + '</a>'
+              : '<button class="btn-icon sm" type="button" disabled title="' + e(t('projectFilesEnrolledOnly')) + '" aria-label="' + e(t('projectFilesEnrolledOnly')) + '">' + UI.icon('download', 15) + '</button>') +
+            '</div>';
         }).join('') + '</div></div>' : '') +
       '<div class="card side-card"><h3>' + UI.icon('calendar', 16) + e(t('projectUpdated')) + '</h3><p class="small muted">' + e(UI.formatDate(p.updatedAt || p.createdAt)) + '</p></div>' +
       '</aside></div>' +
@@ -2349,15 +2402,16 @@
             field: act === 'like-project' ? 'like' : 'save'
           })
         }).then(function (response) {
-          if (response.redirected) {
-            location.href = response.url;
-            return null;
-          }
           return response.json().catch(function () {
             return { ok: false, error: 'required' };
           });
         }).then(function (result) {
           if (!result) return;
+          if (result.error === 'authentication_required') {
+            var returnTo = location.pathname + location.search + location.hash;
+            location.href = SITE.u('login') + '?next=' + encodeURIComponent(returnTo);
+            return;
+          }
           if (!result.ok) {
             UI.toast(t(result.error || 'required'), 'error');
             return;
@@ -2365,6 +2419,9 @@
           p.liked = result.liked;
           p.saved = result.saved;
           p.likes = result.likes;
+          if (typeof result.displayLikes === 'number') {
+            p.displayLikes = result.displayLikes;
+          }
           if (act === 'save-project') UI.toast(p.saved ? t('saved') : t('save'), 'success');
           renderProjectDetail();
         }).catch(function () {

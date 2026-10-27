@@ -1257,11 +1257,6 @@
             csv: function (p) { return p.owner && p.owner.name || ''; }
           },
           {
-            k: 'tags', label: t('colTags'),
-            render: function (p) { return tagsCell(p.tags); }, noCsv: false,
-            csv: function (p) { return tagsVal(p.tags); }
-          },
-          {
             k: 'stats', label: t('colStats'), sortVal: function (p) { return p.views || 0; },
             render: function (p) {
               return '<span class="tiny muted" style="display:flex;gap:10px;flex-wrap:wrap">' +

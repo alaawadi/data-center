@@ -9,6 +9,17 @@
   {% include "partials/hero_banner.html" with hero_crumb="المشاريع" hero_title="أعمال ومشاريع تم تنفيذها بعناية" hero_sub="استعرض مجموعة مختارة من المشاريع التي تم التخطيط لها وتنفيذها وتوثيقها بالكامل — من الفكرة الأولى حتى التسليم النهائي." hero_cta_template="partials/hero_cta_projects.html" %}
 {% endblock %}
 {% block listing_tools %}
+  {% if can_reorder_projects %}
+    <div class="course-reorder-tools" id="projectReorderTools">
+      <p>يمكنك سحب البطاقات لترتيب ظهورها لجميع الزوار.</p>
+      <div class="course-reorder-actions">
+        <button class="btn btn-soft" id="projectReorderStart" type="button">إعادة ترتيب المشاريع</button>
+        <button class="btn btn-primary" id="projectReorderSave" type="button" hidden>حفظ الترتيب</button>
+        <button class="btn btn-soft" id="projectReorderCancel" type="button" hidden>إلغاء</button>
+      </div>
+      <p class="course-reorder-status" id="projectReorderStatus" aria-live="polite"></p>
+    </div>
+  {% endif %}
   <div class="freelancers-search-wrap">
     <label class="freelancers-search" for="projectsSearch">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
