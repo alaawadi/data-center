@@ -4,14 +4,26 @@ from pathlib import Path
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 
-from courses.models import Course, CourseStatus
+from courses.models import Course, CourseStatus, CourseType, InPersonWorkshop
 from users.models import UserRole
 
 
 class HomePageTests(TestCase):
     def test_platform_page_route_is_removed(self):
         self.assertEqual(self.client.get('/platform/').status_code, 404)
+
+    def test_home_navigation_is_active_in_header_and_bottom_bar(self):
+        response = self.client.get(reverse('landing:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['is_landing'])
+        self.assertContains(
+            response,
+            '<a href="/#home" class="active">الرئيسية</a>',
+        )
+        self.assertContains(response, '<a href="#home" class="active">')
 
     def test_homepage_uses_shared_course_listing_hero(self):
         response = self.client.get(reverse('landing:home'))
@@ -21,8 +33,43 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'home-bg3.webp')
         self.assertContains(response, 'class="cd-hero-float"')
         self.assertContains(response, 'أحدث الدورات')
-        self.assertContains(response, 'class="cd-cta ghost">⭐ وظّف مستقل</a>')
+        self.assertNotContains(response, 'class="freelancer-cta"')
+        self.assertContains(response, 'id="theme-bootstrap"')
+        self.assertContains(response, 'id="headerThemeBtn"')
+        self.assertContains(response, 'id="waTabBtn"')
+        self.assertContains(response, 'class="landing-whatsapp-fab"')
+        self.assertContains(response, 'id="site-settings-data"')
+        self.assertContains(response, 'class="svc-carousel"')
+        self.assertContains(response, 'id="servicesTrack"')
+        self.assertContains(response, 'class="svc-card"')
+        self.assertEqual(response.content.count(b'class="svc-card"'), 3)
+        self.assertNotContains(response, 'مسارات تعلّم متدرّجة')
+        self.assertNotContains(response, 'متابعة التقدّم')
+        self.assertNotContains(response, 'مجتمع المستقلين')
+        self.assertContains(response, 'أحدث <span>الدورات</span>')
+        self.assertContains(response, 'ورشات وجاهية')
+        self.assertContains(response, 'دورات وجاهية')
+        self.assertContains(response, 'دورات أونلاين')
+        self.assertContains(response, 'تعرف على مهارات جديدة من خلال ورشات ملخصة وبشهادات معتمدة.')
+        self.assertContains(response, 'دورات متكاملة تساعدك في اكتساب مهارات متكاملة والأكثر طلباً في سوق العمل.')
+        self.assertContains(response, 'تعلّم وجاهياً وتفاعل مع المدرب والطلاب في بيئة تعليمية احترافية.')
+        self.assertContains(response, 'id="online-courses-more"')
+        self.assertContains(response, 'id="online-courses-count"')
+        self.assertContains(response, reverse('courses:list'))
+        self.assertContains(response, 'id="inperson-courses-container"')
+        self.assertNotContains(response, 'id="nav"')
+        self.assertNotContains(response, 'js/landing-nav.js')
+        service_order = [
+            response.content.index(text.encode())
+            for text in ('دورات أونلاين', 'مشاريع تطبيقية', 'شهادات معتمدة')
+        ]
+        self.assertEqual(service_order, sorted(service_order))
         self.assertContains(response, 'css/hero.css')
+        self.assertLess(
+            response.content.index(b'id="theme-bootstrap"'),
+            response.content.index(b'css/base.css'),
+        )
+        self.assertNotContains(response, 'id="page-loading-bootstrap"')
         self.assertContains(response, 'السرايا - مقابل شركة جوال - عمارة عنان - الطابق الاول')
         self.assertContains(response, '(بجوار حلويات ابو بكر ساق الله)')
         self.assertContains(response, 'عن مركز داتا للتدريب والتطوير')
@@ -66,6 +113,61 @@ class HomePageTests(TestCase):
         sheet_titles = [course['title'] for course in response.context['courses_sheet_json']]
         self.assertEqual(sheet_titles, [published.title])
         self.assertNotIn('syllabus', response.context['courses_sheet_json'][0])
+
+    def test_homepage_includes_workshops_for_the_in_person_workshop_tab(self):
+        workshop = InPersonWorkshop.objects.create(
+            title='ورشة تجربة',
+            description='وصف الورشة',
+            starts_at=timezone.now(),
+            duration_minutes=90,
+            location='مركز داتا',
+        )
+
+        response = self.client.get(reverse('landing:home'))
+
+        self.assertEqual(response.status_code, 200)
+        workshops = response.context['workshops_json']
+        self.assertEqual(len(workshops), 1)
+        self.assertEqual(workshops[0]['id'], workshop.pk)
+        self.assertEqual(workshops[0]['title'], workshop.title)
+        self.assertContains(response, 'id="landing-workshops-data"')
+
+    def test_inperson_courses_show_only_on_homepage_in_their_own_tab(self):
+        trainer = get_user_model().objects.create_user(
+            phone='059444402',
+            password='pass1234',
+            full_name='مدرب الدورات الوجاهية',
+            role=UserRole.TRAINER,
+        )
+        online_course = Course.objects.create(
+            owner=trainer,
+            title='دورة أونلاين ظاهرة',
+            status=CourseStatus.PUBLISHED,
+        )
+        inperson_course = Course.objects.create(
+            owner=trainer,
+            title='دورة وجاهية للرئيسية',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+        )
+
+        homepage = self.client.get(reverse('landing:home'))
+        all_courses = self.client.get(reverse('courses:list'))
+
+        self.assertEqual(
+            [course['id'] for course in homepage.context['courses_json']],
+            [online_course.slug],
+        )
+        self.assertEqual(
+            [course['id'] for course in homepage.context['inperson_courses_json']],
+            [inperson_course.slug],
+        )
+        self.assertContains(homepage, 'id="landing-inperson-courses-data"')
+        self.assertContains(homepage, 'id="inperson-courses-container"')
+        self.assertEqual(
+            [course['id'] for course in all_courses.context['courses_json']],
+            [online_course.slug],
+        )
 
     def test_homepage_courses_follow_the_saved_all_courses_order(self):
         trainer = get_user_model().objects.create_user(
@@ -165,6 +267,8 @@ class ProgressiveWebAppTests(TestCase):
             'event.waitUntil(networkResponse.then(function (response)',
             worker,
         )
+        self.assertIn('cache.match(request).then(function (cached)', worker)
+        self.assertIn('cache.match(request, { ignoreSearch: true })', worker)
 
     def test_pwa_launcher_uses_platform_logo_in_a_white_box(self):
         pwa_script = (Path(__file__).resolve().parent.parent / 'static' / 'js' / 'pwa.js').read_text(

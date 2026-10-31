@@ -1,14 +1,17 @@
-{% extends "editor_base.html" %}
+{% extends editor_base_template|default:"editor_base.html" %}
 
-{% block title %}محرر المشروع — بورتفوليو{% endblock %}
-{% block body_attrs %}data-page="edit-project"{% endblock %}
+{% block title %}محرر المشروع — مركز داتا{% endblock %}
+{% block body_attrs %}data-page="edit-project"{% if admin_dashboard_project_editor %} data-admin-project-editor="true" data-admin-dashboard-editor="true"{% endif %}{% endblock %}
 {% block back_section %}#projects{% endblock %}
 
 {% block editor_main %}
+    {% if admin_dashboard_project_editor %}{{ projects_json|json_script:"editor-object-data" }}{% endif %}
     <div class="editor-grid">
       <div class="editor-main">
         <div>
-          <input class="title-input" id="edTitle" autocomplete="off">
+          <input class="title-input" id="edTitle" maxlength="200" autocomplete="off"
+                 aria-describedby="edTitleValidation">
+          <span class="hint error title-validation" id="edTitleValidation" role="alert" hidden></span>
         </div>
 
         <div id="edCoverHost"></div>
@@ -28,9 +31,9 @@
 
       <aside class="editor-side">
         <div class="side-card-box editor-checklist-box">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" id="edProgressPct">0%</span></h3>
-          <div class="checklist-bar"><i id="edProgressBar" style="width:0%"></i></div>
-          <div class="checklist-items" id="edChecklist"></div>
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" id="edProgressPct" data-checklist-pct>0/0 · 0%</span></h3>
+          <div class="checklist-bar"><i id="edProgressBar" data-checklist-bar style="width:0%"></i></div>
+          <div class="checklist-items" id="edChecklist" data-checklist-list></div>
         </div>
 
         <div class="side-card-box editor-templates-box editor-templates-desktop">
@@ -40,7 +43,7 @@
 
         <div class="side-card-box">
           <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2"></textarea></div>
+          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2" maxlength="320"></textarea></div>
           {% if is_admin_project_editor %}
           <div class="field">
             <label class="label" id="lblProjectOwner">صاحب المشروع</label>
@@ -53,7 +56,18 @@
           {{ admin_project_owners|json_script:"admin-project-owners-data" }}
           {% endif %}
           <div class="field-row">
-            <div class="field"><label class="label" id="lblCategory"></label><input class="input" id="edCategory"></div>
+            <div class="field">
+              <label class="label" id="lblCategory" for="edCategorySearch"></label>
+              <div class="training-category-picker">
+                <input class="input" type="search" id="edCategorySearch" role="combobox"
+                       aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false"
+                       aria-controls="edCategoryOptions" autocomplete="off">
+                <div class="training-category-options" id="edCategoryOptions" role="listbox" hidden></div>
+                <span class="hint error training-category-validation" id="edCategoryValidation"
+                      role="alert" hidden></span>
+                <input type="hidden" id="edCategory">
+              </div>
+            </div>
             <div class="field"><label class="label" id="lblRole"></label><input class="input" id="edRole"></div>
           </div>
           <div class="field"><label class="label" id="lblDate"></label><input type="date" class="input" id="edDate"></div>
@@ -65,8 +79,7 @@
             </select>
             <span class="tiny muted" id="edVisibilityHint"></span>
           </div>
-          <div class="field"><label class="label">GitHub</label><input class="input" id="edGithub" dir="ltr" placeholder="https://github.com/..."></div>
-          <div class="field"><label class="label" id="lblDemo"></label><input class="input" id="edDemo" dir="ltr" placeholder="https://..."></div>
+          <div class="field"><label class="label" id="lblDemo"></label><input type="url" class="input" id="edDemo" dir="ltr" inputmode="url" autocomplete="url" placeholder="https://..."></div>
         </div>
 
         <div class="side-card-box">

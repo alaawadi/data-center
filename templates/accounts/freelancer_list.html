@@ -2,11 +2,11 @@
 {% load static_v %}
 {% load static %}
 
-{% block title %}المستقلون — بورتفوليو{% endblock %}
+{% block title %}المستقلون — مركز داتا{% endblock %}
 {% block body_attrs %}data-page="all-users"{% endblock %}
 
 {% block hero %}
-  {% include "partials/hero_banner.html" with hero_crumb="المستقلون" hero_badge="خدمات تبدأ من 4$ — بدون أي عمولات" hero_title="مستقلون مهرة لتنفيذ أي مشروع" hero_sub="تصفّح ملفات المستقلين، تابع أعمالهم وتقييماتهم وتواصل معهم مباشرة — اطلب خدمتك بسعر يبدأ من 4$ فقط وبدون أي عمولات على المنصة." %}
+  {% include "partials/hero_banner.html" with hero_crumb="المستقلون" hero_class="freelancers-hero" hero_badge=freelancers_badge hero_badge_inline=True hero_title="مستقلون مهرة لتنفيذ أي مشروع" hero_sub="تصفّح ملفات المستقلين، تابع أعمالهم وتقييماتهم وتواصل معهم مباشرة — اطلب خدمتك بسعر يبدأ من 4$ فقط وبدون أي عمولات على المنصة." %}
 {% endblock %}
 {% block listing_tools %}
   {% if can_reorder_freelancers %}
@@ -20,13 +20,7 @@
       <p class="course-reorder-status" id="freelancerReorderStatus" aria-live="polite"></p>
     </div>
   {% endif %}
-  <div class="freelancers-search-wrap">
-    <label class="freelancers-search" for="freelancersSearch">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
-      <input id="freelancersSearch" type="search" data-i18n-ph="freelancersSearchPlaceholder" autocomplete="off">
-    </label>
-    <p class="freelancers-result-count" id="freelancersResultCount" aria-live="polite"></p>
-  </div>
+  {% include "partials/listing_search.html" with listing_search_id="freelancers" %}
 {% endblock %}
 {% block grid_id %}allUsersGrid{% endblock %}
 {% block grid_label %}قائمة المستقلين{% endblock %}
@@ -36,9 +30,13 @@
   </div>
 {% endblock %}
 
-{% block data_json %}{{ profiles_json|json_script:"users-data" }}{% endblock %}
+{% block data_json %}
+  {{ profiles_json|json_script:"users-data" }}
+  {{ training_categories_json|json_script:"training-categories-data" }}
+{% endblock %}
 
 {% block scripts %}
   {{ block.super }}
   <script defer src="{% static_v 'js/all-users.js' %}"></script>
+  <script defer src="{% static_v 'js/listing-search.js' %}"></script>
 {% endblock %}

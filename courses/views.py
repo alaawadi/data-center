@@ -4,6 +4,7 @@ import binascii
 import json
 import random
 import re
+import unicodedata
 import uuid
 from datetime import date, timedelta
 from mimetypes import guess_extension
@@ -27,13 +28,19 @@ from django.views.generic import TemplateView
 
 from projects.models import Project, ProjectFile, ProjectImage, ProjectStatus
 from users.models import User, UserRole
+from users.security import client_ip, rate_limited
 
 from .models import (
     Course,
     CourseCertificate,
+    CourseCurrency,
+    InPersonCourseCohort,
     CourseProgress,
+    CourseRegistrationRequest,
+    CourseRegistrationRequestStatus,
     CourseSection,
     CourseStatus,
+    CourseType,
     CourseVersion,
     Lesson,
     LessonType,
@@ -46,7 +53,10 @@ from .models import (
     StudentPointTransaction,
     StudentReferral,
     StudentReferralLink,
+    TrainingCategory,
     WorkshopCertificate,
+    close_active_inperson_cohort,
+    start_next_inperson_cohort,
 )
 
 _PREFETCH = ('sections__lessons',)
@@ -96,9 +106,21 @@ def published_courses_payload():
     """قائمة الدورات المنشورة بصيغة الواجهة (تُحقن كـ JSON في الصفحات)."""
     return [
         course.to_public_dict(include_syllabus=False, include_content=False)
-        for course in _published_courses(include_syllabus=False).order_by(
+        for course in _published_courses(include_syllabus=False).filter(
+            course_type=CourseType.ONLINE
+        ).order_by(
             F('display_order').asc(nulls_last=True), '-created_at'
         )
+    ]
+
+
+def published_inperson_courses_payload():
+    """الدورات الوجاهية المنشورة المعروضة في الصفحة الرئيسية."""
+    return [
+        course.to_public_dict(include_syllabus=False, include_content=False)
+        for course in _published_courses(include_syllabus=False).filter(
+            course_type=CourseType.IN_PERSON
+        ).order_by(F('display_order').asc(nulls_last=True), '-created_at')
     ]
 
 
@@ -153,13 +175,20 @@ class CourseListView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        queryset = _published_courses(include_syllabus=False).order_by(
+        queryset = _published_courses(include_syllabus=False).filter(
+            course_type=CourseType.ONLINE
+        ).order_by(
             F('display_order').asc(nulls_last=True), '-created_at'
+        )
+        context['training_categories_json'] = list(
+            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
         )
         context['courses_json'] = [
             course.to_public_dict(include_syllabus=False, include_content=False)
             for course in queryset
         ]
+        context['online_courses_count'] = len(context['courses_json'])
+        context['online_courses_badge'] = f"{context['online_courses_count']}+ دورة أونلاين"
         user = self.request.user
         context['can_reorder_courses'] = bool(
             user.is_authenticated and (user.is_staff or user.is_admin_role)
@@ -188,7 +217,10 @@ def course_reorder(request):
 
     with transaction.atomic():
         courses = list(
-            Course.objects.select_for_update().filter(status=CourseStatus.PUBLISHED)
+            Course.objects.select_for_update().filter(
+                status=CourseStatus.PUBLISHED,
+                course_type=CourseType.ONLINE,
+            )
         )
         courses_by_slug = {course.slug: course for course in courses}
         if set(order) != set(courses_by_slug):
@@ -199,6 +231,89 @@ def course_reorder(request):
         Course.objects.bulk_update(courses, ['display_order'])
 
     return JsonResponse({'ok': True})
+
+
+@require_POST
+def course_registration_request(request, pk):
+    ip_address = client_ip(request)
+    if ip_address and rate_limited(f'course-registration:{ip_address}', 10, 3600):
+        return JsonResponse({'ok': False, 'error': 'rate_limited'}, status=429)
+
+    course = _find_course(
+        pk,
+        _published_courses(include_syllabus=False).filter(
+            course_type=CourseType.IN_PERSON
+        ),
+    )
+    if course is None:
+        return JsonResponse({'ok': False, 'error': 'course_not_found'}, status=404)
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'invalid_json'}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'invalid_data'}, status=400)
+
+    full_name = ' '.join(str(payload.get('fullName') or '').split())
+    name_parts = full_name.split()
+    if (
+        not 3 <= len(name_parts) <= 6
+        or any(
+            not all(
+                char.isalpha() or unicodedata.category(char).startswith('M')
+                for char in part
+            )
+            for part in name_parts
+        )
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_full_name'}, status=400)
+
+    phone = str(payload.get('phone') or '').strip()
+    if not re.fullmatch(r'\+[0-9]{12}', phone):
+        return JsonResponse({'ok': False, 'error': 'invalid_phone'}, status=400)
+
+    address = str(payload.get('address') or '').strip()
+    specialty = str(payload.get('specialty') or '').strip()
+    student_status = str(payload.get('studentStatus') or '').strip()
+    if not address or len(address) > 255:
+        return JsonResponse({'ok': False, 'error': 'invalid_address'}, status=400)
+    if not specialty or len(specialty) > 150:
+        return JsonResponse({'ok': False, 'error': 'invalid_specialty'}, status=400)
+    if student_status not in ('student', 'graduate'):
+        return JsonResponse({'ok': False, 'error': 'invalid_student_status'}, status=400)
+
+    referral_link = None
+    referral_code = request.session.get('student_course_referral_code')
+    if referral_code:
+        try:
+            referral_uuid = uuid.UUID(str(referral_code))
+        except (TypeError, ValueError, AttributeError):
+            referral_uuid = None
+        if referral_uuid is not None:
+            referral_query = StudentReferralLink.objects.filter(
+                code=referral_uuid,
+                course=course,
+                referrer__role=UserRole.STUDENT,
+            )
+            if request.user.is_authenticated:
+                referral_query = referral_query.exclude(referrer=request.user)
+            referral_link = referral_query.first()
+
+    with transaction.atomic():
+        cohort = start_next_inperson_cohort(course)
+        registration_request = CourseRegistrationRequest.objects.create(
+            course=course,
+            cohort=cohort,
+            referral_link=referral_link,
+            full_name=full_name,
+            phone=phone,
+            address=address,
+            specialty=specialty,
+            student_status=student_status,
+            status=CourseRegistrationRequestStatus.NEW,
+        )
+    return JsonResponse({'ok': True, 'id': registration_request.pk}, status=201)
 
 
 @login_required
@@ -251,6 +366,8 @@ class CourseDetailView(TemplateView):
                 referral_uuid = None
             if referral_uuid is not None:
                 referral_query = StudentReferralLink.objects.filter(code=referral_uuid, course=course)
+                if course.course_type == CourseType.IN_PERSON:
+                    referral_query = referral_query.filter(referrer__role=UserRole.STUDENT)
                 if self.request.user.is_authenticated:
                     referral_query = referral_query.exclude(referrer=self.request.user)
                 referral = referral_query.first()
@@ -263,7 +380,13 @@ class CourseDetailView(TemplateView):
             .order_by('-created_at')[:3]
         )
         context['course'] = course
-        context['courses_json'] = [course.to_public_dict()] + [
+        course_data = course.to_public_dict()
+        is_admin = bool(
+            self.request.user.is_authenticated
+            and (self.request.user.is_staff or self.request.user.is_admin_role)
+        )
+        course_data['adminCanManageCourse'] = is_admin
+        context['courses_json'] = [course_data] + [
             related_course.to_public_dict(include_syllabus=False, include_content=False)
             for related_course in related
         ]
@@ -279,15 +402,24 @@ class CourseDetailView(TemplateView):
             and self.request.user.is_trainer
             and course.owner_id == self.request.user.pk
         )
+        context['is_course_admin'] = is_admin
         points = 0
         referral_share_url = ''
-        if self.request.user.is_authenticated and self.request.user.role == UserRole.STUDENT:
+        if self.request.user.is_authenticated:
             points = (
                 StudentPointTransaction.objects.filter(student=self.request.user)
                 .aggregate(total=Sum('points'))['total']
                 or 0
             )
-            if _course_is_paid(course):
+            if (
+                course.course_type == CourseType.IN_PERSON
+                and self.request.user.is_authenticated
+                and self.request.user.role == UserRole.STUDENT
+            ) or (
+                course.course_type != CourseType.IN_PERSON
+                and _course_is_paid(course)
+                and self.request.user.is_authenticated
+            ):
                 referral, _ = StudentReferralLink.objects.get_or_create(
                     referrer=self.request.user,
                     course=course,
@@ -452,7 +584,12 @@ class PlaylistView(TemplateView):
         context['course'] = course
         context['courses_json'] = [course.to_public_dict()]
         context['is_course_trainer'] = bool(
-            self.request.user.is_authenticated and self.request.user.is_trainer
+            self.request.user.is_authenticated
+            and (
+                self.request.user.is_trainer
+                or self.request.user.is_staff
+                or self.request.user.is_admin_role
+            )
         )
         if self.request.user.is_authenticated and not context['is_course_trainer']:
             progress = (
@@ -474,6 +611,47 @@ class PlaylistView(TemplateView):
         return context
 
 
+def course_editor_context(request, key=None):
+    context = {
+        'training_categories_json': list(
+            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+        ),
+    }
+    is_admin = request.user.is_staff or request.user.is_admin_role
+    course = None
+    if key:
+        queryset = Course.objects.all() if is_admin else Course.objects.filter(owner=request.user)
+        course = _find_course(key, queryset)
+        if course is None:
+            raise Http404('الدورة غير موجودة')
+        # محرر الدورة يحتاج نصوص الأسئلة والإجابات الصحيحة.
+        course_data = course.to_public_dict(include_answers=True)
+        course_data['coverStorageName'] = course.cover.name if course.cover else ''
+        context['courses_json'] = [course_data]
+        context['course_title_en'] = course.title_en
+    else:
+        if not request.user.is_trainer and not is_admin:
+            raise PermissionDenied('الإنشاء متاح للمدربين فقط')
+        if request.user.is_trainer and not is_admin and not request.user.can_publish_content:
+            raise PermissionDenied('صلاحية إنشاء الدورات متوقفة.')
+        context['courses_json'] = []
+        context['course_title_en'] = ''
+    context['is_admin_editor'] = is_admin
+    context['can_select_course_type'] = request.user.is_admin_role
+    context['admin_trainers'] = (
+        User.objects.filter(role=UserRole.TRAINER, is_active=True).order_by('full_name', 'pk')
+        if is_admin else []
+    )
+    project_owner = course.owner if course else request.user
+    trainer_projects = (
+        Project.objects.filter(owner=project_owner)
+        .prefetch_related('tags', 'files', 'images')
+        .order_by('-updated_at')
+    ) if project_owner.is_trainer else Project.objects.none()
+    context['trainer_projects_json'] = [project.to_public_dict() for project in trainer_projects]
+    return context
+
+
 class CourseEditorView(LoginRequiredMixin, TemplateView):
     """edit-course.html — إنشاء أو تعديل دورة يملكها المستخدم أو يديرها الأدمن."""
 
@@ -481,36 +659,8 @@ class CourseEditorView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        key = kwargs.get('pk')
-        is_admin = self.request.user.is_staff or self.request.user.is_admin_role
-        if key:
-            queryset = Course.objects.all() if is_admin else Course.objects.filter(owner=self.request.user)
-            course = _find_course(key, queryset)
-            if course is None:
-                raise Http404('الدورة غير موجودة')
-            # محرر الدورة يحتاج نصوص الأسئلة والإجابات الصحيحة.
-            course_data = course.to_public_dict(include_answers=True)
-            course_data['coverStorageName'] = course.cover.name if course.cover else ''
-            context['courses_json'] = [course_data]
-            context['course_title_en'] = course.title_en
-        else:
-            if not self.request.user.is_trainer and not is_admin:
-                raise PermissionDenied('الإنشاء متاح للمدربين فقط')
-            context['courses_json'] = []
-            context['course_title_en'] = ''
-        context['is_admin_editor'] = is_admin
-        context['admin_trainers'] = (
-            User.objects.filter(role=UserRole.TRAINER, is_active=True).order_by('full_name', 'pk')
-            if is_admin else []
-        )
-        # مشاريع المدرب لاختيار أحدها عند ربط درس «مشروع»
-        project_owner = course.owner if key else self.request.user
-        trainer_projects = (
-            Project.objects.filter(owner=project_owner)
-            .prefetch_related('tags', 'files', 'images')
-            .order_by('-updated_at')
-        ) if project_owner.is_trainer else Project.objects.none()
-        context['trainer_projects_json'] = [p.to_public_dict() for p in trainer_projects]
+        context.update(course_editor_context(self.request, kwargs.get('pk')))
+        context['editor_base_template'] = 'editor_base.html'
         return context
 
 
@@ -614,6 +764,11 @@ def course_discard_changes(request):
         'summary': str(snapshot.get('summary') or snapshot.get('description') or '').strip()[:320],
         'content': str(snapshot.get('content') or ''),
         'price': _normalize_course_price(snapshot.get('price')),
+        'currency': (
+            snapshot.get('currency')
+            if snapshot.get('currency') in CourseCurrency.values
+            else CourseCurrency.ILS
+        ),
         'duration': duration,
         'duration_en': duration_en,
         'period': _format_course_period(snapshot.get('period')),
@@ -975,7 +1130,7 @@ def _format_course_period(value):
 
 
 def _normalize_course_price(value):
-    raw = str(value or '').strip().replace('₪', '').replace(',', '.')
+    raw = str(value or '').strip().replace('₪', '').replace('$', '').replace(',', '.')
     normalized = raw.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
     return normalized[:40]
 
@@ -1041,12 +1196,46 @@ def course_save(request):
             return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
 
     status = CourseStatus.PUBLISHED if payload.get('status') == CourseStatus.PUBLISHED else CourseStatus.DRAFT
-    title = str(payload.get('title') or '').strip()[:200]
+    if (
+        request.user.is_trainer
+        and not is_admin
+        and not request.user.can_publish_content
+        and (
+            course is None
+            or (
+                status == CourseStatus.PUBLISHED
+                and course.status != CourseStatus.PUBLISHED
+            )
+        )
+    ):
+        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
+    raw_title = payload.get('title')
+    title = str(
+        raw_title if raw_title is not None else (course.title if course else '')
+    ).strip()[:200]
+    if not title and status != CourseStatus.PUBLISHED:
+        return JsonResponse({'ok': False, 'error': 'title_required'}, status=400)
     title_en = str(payload.get('titleEnglish', payload.get('title_en', course.title_en if course else '')) or '').strip()[:200]
     summary = str(payload.get('summary') or payload.get('description') or '').strip()[:320]
     content = str(payload.get('content') or '').strip()
-    category = str(payload.get('category') or '').strip()[:120]
+    raw_category = payload.get('category')
+    category = (
+        str(raw_category or '').strip()[:120]
+        if raw_category is not None
+        else (course.category if course else '')
+    )
+    category_is_valid = bool(
+        category and TrainingCategory.objects.filter(name=category).exists()
+    )
+    if raw_category is not None and (
+        (category and not category_is_valid)
+        or (not category and status != CourseStatus.PUBLISHED)
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_category'}, status=400)
     price = _normalize_course_price(payload.get('price'))
+    currency = payload.get('currency', CourseCurrency.ILS)
+    if currency not in CourseCurrency.values:
+        return JsonResponse({'ok': False, 'error': 'invalid_currency'}, status=400)
     price_match = re.fullmatch(r'\d+(?:\.\d{1,2})?', price)
     duration = str(payload.get('duration') or '').strip()
     normalized_duration = duration.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
@@ -1089,7 +1278,7 @@ def course_save(request):
             missing.append('summary')
         if len(strip_tags(content).split()) < 50:
             missing.append('content')
-        if not category:
+        if not category_is_valid:
             missing.append('category')
         if not price_match:
             missing.append('price')
@@ -1136,12 +1325,13 @@ def course_save(request):
     )
     course_fields = {
         'owner': course.owner,
-        'title': title or 'دورة بدون عنوان',
+        'title': title,
         'title_en': title_en,
         'category': category,
         'summary': summary,
         'content': content,
         'price': price,
+        'currency': currency,
         'duration': duration_ar,
         'duration_en': duration_en,
         'period': _format_course_period(payload.get('period')),
@@ -1149,6 +1339,15 @@ def course_save(request):
         'verify_url': str(payload.get('verifyUrl') or payload.get('verify_url') or '').strip()[:200],
         'status': status,
     }
+    if request.user.is_admin_role:
+        raw_course_type = payload.get(
+            'courseType', course.course_type if course is not None else CourseType.ONLINE
+        )
+        if raw_course_type not in CourseType.values:
+            return JsonResponse({'ok': False, 'error': 'invalid_course_type'}, status=400)
+    else:
+        raw_course_type = course.course_type if course is not None else CourseType.ONLINE
+    course_fields['course_type'] = raw_course_type
     if isinstance(raw_skills, list):
         course_fields['skills'] = skills
 
@@ -1174,6 +1373,17 @@ def course_save(request):
 
     if 'syllabus' in payload:
         _sync_syllabus(course, payload.get('syllabus'))
+
+    if course.course_type == CourseType.IN_PERSON:
+        if created:
+            start_next_inperson_cohort(course)
+        elif 'status' in changed_course_fields or 'course_type' in changed_course_fields:
+            if course.status == CourseStatus.PUBLISHED:
+                start_next_inperson_cohort(course)
+            else:
+                close_active_inperson_cohort(course)
+    elif not created and 'course_type' in changed_course_fields:
+        close_active_inperson_cohort(course)
 
     version = None
     if status == CourseStatus.PUBLISHED and payload.get('recordVersion'):
@@ -1225,8 +1435,8 @@ def course_delete(request):
 @login_required
 @require_POST
 def manual_certificate_submit(request):
-    """Save a student-submitted certificate as pending admin review."""
-    if request.user.role != UserRole.STUDENT:
+    """Save a user-submitted certificate as pending admin review."""
+    if request.user.role not in (UserRole.STUDENT, UserRole.TRAINER):
         return JsonResponse({'ok': False, 'error': 'student_only'}, status=403)
 
     title = (request.POST.get('title') or '').strip()

@@ -22,8 +22,11 @@ from .models import (
     Course,
     CourseCertificate,
     CourseProgress,
+    CourseRegistrationRequest,
+    CourseRegistrationRequestStatus,
     CourseSection,
     CourseStatus,
+    CourseType,
     CourseVersion,
     InPersonWorkshop,
     Lesson,
@@ -37,6 +40,7 @@ from .models import (
     StudentPointTransaction,
     StudentReferral,
     StudentReferralLink,
+    TrainingCategory,
     WorkshopAttendance,
     WorkshopCertificate,
 )
@@ -48,6 +52,7 @@ def _payload(**kwargs):
         'title': 'دورة بايثون للمبتدئين',
         'titleEnglish': 'Python for Beginners',
         'summary': 'ملخص الدورة',
+        'currency': 'ILS',
         'content': '<p>' + ' '.join(['وصف تفصيلي'] * 50) + '</p>',
         'category': 'برمجة',
         'price': '₪150',
@@ -82,6 +87,8 @@ def _payload(**kwargs):
 
 class CoursePermissionsTests(TestCase):
     def setUp(self):
+        TrainingCategory.objects.create(name='برمجة')
+        TrainingCategory.objects.create(name='تصميم')
         self.media_root = tempfile.mkdtemp()
         self.media_override = override_settings(MEDIA_ROOT=self.media_root)
         self.media_override.enable()
@@ -123,6 +130,51 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(res.json()['error'], 'not_trainer')
         self.assertEqual(Course.objects.count(), 0)
 
+    def test_trainer_without_content_permission_cannot_create_or_publish_courses(self):
+        self.trainer.can_publish_content = False
+        self.trainer.save(update_fields=['can_publish_content'])
+        self.client.force_login(self.trainer)
+
+        create_response = self.client.post(
+            self.save_url,
+            data=json.dumps(_payload()),
+            content_type='application/json',
+        )
+        self.assertEqual(create_response.status_code, 403)
+        self.assertEqual(create_response.json()['error'], 'content_creation_disabled')
+        self.assertFalse(Course.objects.filter(owner=self.trainer).exists())
+        self.assertEqual(self.client.get(reverse('courses:create')).status_code, 403)
+
+        draft = Course.objects.create(owner=self.trainer, title='مسودة قائمة')
+        publish_response = self.client.post(
+            self.save_url,
+            data=json.dumps(_payload(id=draft.slug)),
+            content_type='application/json',
+        )
+        self.assertEqual(publish_response.status_code, 403)
+        self.assertEqual(publish_response.json()['error'], 'content_creation_disabled')
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, CourseStatus.DRAFT)
+
+    def test_course_save_rejects_categories_not_in_training_fields(self):
+        for category in ('', 'فئة غير مسجلة'):
+            with self.subTest(category=category):
+                response = self._post(_payload(category=category, status='draft'), self.trainer)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'invalid_category')
+        self.assertFalse(Course.objects.exists())
+
+    def test_course_save_rejects_draft_without_title(self):
+        for title in ('', '   '):
+            with self.subTest(title=title):
+                response = self._post(
+                    _payload(title=title, status='draft'),
+                    self.trainer,
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'title_required')
+        self.assertFalse(Course.objects.exists())
+
     def test_trainer_creates_course_with_syllabus(self):
         res = self._post(_payload(trainerId=str(self.other_trainer.pk)), self.trainer)
         self.assertEqual(res.status_code, 200)
@@ -149,6 +201,54 @@ class CoursePermissionsTests(TestCase):
         self.assertTrue(lesson.is_free)
         self.assertEqual(lesson.video_url, 'https://example.com/v1.mp4')
 
+    def test_trainer_course_type_is_always_online_on_creation(self):
+        response = self._post(
+            _payload(status='draft', courseType=CourseType.IN_PERSON),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.course_type, CourseType.ONLINE)
+        self.assertEqual(course.to_public_dict()['courseType'], CourseType.ONLINE)
+
+    def test_course_currency_is_saved_and_formatted(self):
+        response = self._post(
+            _payload(status='draft', currency='USD'),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.currency, 'USD')
+        self.assertEqual(course.to_public_dict()['price'], '$150')
+
+    def test_course_currency_rejects_unsupported_values(self):
+        response = self._post(
+            _payload(status='draft', currency='EUR'),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_currency')
+        self.assertFalse(Course.objects.exists())
+
+    def test_trainer_cannot_change_existing_course_type(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية',
+            course_type=CourseType.IN_PERSON,
+        )
+
+        response = self._post(
+            _payload(id=course.slug, status='draft', courseType=CourseType.ONLINE),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.course_type, CourseType.IN_PERSON)
+
     def test_admin_can_create_course_and_assign_it_to_a_trainer(self):
         res = self._post(_payload(trainerId=str(self.other_trainer.pk)), self.admin)
 
@@ -159,6 +259,16 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(course.title_en, 'Python for Beginners')
         self.assertEqual(course.duration, '20 ساعة')
         self.assertEqual(course.duration_en, '20 hours')
+
+    def test_admin_can_choose_inperson_course_type(self):
+        response = self._post(
+            _payload(trainerId=str(self.other_trainer.pk), courseType=CourseType.IN_PERSON),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.course_type, CourseType.IN_PERSON)
 
     def test_admin_can_update_course_and_reassign_it_to_another_trainer(self):
         course = Course.objects.create(owner=self.trainer, title='دورة قائمة')
@@ -792,12 +902,19 @@ class CoursePageTests(TestCase):
     def test_list_page_injects_published_courses(self):
         res = self.client.get(reverse('courses:list'))
         self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'id="page-loading-bootstrap"')
+        self.assertContains(res, 'id="headerThemeBtn"')
         self.assertContains(res, 'id="courses-data"')
         self.assertContains(res, 'id="coursesSearch"')
-        self.assertContains(res, 'id="coursesCategoryFilter"')
+        self.assertContains(res, 'id="coursesCategoryTags"')
+        self.assertContains(res, 'id="coursesCategoryReset"')
+        self.assertNotContains(res, 'id="coursesCategoryFilter"')
         self.assertContains(res, 'id="coursesMore"')
         self.assertFalse(res.context['can_reorder_courses'])
         self.assertNotContains(res, 'id="courseReorderTools"')
+        self.assertEqual(res.context['online_courses_count'], len(res.context['courses_json']))
+        self.assertContains(res, '1+ دورة أونلاين')
+        self.assertContains(res, 'class="cd-title-badge-row"')
         titles = [c['title'] for c in res.context['courses_json']]
         self.assertIn('دورة منشورة', titles)
         self.assertNotIn('دورة مسودة', titles)
@@ -932,6 +1049,7 @@ class CoursePageTests(TestCase):
         self.assertEqual(public_detail.status_code, 200)
         payload = public_detail.context['courses_json'][0]
         self.assertTrue(payload['comingSoon'])
+        self.assertFalse(payload['adminCanManageCourse'])
         self.assertContains(public_detail, 'courses-data')
         self.assertEqual(self.client.get(playlist_url).status_code, 404)
 
@@ -940,11 +1058,16 @@ class CoursePageTests(TestCase):
         self.assertEqual(self.client.get(playlist_url).status_code, 404)
 
         self.client.force_login(self.trainer)
-        self.assertEqual(self.client.get(detail_url).status_code, 200)
+        trainer_detail = self.client.get(detail_url)
+        self.assertEqual(trainer_detail.status_code, 200)
+        self.assertTrue(trainer_detail.context['is_course_trainer_owner'])
         self.assertEqual(self.client.get(playlist_url).status_code, 200)
 
         self.client.force_login(self.admin)
-        self.assertEqual(self.client.get(detail_url).status_code, 200)
+        admin_detail = self.client.get(detail_url)
+        self.assertEqual(admin_detail.status_code, 200)
+        self.assertTrue(admin_detail.context['courses_json'][0]['adminCanManageCourse'])
+        self.assertTrue(admin_detail.context['is_course_admin'])
         self.assertEqual(self.client.get(playlist_url).status_code, 200)
 
     def test_coming_soon_paid_course_cannot_be_redeemed(self):
@@ -976,7 +1099,10 @@ class CoursePageTests(TestCase):
 
     def test_detail_page_payload_shape(self):
         self.published.content = '<p>وصف الدورة الكامل</p>'
-        self.published.save(update_fields=['content'])
+        self.published.summary = 'نبذة قصيرة عن الدورة'
+        self.published.credential_id = 'COURSE-2026'
+        self.published.verify_url = 'https://example.com/verify/COURSE-2026'
+        self.published.save(update_fields=['content', 'summary', 'credential_id', 'verify_url'])
         profile, _ = Profile.objects.get_or_create(user=self.trainer)
         profile.avatar.save('trainer.png', ContentFile(b'test-avatar'), save=True)
         try:
@@ -989,11 +1115,202 @@ class CoursePageTests(TestCase):
             self.assertEqual(payload['owner']['handle'], self.trainer.handle)
             self.assertEqual(payload['owner']['avatar'], profile.avatar.url)
             self.assertEqual(payload['content'], self.published.content)
+            self.assertEqual(payload['summary'], self.published.summary)
+            self.assertEqual(payload['credentialId'], self.published.credential_id)
+            self.assertEqual(payload['verifyUrl'], self.published.verify_url)
             self.assertEqual(payload['syllabus'][0]['lessons'][0]['duration'], '08:20')
             self.assertFalse(res.context['is_course_enrolled'])
             self.assertContains(res, 'id="course-enrollment-data"')
         finally:
             profile.avatar.delete(save=False)
+
+    def test_inperson_detail_page_payload_identifies_course_type_and_learning_skills(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.skills = ['التصوير', 'الإضاءة']
+        self.published.save(update_fields=['course_type', 'skills'])
+
+        response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.context['courses_json'][0]
+        self.assertEqual(payload['courseType'], CourseType.IN_PERSON)
+        self.assertEqual(payload['skills'], ['التصوير', 'الإضاءة'])
+
+    def test_inperson_share_link_is_created_only_for_logged_in_students(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        detail_url = reverse('courses:detail', kwargs={'pk': self.published.slug})
+
+        public_response = self.client.get(detail_url)
+        self.assertEqual(public_response.status_code, 200)
+        self.assertEqual(public_response.context['course_rewards_json']['shareUrl'], '')
+        self.assertFalse(StudentReferralLink.objects.filter(course=self.published).exists())
+
+        self.client.force_login(self.trainer)
+        trainer_response = self.client.get(detail_url)
+        self.assertEqual(trainer_response.context['course_rewards_json']['shareUrl'], '')
+
+        self.client.force_login(self.student)
+        student_response = self.client.get(detail_url)
+        share_url = student_response.context['course_rewards_json']['shareUrl']
+        self.assertIn('?ref=', share_url)
+        referral_link = StudentReferralLink.objects.get(
+            referrer=self.student,
+            course=self.published,
+        )
+        self.assertIn(str(referral_link.code), share_url)
+
+    def test_inperson_registration_request_tracks_referring_student(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        referral_link = StudentReferralLink.objects.create(
+            referrer=self.student,
+            course=self.published,
+        )
+        detail_url = reverse('courses:detail', kwargs={'pk': self.published.slug})
+        registration_url = reverse(
+            'courses:registration-request',
+            kwargs={'pk': self.published.slug},
+        )
+
+        referral_visit = self.client.get(f'{detail_url}?ref={referral_link.code}')
+        self.assertEqual(referral_visit.status_code, 200)
+        response = self.client.post(
+            registration_url,
+            data=json.dumps({
+                'fullName': 'محمد أحمد علي',
+                'phone': '+970123456789',
+                'address': 'غزة - الرمال',
+                'specialty': 'علوم الحاسوب',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
+        self.assertEqual(registration.referral_link, referral_link)
+        self.assertEqual(registration.referral_link.referrer, self.student)
+
+    def test_inperson_registration_request_ignores_nonstudent_referral_links(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        referral_link = StudentReferralLink.objects.create(
+            referrer=self.trainer,
+            course=self.published,
+        )
+        self.client.get(
+            f"{reverse('courses:detail', kwargs={'pk': self.published.slug})}?ref={referral_link.code}"
+        )
+
+        response = self.client.post(
+            reverse('courses:registration-request', kwargs={'pk': self.published.slug}),
+            data=json.dumps({
+                'fullName': 'محمد أحمد علي',
+                'phone': '+970123456789',
+                'address': 'غزة - الرمال',
+                'specialty': 'علوم الحاسوب',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
+        self.assertIsNone(registration.referral_link)
+
+    def test_inperson_registration_request_saves_names_with_three_to_six_words(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+
+        url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
+        payload = {
+            'fullName': 'محمد أحمد علي',
+            'phone': '+970123456789',
+            'address': 'غزة - الرمال',
+            'specialty': 'علوم الحاسوب',
+            'studentStatus': 'student',
+        }
+        for full_name in ('محمد أحمد علي', 'محمد أحمد علي حسن يوسف محمود'):
+            with self.subTest(full_name=full_name):
+                response = self.client.post(
+                    url,
+                    data=json.dumps({**payload, 'fullName': full_name}),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 201, response.content)
+                registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
+                self.assertEqual(registration.full_name, full_name)
+                self.assertEqual(registration.course, self.published)
+                self.assertEqual(registration.phone, '+970123456789')
+                self.assertEqual(registration.address, 'غزة - الرمال')
+                self.assertEqual(registration.specialty, 'علوم الحاسوب')
+                self.assertEqual(registration.student_status, 'student')
+                self.assertEqual(registration.status, CourseRegistrationRequestStatus.NEW)
+
+    def test_inperson_registration_request_rejects_names_outside_three_to_six_words(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
+        payload = {
+            'fullName': '',
+            'phone': '+970123456789',
+            'address': 'غزة - الرمال',
+            'specialty': 'علوم الحاسوب',
+            'studentStatus': 'student',
+        }
+
+        for full_name in ('محمد أحمد', 'محمد أحمد علي حسن يوسف محمود إبراهيم'):
+            with self.subTest(full_name=full_name):
+                response = self.client.post(
+                    url,
+                    data=json.dumps({**payload, 'fullName': full_name}),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'invalid_full_name')
+
+        self.assertEqual(CourseRegistrationRequest.objects.count(), 0)
+
+    def test_inperson_registration_request_rejects_invalid_data_and_online_courses(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
+        valid_payload = {
+            'fullName': 'محمد أحمد علي',
+            'phone': '+970123456789',
+            'address': 'غزة',
+            'specialty': 'علوم الحاسوب',
+            'studentStatus': 'student',
+        }
+
+        for field, value, error in (
+            ('fullName', 'محمد أحمد', 'invalid_full_name'),
+            ('phone', '970123456789', 'invalid_phone'),
+            ('studentStatus', 'other', 'invalid_student_status'),
+        ):
+            with self.subTest(field=field):
+                payload = {**valid_payload, field: value}
+                response = self.client.post(
+                    url,
+                    data=json.dumps(payload),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], error)
+        self.assertEqual(CourseRegistrationRequest.objects.count(), 0)
+
+        self.published.course_type = CourseType.ONLINE
+        self.published.save(update_fields=['course_type'])
+        response = self.client.post(
+            url,
+            data=json.dumps(valid_payload),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(CourseRegistrationRequest.objects.count(), 0)
 
     def test_detail_page_marks_student_enrolled_only_with_course_progress(self):
         url = reverse('courses:detail', kwargs={'pk': self.published.slug})
@@ -1066,11 +1383,30 @@ class CoursePageTests(TestCase):
         self.assertEqual(enrolled_response.status_code, 200)
 
     def test_editor_create_requires_trainer(self):
+        category = TrainingCategory.objects.create(name='تحليل البيانات')
         self.client.force_login(self.student)
         self.assertEqual(self.client.get(reverse('courses:create')).status_code, 403)
         self.client.force_login(self.trainer)
         create_response = self.client.get(reverse('courses:create'))
         self.assertEqual(create_response.status_code, 200)
+        self.assertEqual(create_response.context['training_categories_json'], [category.name])
+        self.assertContains(create_response, 'id="edCurrency"')
+        self.assertContains(create_response, '<option value="ILS">₪ شيكل</option>')
+        self.assertContains(create_response, '<option value="USD">$ دولار</option>')
+        self.assertContains(create_response, 'id="edPrice" type="number" min="0" step="1" dir="ltr"')
+        self.assertContains(create_response, 'id="edDuration" type="number" min="0" step="1" dir="ltr"')
+        self.assertContains(create_response, 'id="edPeriod" type="number" min="1" step="1" dir="ltr"')
+        self.assertNotContains(create_response, 'placeholder="180"')
+        self.assertNotContains(create_response, 'placeholder="36"')
+        self.assertNotContains(create_response, 'placeholder="12"')
+        self.assertContains(create_response, 'id="edCategorySearch"')
+        self.assertNotContains(create_response, 'id="edCourseType"')
+        self.assertContains(create_response, 'id="edCategoryOptions"')
+        self.assertContains(create_response, 'id="edCategoryValidation"')
+        self.assertNotContains(create_response, 'id="edGithub"')
+        editor_html = create_response.content.decode()
+        self.assertLess(editor_html.index('id="edCourseMetaBox"'), editor_html.index('id="edCategorySearch"'))
+        self.assertLess(editor_html.index('id="edCategorySearch"'), editor_html.index('id="edPrice"'))
         self.assertNotContains(create_response, 'id="edRole"')
         self.assertContains(create_response, 'id="edTitleEnglish"')
         self.assertContains(create_response, 'id="edDuration"')
@@ -1078,17 +1414,18 @@ class CoursePageTests(TestCase):
         self.assertNotContains(create_response, 'id="edCredId"')
         self.assertNotContains(create_response, 'id="edVerifyUrl"')
         self.assertNotContains(create_response, 'أدخل المدة بالساعات')
-        editor_html = create_response.content.decode()
         self.assertNotIn("'edit-course': 'editor'", editor_html)
         self.assertIn("body.getAttribute('data-page') === 'edit-course'", editor_html)
         self.assertIn("root.classList.remove(transitionClass)", editor_html)
         self.assertLess(editor_html.index('id="edTitle"'), editor_html.index('id="edTitleEnglish"'))
         self.assertLess(editor_html.index('id="edTitleEnglish"'), editor_html.index('id="edCoverHost"'))
         self.assertIn('class="title-input" id="edTitleEnglish"', editor_html)
-        self.assertIn('id="edContentPanel" hidden', editor_html)
-        self.assertIn('id="edContentToggle"', editor_html)
+        self.assertIn('id="edContentPanel"', editor_html)
+        self.assertNotIn('id="edContentPanel" hidden', editor_html)
+        self.assertNotIn('id="edContentToggle"', editor_html)
         self.assertIn('id="edSyllabusPanel" hidden', editor_html)
         self.assertIn('id="edSyllabusToggle"', editor_html)
+        self.assertLess(editor_html.index('id="edCourseMetaBox"'), editor_html.index('id="lblSummary"'))
         self.assertNotIn('data-k="free"', editor_html)
         self.assertNotIn('lessonFreeLabel', editor_html)
         self.assertNotIn('class="slug-row"', editor_html)
@@ -1122,6 +1459,7 @@ class CoursePageTests(TestCase):
         self.assertEqual(res.context['courses_json'][0]['duration'], '7 ساعة')
         self.assertEqual(res.context['courses_json'][0]['durationEnglish'], '7 hours')
         self.assertContains(res, 'id="edTitleEnglish"')
+        self.assertNotContains(res, 'id="edCourseType"')
         self.assertContains(res, 'value="Saved English Course Name"')
         editor_html = res.content.decode()
         self.assertLess(editor_html.index('id="edTitle"'), editor_html.index('id="edTitleEnglish"'))
@@ -1142,8 +1480,9 @@ class CoursePageTests(TestCase):
         self.assertNotContains(res, 'id="edSocialPreview"')
         self.assertIn('editor-checklist-mobile', editor_html)
         self.assertLess(editor_html.index('editor-checklist-mobile'), editor_html.index('id="edSyllabusBox"'))
-        self.assertIn('id="edContentPanel" hidden', editor_html)
-        self.assertIn('id="edContentToggle"', editor_html)
+        self.assertIn('id="edContentPanel"', editor_html)
+        self.assertNotIn('id="edContentPanel" hidden', editor_html)
+        self.assertNotIn('id="edContentToggle"', editor_html)
         self.assertIn('id="edSyllabusPanel" hidden', editor_html)
         self.assertIn('id="edSyllabusToggle"', editor_html)
         self.assertNotIn('data-k="free"', editor_html)
@@ -1160,6 +1499,10 @@ class CoursePageTests(TestCase):
         create_response = self.client.get(reverse('courses:create'))
         self.assertEqual(create_response.status_code, 200)
         self.assertTrue(create_response.context['is_admin_editor'])
+        self.assertTrue(create_response.context['can_select_course_type'])
+        self.assertContains(create_response, 'id="edCourseType"')
+        self.assertContains(create_response, 'name="courseTypeChoice" value="online" checked')
+        self.assertContains(create_response, 'name="courseTypeChoice" value="in_person"')
         self.assertContains(create_response, '<select class="select" id="edRole" required>')
         self.assertNotContains(create_response, 'id="edTrainer"')
         self.assertCountEqual(
@@ -1172,6 +1515,7 @@ class CoursePageTests(TestCase):
             reverse('courses:edit', kwargs={'pk': self.published.slug})
         )
         self.assertEqual(edit_response.status_code, 200)
+        self.assertContains(edit_response, 'id="edCourseType"')
         self.assertEqual(edit_response.context['courses_json'][0]['id'], self.published.slug)
         self.assertContains(edit_response, '<select class="select" id="edRole" required>')
         self.assertContains(
@@ -2026,7 +2370,6 @@ class PlaylistVideoPlayerTests(TestCase):
         video = next(lesson for lesson in lessons if lesson['id'] == self.video_lesson.pk)
         self.assertEqual(video['videoUrl'], 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
 
-
 class ManualCertificateReviewTests(TestCase):
     _PNG = (
         b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
@@ -2138,7 +2481,7 @@ class ManualCertificateReviewTests(TestCase):
         )
         self.assertEqual(student_data['certificates'], 1)
 
-    def test_manual_certificate_submission_is_student_only_and_requires_image(self):
+    def test_manual_certificate_submission_allows_trainers_and_requires_image(self):
         self.client.force_login(self.viewer)
         missing_image = dict(self.payload)
         missing_image.pop('image_data')
@@ -2152,8 +2495,15 @@ class ManualCertificateReviewTests(TestCase):
         )
         self.client.force_login(trainer)
         response = self.client.post(self.submit_url, self.payload)
-        self.assertEqual(response.status_code, 403)
-        self.assertFalse(ManualCertificate.objects.exists())
+        self.assertEqual(response.status_code, 201)
+        certificate = ManualCertificate.objects.get(student=trainer)
+        self.assertEqual(certificate.status, ManualCertificateStatus.PENDING)
+        self.assertEqual(response.json()['certificate']['status'], ManualCertificateStatus.PENDING)
+        portfolio = self.client.get(reverse('portfolio:home'))
+        self.assertEqual(
+            portfolio.context['my_certs_json'][0]['status'],
+            ManualCertificateStatus.PENDING,
+        )
 
     def test_manual_certificate_requires_description_of_at_least_150_characters(self):
         self.client.force_login(self.student)
@@ -2308,6 +2658,59 @@ class StudentReferralRewardTests(TestCase):
         )
         self.assertEqual(profile_response.context['profile_json']['referral_points'], 10)
         self.assertEqual(profile_response.context['profile_json']['referral_visits'], 3)
+
+    def test_trainer_can_refer_and_earn_points_but_cannot_redeem_them(self):
+        self.client.force_login(self.trainer)
+        detail = self.client.get(reverse('courses:detail', kwargs={'pk': self.course.slug}))
+        rewards = detail.context['course_rewards_json']
+        self.assertTrue(rewards['shareUrl'])
+        self.assertEqual(rewards['points'], 0)
+        self.assertFalse(rewards['canRedeem'])
+
+        referral_code = parse_qs(urlparse(rewards['shareUrl']).query)['ref'][0]
+        visitor = Client()
+        self.assertEqual(
+            visitor.get(
+                reverse('courses:detail', kwargs={'pk': self.course.slug}),
+                {'ref': referral_code},
+            ).status_code,
+            200,
+        )
+        signup_response = visitor.post(reverse('users:signup'), {
+            'full_name': 'طالب محال للمدرب',
+            'phone': '0591234599',
+            'email': 'referred-student@example.com',
+            'password1': 'Sup3r$ecret1',
+            'password2': 'Sup3r$ecret1',
+        })
+        self.assertEqual(signup_response.status_code, 302)
+        referred_student = User.objects.get(phone='0591234599')
+        CourseProgress.objects.create(student=referred_student, course=self.course)
+
+        reward = StudentPointTransaction.objects.get(
+            student=self.trainer,
+            kind=StudentPointTransaction.Kind.REFERRAL,
+        )
+        self.assertEqual(reward.points, 10)
+        detail_after = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.course.slug})
+        )
+        self.assertEqual(detail_after.context['course_rewards_json']['points'], 10)
+        self.assertFalse(detail_after.context['course_rewards_json']['canRedeem'])
+
+        StudentPointTransaction.objects.create(
+            student=self.trainer,
+            course=self.course,
+            points=90,
+            kind=StudentPointTransaction.Kind.REFERRAL,
+        )
+        redemption = self.client.post(
+            reverse('courses:redeem-points', kwargs={'pk': self.course.slug})
+        )
+        self.assertEqual(redemption.status_code, 403)
+        self.assertFalse(
+            CourseProgress.objects.filter(student=self.trainer, course=self.course).exists()
+        )
 
     def test_enrollment_in_free_course_does_not_award_referral_points(self):
         free_course = Course.objects.create(
@@ -2474,6 +2877,11 @@ class EarnedCertificateDetailTests(TestCase):
         )
 
     def test_course_certificate_detail_includes_specific_certificate_and_bilingual_names(self):
+        self.course.summary = 'ملخص دورة تطوير الويب'
+        self.course.content = '<p>وصف تفصيلي منسق</p>'
+        self.course.credential_id = 'WEB-2026'
+        self.course.verify_url = 'https://example.com/verify/WEB-2026'
+        self.course.save(update_fields=['summary', 'content', 'credential_id', 'verify_url'])
         certificate = CourseCertificate.objects.create(
             student=self.student,
             course=self.course,
@@ -2492,6 +2900,10 @@ class EarnedCertificateDetailTests(TestCase):
         self.assertEqual(certificate_data['titleEnglish'], 'Web Development Course')
         self.assertEqual(certificate_data['durationEnglish'], '20 hours')
         self.assertEqual(certificate_data['instructorEnglish'], 'Jordan Course Trainer')
+        self.assertEqual(certificate_data['summary'], 'ملخص دورة تطوير الويب')
+        self.assertEqual(certificate_data['content'], '<p>وصف تفصيلي منسق</p>')
+        self.assertEqual(certificate_data['credentialId'], 'WEB-2026')
+        self.assertEqual(certificate_data['verifyUrl'], 'https://example.com/verify/WEB-2026')
         self.assertEqual(certificate_data['studentNameArabic'], self.student.full_name_ar)
         self.assertEqual(certificate_data['studentNameEnglish'], self.student.full_name_en)
 

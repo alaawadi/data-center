@@ -38,6 +38,15 @@
     } catch (err) { return []; }
   };
 
+  window.SITE.trainingCategories = function () {
+    var el = document.getElementById('training-categories-data');
+    if (!el) return null;
+    try {
+      var data = JSON.parse(el.textContent);
+      return Array.isArray(data) ? data : [];
+    } catch (err) { return []; }
+  };
+
   /*
    * SITE.param('id') — يقرأ المعامل من query string أولاً،
    * ثم يستنتجه من مسار الصفحة:

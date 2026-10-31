@@ -99,13 +99,18 @@ self.addEventListener('fetch', function (event) {
   if (!url.pathname.startsWith(STATIC_PATH)) return;
   event.respondWith(
     caches.open(CACHE_NAME).then(function (cache) {
-      return cache.match(request, { ignoreSearch: true }).then(function (cached) {
+      return cache.match(request).then(function (cached) {
         if (cached) return cached;
         return fetch(request).then(function (response) {
           if (response.ok && response.type === 'basic') {
             cache.put(request, response.clone());
           }
           return response;
+        }).catch(function (error) {
+          return cache.match(request, { ignoreSearch: true }).then(function (cached) {
+            if (cached) return cached;
+            throw error;
+          });
         });
       });
     })

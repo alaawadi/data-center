@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static_v %}
 
-{% block title %}بورتفوليو — أحمد خالد الحسن{% endblock %}
+{% block title %}{{ user.display_name }} — مركز داتا{% endblock %}
 {% block description %}بورتفوليو احترافي لعرض الشهادات والمشاريع{% endblock %}
 {% block body_attrs %}data-page="home"{% endblock %}
 
@@ -17,6 +17,8 @@
     <nav class="profile-tabs" id="profileTabs" role="tablist" aria-label="أقسام الملف الشخصي"></nav>
     <div id="panels">
       <section class="panel" id="panel-certificates" role="tabpanel"></section>
+      <section class="panel" id="panel-trainer-courses" role="tabpanel"></section>
+      <section class="panel" id="panel-active-courses" role="tabpanel"></section>
       <section class="panel" id="panel-projects" role="tabpanel"></section>
       <section class="panel" id="panel-saved" role="tabpanel"></section>
     </div>

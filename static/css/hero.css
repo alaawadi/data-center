@@ -52,6 +52,19 @@
   margin: 4px 0 10px;
 }
 
+.cd-title-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  direction: rtl;
+}
+
+.cd-title-badge-row .cd-title,
+.cd-title-badge-row .cd-badge {
+  margin: 4px 0 10px;
+}
+
 .cd-sub {
   max-width: 640px;
   margin-bottom: 14px;
@@ -129,4 +142,24 @@
   .cd-hero { min-height: 210px; }
   .cd-hero-actions { gap: 8px; }
   .cd-cta { padding: 10px 18px; font-size: 14px; }
+  .projects-hero .cd-title-badge-row,
+  .freelancers-hero .cd-title-badge-row {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .projects-hero .cd-title-badge-row .cd-title,
+  .freelancers-hero .cd-title-badge-row .cd-title {
+    flex: 1 1 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: clamp(17px, 5vw, 22px);
+  }
+  .projects-hero .cd-title-badge-row .cd-badge,
+  .freelancers-hero .cd-title-badge-row .cd-badge {
+    flex: 0 0 auto;
+    padding: 4px 8px;
+    font-size: clamp(9px, 2.8vw, 11px);
+    white-space: nowrap;
+  }
 }

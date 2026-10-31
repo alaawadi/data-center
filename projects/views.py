@@ -8,7 +8,9 @@ from mimetypes import guess_extension
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
+from django.core.validators import URLValidator
 from django.db import transaction
 from django.db.models import F, Q
 from django.http import FileResponse, Http404, JsonResponse
@@ -18,7 +20,7 @@ from django.utils.html import strip_tags
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import TemplateView
 
-from courses.models import CourseProgress, CourseStatus
+from courses.models import CourseProgress, CourseStatus, TrainingCategory
 from users.models import User, UserRole
 
 from .models import (
@@ -134,7 +136,12 @@ class ProjectListView(TemplateView):
         queryset = _published_projects().filter(owner__role=UserRole.TRAINER).order_by(
             F('display_order').asc(nulls_last=True), '-project_date', '-created_at'
         )
+        context['training_categories_json'] = list(
+            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+        )
         context['projects_json'] = _projects_with_interactions(queryset, self.request.user)
+        context['projects_count'] = len(context['projects_json'])
+        context['projects_badge'] = f"{context['projects_count']}+ مشروع"
         user = self.request.user
         context['can_reorder_projects'] = bool(
             user.is_authenticated and (user.is_staff or user.is_admin_role)
@@ -250,12 +257,58 @@ class ProjectDetailView(TemplateView):
         context['projects_json'] = _projects_with_interactions(
             [project, *related], self.request.user
         )
+        context['projects_json'][0]['adminCanEdit'] = bool(
+            self.request.user.is_authenticated
+            and (self.request.user.is_staff or self.request.user.is_admin_role)
+        )
         if project.visibility == ProjectVisibility.COURSES:
             context['projects_json'][0].update(_course_project_display_counts(project))
         context['projects_json'][0]['canDownloadFiles'] = _can_download_project_files(
             project, self.request.user
         )
         return context
+
+
+def project_editor_context(request, key=None):
+    context = {
+        'training_categories_json': list(
+            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+        )
+    }
+    is_admin = request.user.is_staff or request.user.role == UserRole.ADMIN
+    if (
+        request.user.is_trainer
+        and not is_admin
+        and not request.user.can_publish_content
+        and key is None
+    ):
+        raise PermissionDenied('صلاحية إنشاء المشاريع متوقفة.')
+    queryset = Project.objects.all() if is_admin else Project.objects.filter(owner=request.user)
+    queryset = queryset.select_related('owner').prefetch_related(*_PREFETCH)
+    project = None
+    if key:
+        project = queryset.filter(slug=key).first()
+        if project is None and str(key).isdigit():
+            project = queryset.filter(pk=key).first()
+    context['projects_json'] = [project.to_public_dict()] if project else []
+    context['is_admin_project_editor'] = is_admin
+    if is_admin:
+        owners = User.objects.order_by('full_name', 'phone')
+        context['admin_project_owners'] = [
+            {
+                'id': str(owner.pk),
+                'name': owner.display_name,
+                'handle': owner.handle,
+                'phone': owner.phone,
+                'email': owner.email,
+                'role': owner.get_role_display(),
+            }
+            for owner in owners
+        ]
+        context['admin_project_owner_id'] = (
+            str(project.owner_id) if project else str(request.user.pk)
+        )
+    return context
 
 
 class ProjectEditorView(LoginRequiredMixin, TemplateView):
@@ -265,33 +318,7 @@ class ProjectEditorView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        key = kwargs.get('pk')
-        is_admin = self.request.user.is_staff or self.request.user.role == UserRole.ADMIN
-        queryset = Project.objects.all() if is_admin else Project.objects.filter(owner=self.request.user)
-        queryset = queryset.select_related('owner').prefetch_related(*_PREFETCH)
-        project = None
-        if key:
-            project = queryset.filter(slug=key).first()
-            if project is None and str(key).isdigit():
-                project = queryset.filter(pk=key).first()
-        context['projects_json'] = [project.to_public_dict()] if project else []
-        context['is_admin_project_editor'] = is_admin
-        if is_admin:
-            owners = User.objects.order_by('full_name', 'phone')
-            context['admin_project_owners'] = [
-                {
-                    'id': str(owner.pk),
-                    'name': owner.display_name,
-                    'handle': owner.handle,
-                    'phone': owner.phone,
-                    'email': owner.email,
-                    'role': owner.get_role_display(),
-                }
-                for owner in owners
-            ]
-            context['admin_project_owner_id'] = (
-                str(project.owner_id) if project else str(self.request.user.pk)
-            )
+        context.update(project_editor_context(self.request, kwargs.get('pk')))
         return context
 
 
@@ -316,6 +343,19 @@ def project_save(request):
             project = queryset.filter(pk=key).first()
 
     status = ProjectStatus.PUBLISHED if payload.get('status') == ProjectStatus.PUBLISHED else ProjectStatus.DRAFT
+    if (
+        request.user.is_trainer
+        and not is_admin
+        and not request.user.can_publish_content
+        and (
+            project is None
+            or (
+                status == ProjectStatus.PUBLISHED
+                and project.status != ProjectStatus.PUBLISHED
+            )
+        )
+    ):
+        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
     owner = request.user
     if is_admin:
         owner_id = str(payload.get('ownerId') or '').strip()
@@ -327,10 +367,41 @@ def project_save(request):
         elif project is not None:
             owner = project.owner
 
-    title = str(payload.get('title') or '').strip()[:200]
+    raw_title = payload.get('title')
+    title = str(
+        raw_title if raw_title is not None else (project.title if project else '')
+    ).strip()[:200]
+    if not title and status != ProjectStatus.PUBLISHED:
+        return JsonResponse({'ok': False, 'error': 'title_required'}, status=400)
     summary = str(payload.get('summary') or '').strip()[:320]
     content = str(payload.get('content') or '').strip()
-    category = str(payload.get('category') or '').strip()[:120]
+    raw_category = payload.get('category')
+    category = (
+        str(raw_category or '').strip()[:120]
+        if raw_category is not None
+        else (project.category if project else '')
+    )
+    category_is_valid = bool(
+        category and TrainingCategory.objects.filter(name=category).exists()
+    )
+    if raw_category is not None and (
+        (category and not category_is_valid)
+        or (not category and status != ProjectStatus.PUBLISHED)
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_category'}, status=400)
+    github_url = str(payload.get('github') or '').strip()[:200]
+    demo_url = str(payload.get('demo') or '').strip()[:200]
+    validate_project_url = URLValidator(schemes=['http', 'https'])
+    for field, url in (('github', github_url), ('demo', demo_url)):
+        if not url:
+            continue
+        try:
+            validate_project_url(url)
+        except ValidationError:
+            return JsonResponse(
+                {'ok': False, 'error': 'invalid_project_url', 'field': field},
+                status=400,
+            )
     date_value = str(payload.get('date') or '').strip()
     project_date = parse_date(date_value) if date_value else None
     visibility = str(payload.get('visibility') or '').strip()
@@ -360,7 +431,7 @@ def project_save(request):
             missing.append('summary')
         if len(strip_tags(content).split()) < 50:
             missing.append('content')
-        if not category:
+        if not category_is_valid:
             missing.append('category')
         if visibility not in (ProjectVisibility.PUBLIC, ProjectVisibility.COURSES):
             missing.append('visibility')
@@ -379,14 +450,14 @@ def project_save(request):
     else:
         project.owner = owner
 
-    project.title = title or 'مشروع بدون عنوان'
+    project.title = title
     project.summary = summary
     project.content = content
     project.category = category
     project.role = str(payload.get('role') or '').strip()[:150]
     project.project_date = project_date
-    project.github_url = str(payload.get('github') or '').strip()[:200]
-    project.demo_url = str(payload.get('demo') or '').strip()[:200]
+    project.github_url = github_url
+    project.demo_url = demo_url
     project.status = status
     # الظهور: «مخصّص للدورات» يُسمح به للمدرب فقط، وإلا يبقى «عام».
     if project.owner.is_trainer and visibility == ProjectVisibility.COURSES:

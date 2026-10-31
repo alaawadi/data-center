@@ -2,6 +2,7 @@
   'use strict';
 
   var page = document.body.getAttribute('data-page');
+  var activeAdminEditorId = '';
   function t(k) { return I18n.t(k); }
   function e(s) { return UI.esc(s); }
   function durationHours(value, fallback) {
@@ -107,54 +108,271 @@
   /* ---------- shared editor pieces ---------- */
 
   function insertHTML(html) {
-    document.execCommand('insertHTML', false, html);
+    if (document.execCommand('insertHTML', false, html)) return true;
+    var selection = document.getSelection();
+    var range = selection && selection.rangeCount ? selection.getRangeAt(0) : null;
+    var activeEditable = range && range.startContainer.parentElement
+      ? range.startContainer.parentElement.closest('.editable')
+      : null;
+    if (!range || !activeEditable) {
+      activeEditable = document.activeElement && document.activeElement.closest
+        ? document.activeElement.closest('.editable')
+        : null;
+      if (!activeEditable) return false;
+      range = document.createRange();
+      range.selectNodeContents(activeEditable);
+      range.collapse(false);
+    }
+    range.deleteContents();
+    var fragment = range.createContextualFragment(html);
+    var lastNode = fragment.lastChild;
+    range.insertNode(fragment);
+    if (lastNode) {
+      range.setStartAfter(lastNode);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    return true;
+  }
+
+  function executeEditorCommand(command, value) {
+    if (!document.execCommand(command, false, value || null)) {
+      throw new Error('Editor command was not applied: ' + command);
+    }
   }
 
   function initToolbar(toolbar, editable, onChange) {
     var defs = [
-      { cmd: 'undo', icon: 'undo-2' },
+      { cmd: 'undo', icon: 'undo-2', title: 'editorUndo' },
+      { cmd: 'redo', icon: 'redo-2', title: 'editorRedo' },
       { sep: true },
-      { cmd: 'bold', icon: 'bold' },
-      { cmd: 'italic', icon: 'italic' },
-      { cmd: 'h2', icon: 'heading' },
+      { cmd: 'bold', icon: 'bold', title: 'editorBold' },
+      { cmd: 'italic', icon: 'italic', title: 'editorItalic' },
+      { cmd: 'h2', icon: 'heading', title: 'editorHeading' },
       { sep: true },
-      { cmd: 'insertUnorderedList', icon: 'list' },
-      { cmd: 'insertOrderedList', icon: 'list-ordered' },
-      { cmd: 'quote', icon: 'quote' },
-      { cmd: 'code', icon: 'code' },
+      { cmd: 'insertUnorderedList', icon: 'list', title: 'editorBulletedList' },
+      { cmd: 'insertOrderedList', icon: 'list-ordered', title: 'editorNumberedList' },
+      { cmd: 'quote', icon: 'quote', title: 'editorQuote' },
+      { cmd: 'code', icon: 'code', title: 'editorCode' },
       { sep: true },
-      { cmd: 'link', icon: 'link' },
-      { cmd: 'image', icon: 'image' },
-      { cmd: 'removeFormat', icon: 'x' }
+      { cmd: 'link', icon: 'link', title: 'editorLink' },
+      { cmd: 'image', icon: 'image', title: 'editorImage' },
+      { cmd: 'removeFormat', icon: 'x', title: 'editorRemoveFormatting' }
     ];
     toolbar.innerHTML = defs.map(function (d) {
       if (d.sep) return '<span class="tb-sep"></span>';
-      return '<button type="button" class="tb-btn" data-cmd="' + d.cmd + '" title="' + d.cmd + '">' + UI.icon(d.icon, 16) + '</button>';
+      return '<button type="button" class="tb-btn" data-cmd="' + d.cmd + '" title="' +
+        e(t(d.title)) + '" aria-label="' + e(t(d.title)) + '">' + UI.icon(d.icon, 16) + '</button>';
     }).join('');
+
+    var history = [editable.innerHTML];
+    var historyIndex = 0;
+    var historyTimer = null;
+    var savedRange = null;
+
+    function updateHistoryButtons() {
+      var undoButton = toolbar.querySelector('[data-cmd="undo"]');
+      var redoButton = toolbar.querySelector('[data-cmd="redo"]');
+      var hasUncommittedChange = editable.innerHTML !== history[historyIndex];
+      if (undoButton) {
+        undoButton.disabled = historyIndex <= 0 && !hasUncommittedChange;
+      }
+      if (redoButton) {
+        redoButton.disabled = hasUncommittedChange || historyIndex >= history.length - 1;
+      }
+    }
+
+    function saveSelection() {
+      var selection = document.getSelection();
+      if (!selection || !selection.rangeCount ||
+        !editable.contains(selection.anchorNode) || !editable.contains(selection.focusNode)) {
+        return null;
+      }
+      return selection.getRangeAt(0).cloneRange();
+    }
+
+    function restoreSelection(range) {
+      editable.focus();
+      if (!range) return;
+      var selection = document.getSelection();
+      if (!selection) return;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    function pushHistory() {
+      clearTimeout(historyTimer);
+      historyTimer = null;
+      var current = editable.innerHTML;
+      if (current === history[historyIndex]) return false;
+      history = history.slice(0, historyIndex + 1);
+      history.push(current);
+      if (history.length > 100) history.shift();
+      historyIndex = history.length - 1;
+      updateHistoryButtons();
+      return true;
+    }
+
+    function scheduleHistory() {
+      clearTimeout(historyTimer);
+      updateHistoryButtons();
+      historyTimer = window.setTimeout(pushHistory, 500);
+    }
+
+    function restoreHistory(index) {
+      clearTimeout(historyTimer);
+      historyTimer = null;
+      if (index < 0 || index >= history.length || index === historyIndex) return;
+      historyIndex = index;
+      editable.innerHTML = history[historyIndex];
+      updateHistoryButtons();
+      editable.focus();
+      var range = document.createRange();
+      range.selectNodeContents(editable);
+      range.collapse(false);
+      var selection = document.getSelection();
+      if (selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      if (onChange) onChange();
+    }
+
+    function undo() {
+      pushHistory();
+      if (historyIndex > 0) restoreHistory(historyIndex - 1);
+    }
+
+    function redo() {
+      pushHistory();
+      if (historyIndex < history.length - 1) restoreHistory(historyIndex + 1);
+    }
+
+    function openLinkDialog(range) {
+      var dialog = UI.modal({
+        title: t('editorLinkDialogTitle'),
+        size: 'sm',
+        body:
+          '<div class="editor-link-dialog">' +
+          '<div class="editor-link-dialog-icon">' + UI.icon('link', 20) + '</div>' +
+          '<p class="editor-link-dialog-copy">' + e(t('editorLinkDialogHint')) + '</p>' +
+          '<label class="label" for="editorLinkUrl">' + e(t('editorLinkDialogLabel')) + '</label>' +
+          '<input class="input editor-link-dialog-input" id="editorLinkUrl" type="url" inputmode="url" dir="ltr" ' +
+          'autocomplete="url" placeholder="https://example.com" aria-describedby="editorLinkError">' +
+          '<p class="hint error editor-link-dialog-error" id="editorLinkError" role="alert" hidden></p>' +
+          '</div>',
+        footer:
+          '<button class="btn btn-ghost" type="button" data-link-cancel>' + e(t('cancel')) + '</button>' +
+          '<button class="btn btn-primary" type="button" data-link-insert>' +
+          UI.icon('link', 15) + ' ' + e(t('editorLinkDialogInsert')) + '</button>'
+      });
+      var input = dialog.body.querySelector('#editorLinkUrl');
+      var error = dialog.body.querySelector('#editorLinkError');
+      var insertButton = dialog.el.querySelector('[data-link-insert]');
+
+      function submitLink() {
+        var value = input.value.trim();
+        var normalizedValue = /^[a-z][a-z0-9+.-]*:/i.test(value)
+          ? value
+          : 'https://' + value;
+        var parsedUrl;
+        try {
+          parsedUrl = new URL(normalizedValue);
+          if (!value || !parsedUrl.hostname ||
+            (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:')) {
+            throw new Error('Unsupported or incomplete link');
+          }
+        } catch (validationError) {
+          error.textContent = t('editorInvalidLink');
+          error.hidden = false;
+          input.setAttribute('aria-invalid', 'true');
+          input.focus();
+          return;
+        }
+
+        dialog.close();
+        restoreSelection(range);
+        try {
+          executeEditorCommand('createLink', parsedUrl.href);
+          if (pushHistory() && onChange) onChange();
+        } catch (commandError) {
+          console.error('تعذر إدراج الرابط في الوصف.', commandError);
+          UI.toast(t('editorCommandFailed'), 'error');
+        }
+      }
+
+      input.addEventListener('input', function () {
+        error.hidden = true;
+        input.removeAttribute('aria-invalid');
+      });
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          submitLink();
+        }
+      });
+      dialog.el.querySelector('[data-link-cancel]').addEventListener('click', dialog.close);
+      insertButton.addEventListener('click', submitLink);
+      window.requestAnimationFrame(function () { input.focus(); });
+    }
+
+    editable.addEventListener('input', scheduleHistory);
+    editable.addEventListener('keydown', function (event) {
+      if (!(event.ctrlKey || event.metaKey)) return;
+      var key = event.key.toLowerCase();
+      if (key === 'z' && event.shiftKey) {
+        event.preventDefault();
+        redo();
+      } else if (key === 'z') {
+        event.preventDefault();
+        undo();
+      } else if (key === 'y') {
+        event.preventDefault();
+        redo();
+      }
+    });
+    updateHistoryButtons();
 
     toolbar.addEventListener('mousedown', function (ev) { ev.preventDefault(); });
     toolbar.addEventListener('click', function (ev) {
       var btn = ev.target.closest('[data-cmd]');
       if (!btn) return;
       var cmd = btn.getAttribute('data-cmd');
-      editable.focus();
+      pushHistory();
+      savedRange = saveSelection();
+      if (cmd === 'undo') { undo(); return; }
+      if (cmd === 'redo') { redo(); return; }
+      restoreSelection(savedRange);
       try {
         if (cmd === 'bold' || cmd === 'italic' || cmd === 'insertUnorderedList' || cmd === 'insertOrderedList' || cmd === 'removeFormat') {
-          document.execCommand(cmd);
+          executeEditorCommand(cmd);
         } else if (cmd === 'h2') {
-          document.execCommand('formatBlock', false, '<h2>');
+          executeEditorCommand('formatBlock', '<h2>');
         } else if (cmd === 'quote') {
-          document.execCommand('formatBlock', false, '<blockquote>');
+          executeEditorCommand('formatBlock', '<blockquote>');
         } else if (cmd === 'code') {
-          document.execCommand('formatBlock', false, '<pre>');
+          executeEditorCommand('formatBlock', '<pre>');
         } else if (cmd === 'link') {
-          var url = prompt('https://…');
-          if (url) document.execCommand('createLink', false, url);
+          openLinkDialog(savedRange);
+          return;
         } else if (cmd === 'image') {
-          pickImage(function (dataUrl) { insertHTML('<img src="' + dataUrl + '" alt="">'); });
+          pickImage(function (dataUrl) {
+            restoreSelection(savedRange);
+            if (!insertHTML('<img src="' + dataUrl + '" alt="">')) {
+              throw new Error('Image could not be inserted into the editor');
+            }
+            pushHistory();
+            if (onChange) onChange();
+          });
+          return;
         }
-      } catch (err) { }
-      if (onChange) onChange();
+      } catch (error) {
+        console.error('تعذر تنفيذ أداة تنسيق الوصف.', error);
+        UI.toast(t('editorCommandFailed'), 'error');
+        return;
+      }
+      if (pushHistory() && onChange) onChange();
     });
 
     document.addEventListener('selectionchange', function () {
@@ -178,6 +396,9 @@
       if (!files.length) return;
       Promise.all(files.map(function (f) { return UI.compressImage(f, 1400, 0.82); })).then(function (list) {
         if (multiple) cb(list); else cb(list[0]);
+      }).catch(function (error) {
+        console.error('تعذر تجهيز صورة المحرر.', error);
+        UI.toast(t('editorImageFailed'), 'error');
       });
     });
     input.click();
@@ -210,9 +431,22 @@
     var backLink = document.getElementById('edBack');
     backLink.innerHTML = UI.icon(dirRtl ? 'arrow-right' : 'arrow-left', 18);
     backLink.addEventListener('click', function (event) {
+      if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
+          window.Admin && typeof window.Admin.navigate === 'function') {
+        event.preventDefault();
+        window.Admin.navigate(page === 'edit-course' ? 'courses' : 'projects');
+        return;
+      }
       if (page === 'edit-course') {
         event.preventDefault();
-        UI.confirm(t('courseLeaveConfirm')).then(function (confirmed) {
+        UI.confirm(t('editorLeaveWarning'), {
+          title: t('editorLeaveTitle'),
+          icon: 'alert-triangle',
+          className: 'editor-leave-confirm',
+          cancelLabel: t('editorStay'),
+          confirmLabel: t('editorLeave'),
+          confirmClass: 'btn-danger'
+        }).then(function (confirmed) {
           if (!confirmed) return;
           if (typeof window.courseEditorDiscardPendingChanges !== 'function') {
             UI.toast(t('courseLeaveRestoreFailed'), 'error');
@@ -245,26 +479,59 @@
         });
         return;
       }
-      var previousPage;
-      try {
-        previousPage = document.referrer ? new URL(document.referrer) : null;
-      } catch (error) {
+      if (page !== 'edit-project') {
+        var previousPage;
+        try {
+          previousPage = document.referrer ? new URL(document.referrer) : null;
+        } catch (error) {
+          return;
+        }
+        var isEditorPage = previousPage &&
+          (/\/courses\/edit(?:\/|$)/.test(previousPage.pathname) ||
+            /\/projects\/edit(?:\/|$)/.test(previousPage.pathname));
+        var isLoginPage = previousPage && /\/(?:login|accounts\/login)\/?$/.test(previousPage.pathname);
+        if (!previousPage || previousPage.origin !== window.location.origin ||
+            isEditorPage || isLoginPage || window.history.length <= 1) return;
+
+        event.preventDefault();
+        try {
+          window.sessionStorage.removeItem('dc-page-transition');
+        } catch (error) {
+          console.warn('Page transition state could not be cleared.', error);
+        }
+        window.history.back();
         return;
       }
-      var isEditorPage = previousPage &&
-        (/\/courses\/edit(?:\/|$)/.test(previousPage.pathname) ||
-          /\/projects\/edit(?:\/|$)/.test(previousPage.pathname));
-      var isLoginPage = previousPage && /\/(?:login|accounts\/login)\/?$/.test(previousPage.pathname);
-      if (!previousPage || previousPage.origin !== window.location.origin ||
-          isEditorPage || isLoginPage || window.history.length <= 1) return;
-
       event.preventDefault();
-      try {
-        window.sessionStorage.removeItem('dc-page-transition');
-      } catch (error) {
-        console.warn('Page transition state could not be cleared.', error);
-      }
-      window.history.back();
+      UI.confirm(t('editorLeaveWarning'), {
+        title: t('editorLeaveTitle'),
+        icon: 'alert-triangle',
+        className: 'editor-leave-confirm',
+        cancelLabel: t('editorStay'),
+        confirmLabel: t('editorLeave'),
+        confirmClass: 'btn-danger'
+      }).then(function (confirmed) {
+        if (!confirmed) return;
+        try {
+          window.sessionStorage.removeItem('dc-page-transition');
+        } catch (error) {
+          console.warn('Page transition state could not be cleared.', error);
+        }
+        var previousPage;
+        try {
+          previousPage = document.referrer ? new URL(document.referrer) : null;
+        } catch (error) {
+          previousPage = null;
+        }
+        var isEditorPage = previousPage &&
+          (/\/courses\/edit(?:\/|$)/.test(previousPage.pathname) ||
+            /\/projects\/edit(?:\/|$)/.test(previousPage.pathname));
+        var isLoginPage = previousPage && /\/(?:login|accounts\/login)\/?$/.test(previousPage.pathname);
+        var canGoBack = previousPage && previousPage.origin === window.location.origin &&
+          !isEditorPage && !isLoginPage && window.history.length > 1;
+        if (canGoBack) window.history.back();
+        else window.location.href = backLink.href;
+      });
     });
     var btns = [
       { id: 'edPreviewBtn', icon: 'eye', label: t('preview') },
@@ -327,12 +594,22 @@
     var isCourse = page === 'edit-course';
     var COL = isCourse ? 'certificates' : 'projects';
     var coursePathId = isCourse ? window.location.pathname.match(/\/courses\/edit\/([^/]+)\/?$/) : null;
-    var id = SITE.param('id') || (coursePathId ? coursePathId[1] : '');
-    var existing = id ? Store.find(COL, id) : null;
+    var id = activeAdminEditorId || SITE.param('id') || (coursePathId ? coursePathId[1] : '');
+    var editorObjectNode = document.getElementById('editor-object-data');
+    var editorObject = null;
+    if (editorObjectNode) {
+      try {
+        var editorObjects = JSON.parse(editorObjectNode.textContent);
+        editorObject = Array.isArray(editorObjects) ? editorObjects[0] || null : null;
+      } catch (error) {
+        console.error('تعذر قراءة بيانات المحرر من الخادم.', error);
+      }
+    }
+    var existing = editorObject || (id ? Store.find(COL, id) : null);
     var p = existing ? JSON.parse(JSON.stringify(existing)) : (isCourse ? {
       id: Store.uid('c'), title: '', slug: '', cover: '', summary: '', content: '',
         issuer: '', description: '', skills: [], image: '', credentialId: '', verifyUrl: '',
-        price: '', duration: '', period: '', syllabus: [],
+        price: '', currency: 'ILS', duration: '', period: '', syllabus: [], courseType: 'online',
       category: '', date: new Date().toISOString().slice(0, 10),
       links: { github: '', demo: '' }, files: [], gallery: [],
       views: 0, likes: 0, comments: [],
@@ -360,6 +637,7 @@
       p.summary = p.summary || '';
       p.role = p.role || '';
       p.price = p.price || '';
+      p.currency = p.currency || 'ILS';
       p.duration = p.duration || '';
       p.period = p.period || '';
       p.credentialId = p.credentialId || '';
@@ -395,26 +673,23 @@
     if (isCourse) chromeTitles.push({ icon: 'list', title: t('syllabusLabel') });
     chromeTitles.push({ icon: 'check-circle', title: t('checklist') });
     chromeTitles.push({ icon: 'layers', title: t(isCourse ? 'courseTemplates' : 'templates') });
-    chromeTitles.push({ icon: 'sliders', title: t(isCourse ? 'certEditorTitle' : 'projectMetaLabel') });
     if (isCourse) chromeTitles.push({ icon: 'award', title: t('courseMetaLabel') });
-    chromeTitles.push({ icon: 'hash', title: t('tagsLabel') });
+    chromeTitles.push({ icon: 'sliders', title: t(isCourse ? 'certEditorTitle' : 'projectMetaLabel') });
+    chromeTitles.push({ icon: 'hash', title: t(isCourse ? 'courseAxesLabel' : 'tagsLabel') });
     if (!isCourse) chromeTitles.push({ icon: 'file', title: t('projFiles') });
 
     fillChrome({ titles: chromeTitles });
     if (isNew || p.status === 'draft') setStatusDraft(); else setStatus('saved');
 
     var titleEl = document.getElementById('edTitle');
+    var titleValidationEl = document.getElementById('edTitleValidation');
     var titleEnglishEl = isCourse ? document.getElementById('edTitleEnglish') : null;
     var contentEl = document.getElementById('edContent');
-    var contentToggle = isCourse ? document.getElementById('edContentToggle') : null;
-    var contentPanel = isCourse ? document.getElementById('edContentPanel') : null;
     var syllabusToggle = isCourse ? document.getElementById('edSyllabusToggle') : null;
     var syllabusPanel = isCourse ? document.getElementById('edSyllabusPanel') : null;
     function syncCourseEditorFlow() {
       if (!isCourse) return;
-      var contentIsOpen = contentToggle && contentToggle.getAttribute('aria-expanded') === 'true';
-      var syllabusIsOpen = syllabusToggle && syllabusToggle.getAttribute('aria-expanded') === 'true';
-      document.body.classList.toggle('course-editor-flow', !!(contentIsOpen || syllabusIsOpen));
+      document.body.classList.add('course-editor-flow');
     }
     function setupSectionToggle(toggleId, panelId, labelId, labelKey, stateId, iconId) {
       var toggle = document.getElementById(toggleId);
@@ -438,11 +713,7 @@
       });
     }
     if (isCourse) {
-      document.body.classList.remove('course-editor-flow');
-      setupSectionToggle(
-        'edContentToggle', 'edContentPanel', 'edContentToggleLabel',
-        'courseContentSection', 'edContentToggleState', 'edContentToggleIcon'
-      );
+      syncCourseEditorFlow();
       setupSectionToggle(
         'edSyllabusToggle', 'edSyllabusPanel', 'edSyllabusToggleLabel',
         'syllabusLabel', 'edSyllabusToggleState', 'edSyllabusToggleIcon'
@@ -450,7 +721,182 @@
     }
     var slugEl = document.getElementById('edSlug');
     var summaryEl = document.getElementById('edSummary');
+    var courseTypeEl = document.getElementById('edCourseType');
+    var courseTypeChoices = document.querySelectorAll('input[name="courseTypeChoice"]');
+    function syncCourseTypeChoices(value) {
+      Array.prototype.forEach.call(courseTypeChoices, function (choice) {
+        choice.checked = choice.value === value;
+      });
+    }
     var categoryEl = document.getElementById('edCategory');
+    var categorySearchEl = document.getElementById('edCategorySearch');
+    var categoryOptionsEl = document.getElementById('edCategoryOptions');
+    var categoryValidationEl = document.getElementById('edCategoryValidation');
+    var trainingCategories = [];
+    var visibleTrainingCategories = [];
+    var activeTrainingCategory = -1;
+    var categoryTouched = false;
+    var categoryUnavailable = false;
+    var trainingCategoriesDataEl = document.getElementById('training-categories-data');
+    if (trainingCategoriesDataEl) {
+      try {
+        var parsedTrainingCategories = JSON.parse(trainingCategoriesDataEl.textContent);
+        if (Array.isArray(parsedTrainingCategories)) {
+          trainingCategories = parsedTrainingCategories.filter(function (category) {
+            return typeof category === 'string' && category.trim();
+          }).map(function (category) { return category.trim(); });
+        }
+      } catch (error) {
+        console.error('تعذر تحميل قائمة المجالات التدريبية.', error);
+      }
+    }
+    function normalizeTrainingCategory(value) {
+      return String(value || '').toLocaleLowerCase()
+        .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+        .replace(/[أإآ]/g, 'ا')
+        .replace(/ى/g, 'ي')
+        .trim();
+    }
+    function isValidTrainingCategory() {
+      return !categoryUnavailable && trainingCategories.indexOf(categoryEl.value) !== -1;
+    }
+    function updateTrainingCategoryValidation(force) {
+      if (!categorySearchEl || !categoryValidationEl) return isValidTrainingCategory();
+      var valid = isValidTrainingCategory();
+      var shouldShow = (force || categoryTouched) && !valid;
+      if (shouldShow) {
+        var query = normalizeTrainingCategory(categorySearchEl.value);
+        var hasMatches = trainingCategories.some(function (category) {
+          return normalizeTrainingCategory(category).indexOf(query) !== -1;
+        });
+        categoryValidationEl.textContent = categoryUnavailable
+          ? t('categoryUnavailable')
+          : (query && !hasMatches ? t('categoryNoResults') : t('categorySelectRequired'));
+      } else {
+        categoryValidationEl.textContent = '';
+      }
+      categoryValidationEl.hidden = !shouldShow;
+      categorySearchEl.classList.toggle('is-invalid', shouldShow);
+      if (shouldShow) categorySearchEl.setAttribute('aria-invalid', 'true');
+      else categorySearchEl.removeAttribute('aria-invalid');
+      return valid;
+    }
+    function renderTrainingCategoryOptions(query) {
+      if (!categoryOptionsEl) return;
+      var normalizedQuery = normalizeTrainingCategory(query);
+      visibleTrainingCategories = trainingCategories.filter(function (category) {
+        return normalizeTrainingCategory(category).indexOf(normalizedQuery) !== -1;
+      });
+      activeTrainingCategory = visibleTrainingCategories.length ? 0 : -1;
+      categoryOptionsEl.innerHTML = visibleTrainingCategories.length
+        ? visibleTrainingCategories.map(function (category, index) {
+          var selected = category === categoryEl.value;
+          return '<button type="button" class="training-category-option' +
+            (selected ? ' is-selected' : '') + (index === activeTrainingCategory ? ' is-active' : '') +
+            '" id="training-category-option-' + index + '" role="option" aria-selected="' +
+            (selected ? 'true' : 'false') + '" tabindex="-1" data-category-index="' + index + '">' +
+            '<span>' + e(category) + '</span>' +
+            (selected ? UI.icon('check', 15) : '') +
+            '</button>';
+        }).join('')
+        : '<div class="training-category-empty" role="status">' + e(t('categoryNoResults')) + '</div>';
+      if (categorySearchEl && !categoryOptionsEl.hidden && activeTrainingCategory >= 0) {
+        categorySearchEl.setAttribute(
+          'aria-activedescendant',
+          'training-category-option-' + activeTrainingCategory
+        );
+      } else if (categorySearchEl) {
+        categorySearchEl.removeAttribute('aria-activedescendant');
+      }
+    }
+    function closeTrainingCategoryOptions() {
+      if (!categoryOptionsEl || !categorySearchEl) return;
+      categoryOptionsEl.hidden = true;
+      categorySearchEl.setAttribute('aria-expanded', 'false');
+      categorySearchEl.removeAttribute('aria-activedescendant');
+    }
+    function openTrainingCategoryOptions() {
+      if (!categoryOptionsEl || !categorySearchEl) return;
+      categoryOptionsEl.hidden = false;
+      categorySearchEl.setAttribute('aria-expanded', 'true');
+      renderTrainingCategoryOptions(categorySearchEl.value);
+    }
+    function chooseTrainingCategory(category) {
+      var changed = categoryEl.value !== category;
+      categoryUnavailable = false;
+      categoryTouched = true;
+      categoryEl.value = category;
+      categorySearchEl.value = category;
+      closeTrainingCategoryOptions();
+      updateTrainingCategoryValidation();
+      if (changed) markDirty();
+    }
+    if (categorySearchEl && categoryOptionsEl && categoryEl) {
+      var currentTrainingCategory = String(p.category || '').trim();
+      trainingCategories = trainingCategories.filter(function (category, index, list) {
+        return !list.slice(0, index).some(function (previous) { return previous === category; });
+      }).sort(function (left, right) {
+        return left.localeCompare(right, I18n.getLang() === 'en' ? 'en' : 'ar');
+      });
+      categoryUnavailable = !!currentTrainingCategory &&
+        trainingCategories.indexOf(currentTrainingCategory) === -1;
+      categoryTouched = categoryUnavailable;
+      categorySearchEl.placeholder = t('categorySearchPlaceholder');
+      categorySearchEl.addEventListener('focus', openTrainingCategoryOptions);
+      categorySearchEl.addEventListener('input', function () {
+        categoryTouched = true;
+        categoryUnavailable = false;
+        openTrainingCategoryOptions();
+        var exactCategory = trainingCategories.filter(function (category) {
+          return normalizeTrainingCategory(category) === normalizeTrainingCategory(categorySearchEl.value);
+        })[0];
+        if (exactCategory) {
+          chooseTrainingCategory(exactCategory);
+        } else {
+          var hadSelectedCategory = !!categoryEl.value;
+          categoryEl.value = '';
+          if (hadSelectedCategory) markDirty();
+          updateTrainingCategoryValidation();
+        }
+      });
+      categorySearchEl.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          closeTrainingCategoryOptions();
+          return;
+        }
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          if (categoryOptionsEl.hidden) openTrainingCategoryOptions();
+          if (!visibleTrainingCategories.length) return;
+          var direction = event.key === 'ArrowDown' ? 1 : -1;
+          activeTrainingCategory = (activeTrainingCategory + direction + visibleTrainingCategories.length) %
+            visibleTrainingCategories.length;
+          categoryOptionsEl.querySelectorAll('.training-category-option').forEach(function (option, index) {
+            option.classList.toggle('is-active', index === activeTrainingCategory);
+          });
+          categorySearchEl.setAttribute(
+            'aria-activedescendant',
+            'training-category-option-' + activeTrainingCategory
+          );
+          return;
+        }
+        if (event.key === 'Enter' && !categoryOptionsEl.hidden && activeTrainingCategory >= 0) {
+          event.preventDefault();
+          chooseTrainingCategory(visibleTrainingCategories[activeTrainingCategory]);
+        }
+      });
+      categoryOptionsEl.addEventListener('click', function (event) {
+        var option = event.target.closest('[data-category-index]');
+        if (!option) return;
+        chooseTrainingCategory(visibleTrainingCategories[Number(option.dataset.categoryIndex)]);
+      });
+      categorySearchEl.addEventListener('blur', function () {
+        updateTrainingCategoryValidation();
+      });
+      document.addEventListener('click', function (event) {
+        if (!event.target.closest('.training-category-picker')) closeTrainingCategoryOptions();
+      });
+    }
     var roleEl = document.getElementById('edRole');
     var trainerEl = isCourse && roleEl && roleEl.tagName === 'SELECT' ? roleEl : null;
     var ownerSearchEl = !isCourse ? document.getElementById('edOwnerSearch') : null;
@@ -502,29 +948,61 @@
       ownerSearchEl.addEventListener('focus', function () { renderOwnerOptions(ownerSearchEl.value); });
     }
     var dateEl = document.getElementById('edDate');
-    var githubEl = document.getElementById('edGithub');
     var demoEl = document.getElementById('edDemo');
     var tagsBox = document.getElementById('edTagsBox');
     var tagsInput = document.getElementById('edTagsInput');
+
+    function isValidProjectUrl(value) {
+      if (!value) return true;
+      try {
+        var parsed = new URL(value);
+        return (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+          !!parsed.hostname;
+      } catch (error) {
+        return false;
+      }
+    }
 
     titleEl.placeholder = isCourse
       ? (I18n.getLang() === 'en' ? 'Course title in Arabic' : 'اسم الدورة بالعربية')
       : t('editorTitlePlaceholder');
     titleEl.value = p.title || '';
+    function updateTitleValidation(force) {
+      var valid = !!titleEl.value.trim();
+      var shouldShow = !!force && !valid;
+      if (titleValidationEl) {
+        titleValidationEl.textContent = shouldShow ? t('titleRequired') : '';
+        titleValidationEl.hidden = !shouldShow;
+      }
+      titleEl.classList.toggle('is-invalid', shouldShow);
+      if (shouldShow) titleEl.setAttribute('aria-invalid', 'true');
+      else titleEl.removeAttribute('aria-invalid');
+      return valid;
+    }
+    updateTitleValidation(false);
     if (titleEnglishEl) {
       titleEnglishEl.value = titleEnglishEl.value || p.titleEnglish || p.title_en || '';
     }
     contentEl.setAttribute('data-ph', t('editorContentPlaceholder'));
     contentEl.innerHTML = p.content || '';
-    summaryEl.placeholder = t('editorContentPlaceholder');
+    summaryEl.placeholder = t('editorSummaryPlaceholder');
     summaryEl.value = p.summary || '';
-    categoryEl.value = p.category || '';
+    if (courseTypeEl) {
+      courseTypeEl.value = p.courseType === 'in_person' ? 'in_person' : 'online';
+      syncCourseTypeChoices(courseTypeEl.value);
+    }
+    var savedTrainingCategory = String(p.category || '').trim();
+    categoryUnavailable = !!savedTrainingCategory &&
+      trainingCategories.indexOf(savedTrainingCategory) === -1;
+    categoryTouched = categoryUnavailable;
+    categoryEl.value = categoryUnavailable ? '' : savedTrainingCategory;
+    if (categorySearchEl) categorySearchEl.value = p.category || '';
+    updateTrainingCategoryValidation();
     if (roleEl) roleEl.value = p.role || '';
     dateEl.value = (p.date || '').slice(0, 10);
-    githubEl.value = (p.links && p.links.github) || '';
     demoEl.value = (p.links && p.links.demo) || '';
 
-    document.getElementById('lblSummary').textContent = isCourse ? t('descriptionLabel') : t('fieldBio');
+    document.getElementById('lblSummary').textContent = t('editorSummaryLabel');
     document.getElementById('lblCategory').textContent = t('categoryLabel');
     var roleLabelEl = document.getElementById('lblRole');
     if (roleLabelEl) roleLabelEl.textContent = isCourse ? t('instructorLabel') : t('roleLabel');
@@ -547,6 +1025,7 @@
 
     /* بيانات الدورة (السعر/المدة/الفترة/الشهادة) — لحقلي المحرر فقط في صفحة الدورات */
     var priceEl = document.getElementById('edPrice');
+    var currencyEl = document.getElementById('edCurrency');
     var durationEl = document.getElementById('edDuration');
     var periodEl = document.getElementById('edPeriod');
     var courseMetaEls = [];
@@ -554,7 +1033,12 @@
       document.getElementById('lblPrice').textContent = t('priceLabel');
       document.getElementById('lblDuration').textContent = t('durationLabel');
       document.getElementById('lblPeriod').textContent = t('periodLabel');
-      priceEl.value = String(p.price || '').replace(/[₪\s]/g, '');
+      priceEl.value = String(p.price || '').replace(/[₪$\s]/g, '');
+      if (currencyEl) {
+        currencyEl.value = p.currency === 'USD' || String(p.price || '').indexOf('$') === 0
+          ? 'USD'
+          : 'ILS';
+      }
       durationEl.value = durationHours(p.duration, p.durationEnglish);
       var periodDigits = String(p.period || '').match(/[0-9٠-٩۰-۹]+/);
       periodEl.value = periodDigits
@@ -562,7 +1046,7 @@
           return String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10);
         })
         : '';
-      courseMetaEls = [priceEl, durationEl, periodEl];
+      courseMetaEls = [priceEl, currencyEl, durationEl, periodEl];
       /* المدرّب هو صاحب الدورة — الحقل للعرض فقط، والدورات لا تملك روابط GitHub/تاريخ إصدار */
       if (trainerEl) {
         document.getElementById('lblRole').textContent = t('instructorLabel');
@@ -576,7 +1060,6 @@
         roleEl.classList.add('readonly');
       }
       dateEl.closest('.field').style.display = 'none';
-      githubEl.closest('.field').style.display = 'none';
       demoEl.closest('.field').style.display = 'none';
     }
 
@@ -619,17 +1102,39 @@
       { label: isArabic ? 'ثلاثة تاقات على الأقل' : 'At least three tags', done: function () { return projectTagCount() >= 3; } },
       { label: isArabic ? 'التاريخ' : 'Date', done: function () { return !!dateEl.value; } }
     ];
+    function currentChecklist() {
+      var checks = CHECKS.slice();
+      if (!isCourse && roleEl && roleEl.value.trim()) {
+        checks.push({
+          label: isArabic ? 'دورك في المشروع (اختياري)' : 'Your project role (optional)',
+          done: function () { return true; }
+        });
+      }
+      if (!isCourse && demoEl.value.trim()) {
+        checks.push({
+          label: isArabic ? 'رابط المعاينة' : 'Preview link',
+          done: function () { return isValidProjectUrl(demoEl.value.trim()); }
+        });
+      }
+      return checks;
+    }
     function updateChecklist() {
       var doneCount = 0;
-      var checklistHTML = CHECKS.map(function (c) {
+      var checks = currentChecklist();
+      var checklistHTML = checks.map(function (c) {
         var ok = !!c.done();
         if (ok) doneCount++;
         return '<div class="check-item' + (ok ? ' done' : '') + '"><span class="cbox">' + UI.icon('check', 12) + '</span>' + e(c.label) + '</div>';
       }).join('');
-      var pct = Math.round(doneCount / CHECKS.length * 100);
-      document.querySelectorAll('[data-checklist-list]').forEach(function (list) { list.innerHTML = checklistHTML; });
-      document.querySelectorAll('[data-checklist-bar]').forEach(function (bar) { bar.style.width = pct + '%'; });
-      document.querySelectorAll('[data-checklist-pct]').forEach(function (label) { label.textContent = pct + '%'; });
+      var pct = checks.length ? Math.round(doneCount / checks.length * 100) : 0;
+      document.querySelectorAll('[data-checklist-list], #edChecklist').forEach(function (list) { list.innerHTML = checklistHTML; });
+      document.querySelectorAll('[data-checklist-bar], #edProgressBar').forEach(function (bar) { bar.style.width = pct + '%'; });
+      document.querySelectorAll('[data-checklist-pct], #edProgressPct').forEach(function (label) {
+        label.textContent = doneCount + '/' + checks.length + ' · ' + pct + '%';
+        label.setAttribute('aria-label', isArabic
+          ? doneCount + ' من ' + checks.length + ' متطلبات مكتملة'
+          : doneCount + ' of ' + checks.length + ' requirements complete');
+      });
     }
     function coursePublishMissing() {
       var wordCount = textOf(contentEl).trim().split(/\s+/).filter(Boolean).length;
@@ -644,12 +1149,27 @@
         { key: 'cover', missing: !p.cover, element: coverHost },
         { key: 'summary', missing: !summaryEl.value.trim(), element: summaryEl },
         { key: 'content', missing: wordCount < 50, element: contentEl },
-        { key: 'category', missing: !categoryEl.value.trim(), element: categoryEl },
+        { key: 'category', missing: !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
         { key: 'price', missing: !priceEl.value.trim(), element: priceEl },
         { key: 'duration', missing: !(Number(durationEl.value) > 0), element: durationEl },
         { key: 'tags', missing: !p.tags.length, element: tagsInput },
         { key: 'syllabus', missing: !hasSyllabus, element: document.getElementById('edSecAdd') }
       ].filter(function (field) { return field.missing; });
+    }
+    function coursePublishMessageKey(field) {
+      var messages = {
+        title: 'courseMissingTitle',
+        titleEnglish: 'courseMissingTitleEnglish',
+        cover: 'courseMissingCover',
+        summary: 'courseMissingSummary',
+        content: 'courseMissingContent',
+        category: 'courseMissingCategory',
+        price: 'courseMissingPrice',
+        duration: 'courseMissingDuration',
+        tags: 'courseMissingTags',
+        syllabus: 'courseMissingSyllabus'
+      };
+      return messages[field] || 'coursePublishFailure';
     }
     function projectPublishMissing() {
       var wordCount = textOf(contentEl).trim().split(/\s+/).filter(Boolean).length;
@@ -661,7 +1181,8 @@
         { key: 'cover', missing: !p.cover, element: coverHost },
         { key: 'summary', missing: !summaryEl.value.trim(), element: summaryEl },
         { key: 'content', missing: wordCount < 50, element: contentEl },
-        { key: 'category', missing: !categoryEl.value.trim(), element: categoryEl },
+        { key: 'category', missing: !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
+        { key: 'demo', missing: !isValidProjectUrl(demoEl.value.trim()), element: demoEl },
         { key: 'visibility', missing: ['public', 'courses'].indexOf(visibility) < 0, element: visibilityEl },
         { key: 'tags', missing: projectTagCount() < 3, element: tagsInput },
         { key: 'date', missing: !dateEl.value, element: dateEl }
@@ -1354,9 +1875,13 @@
               p.titleEnglish = snapshot.titleEnglish || '';
               p.summary = snapshot.summary || snapshot.description || '';
               p.description = p.summary;
+              p.courseType = snapshot.courseType === 'in_person' ? 'in_person' : 'online';
               p.category = snapshot.category || '';
               p.content = snapshot.content || '';
               p.price = snapshot.price || '';
+              p.currency = snapshot.currency === 'USD' || String(snapshot.price || '').indexOf('$') === 0
+                ? 'USD'
+                : 'ILS';
               p.duration = snapshot.duration || '';
               p.period = snapshot.period || '';
               p.credentialId = snapshot.credentialId || '';
@@ -1369,9 +1894,14 @@
               titleEl.value = p.title;
               if (titleEnglishEl) titleEnglishEl.value = p.titleEnglish;
               summaryEl.value = p.summary;
+              if (courseTypeEl) {
+                courseTypeEl.value = p.courseType;
+                syncCourseTypeChoices(courseTypeEl.value);
+              }
               categoryEl.value = p.category;
               contentEl.innerHTML = p.content;
-              priceEl.value = String(p.price).replace(/[₪\s]/g, '');
+              priceEl.value = String(p.price).replace(/[₪$\s]/g, '');
+              if (currencyEl) currencyEl.value = p.currency;
               durationEl.value = durationHours(p.duration, snapshot.durationEnglish);
               var periodMatch = String(p.period).match(/[0-9٠-٩۰-۹]+/);
               periodEl.value = periodMatch
@@ -1558,9 +2088,22 @@
       markDirty();
     }
 
-    [titleEl, titleEnglishEl, summaryEl, categoryEl, roleEl, dateEl, githubEl, demoEl].concat(courseMetaEls).filter(Boolean).forEach(function (el) {
+    [titleEl, titleEnglishEl, summaryEl, courseTypeEl, categoryEl, roleEl, dateEl, demoEl].concat(courseMetaEls).filter(Boolean).forEach(function (el) {
       el.addEventListener('input', markDirty);
       el.addEventListener('change', markDirty);
+    });
+    Array.prototype.forEach.call(courseTypeChoices, function (choice) {
+      choice.addEventListener('change', function () {
+        if (!courseTypeEl) return;
+        courseTypeEl.value = choice.value;
+        courseTypeEl.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    });
+    titleEl.addEventListener('input', function () {
+      updateTitleValidation(true);
+    });
+    titleEl.addEventListener('blur', function () {
+      updateTitleValidation(true);
     });
     if (visibilityEl && visibilityField && visibilityField.style.display !== 'none') {
       visibilityEl.addEventListener('change', markDirty);
@@ -1571,13 +2114,14 @@
       p.title = titleEl.value.trim();
       if (titleEnglishEl) p.titleEnglish = titleEnglishEl.value.trim();
       p.summary = summaryEl.value.trim();
+      if (isCourse && courseTypeEl) p.courseType = courseTypeEl.value;
       p.category = categoryEl.value.trim();
       p.role = roleEl ? roleEl.value.trim() : '';
       if (!isCourse && visibilityEl && visibilityField && visibilityField.style.display !== 'none') {
         p.visibility = visibilityEl.value === 'courses' ? 'courses' : 'public';
       }
       p.date = dateEl.value;
-      p.links = { github: githubEl.value.trim(), demo: demoEl.value.trim() };
+      p.links = { github: (p.links && p.links.github) || '', demo: demoEl.value.trim() };
       p.content = UI.sanitize(contentEl.innerHTML);
       p.slug = Store.slugify(p.title || p.slug || '', p.id);
       if (isCourse) {
@@ -1585,6 +2129,7 @@
         p.skills = p.tags;
         p.image = p.cover;
         p.price = priceEl.value.trim();
+        p.currency = currencyEl ? currencyEl.value : 'ILS';
         p.duration = durationEl.value.trim();
         p.period = periodEl.value;
         if (syllabusDirty) {
@@ -1616,6 +2161,21 @@
 
     function serverSave(status, redirect, silent) {
       if (leaveRequested) return;
+      if (!redirect && !silent && !dirty && !syllabusDirty && status === p.status) {
+        return;
+      }
+      var hadChanges = dirty || syllabusDirty;
+      if (!updateTitleValidation(true)) {
+        setStatusDraft();
+        if (!silent) titleEl.focus();
+        return;
+      }
+      if (!isValidTrainingCategory()) {
+        updateTrainingCategoryValidation(true);
+        setStatusDraft();
+        if (!silent && categorySearchEl) categorySearchEl.focus();
+        return;
+      }
       p.status = status;
       if (saveInFlight) {
         queuedSave = {
@@ -1652,9 +2212,11 @@
         title: p.title,
         titleEnglish: p.titleEnglish || '',
         summary: p.summary,
+        courseType: p.courseType || 'online',
         content: p.content,
         category: p.category,
         price: p.price,
+        currency: p.currency || 'ILS',
         duration: p.duration,
         period: p.period,
         credentialId: p.credentialId,
@@ -1708,11 +2270,29 @@
       }).then(function (res) {
         if (!res || !res.ok) {
           var errorKey = (res && res.error) || 'required';
+          if (errorKey === 'invalid_category') {
+            trainingCategories = trainingCategories.filter(function (category) {
+              return category !== p.category;
+            });
+            p.category = '';
+            categoryEl.value = '';
+            categoryUnavailable = true;
+            categoryTouched = true;
+            if (!categoryOptionsEl.hidden) renderTrainingCategoryOptions(categorySearchEl.value);
+            updateTrainingCategoryValidation(true);
+            if (categorySearchEl) categorySearchEl.focus();
+            errorKey = 'categoryUnavailable';
+          }
+          if (errorKey === 'title_required') {
+            updateTitleValidation(true);
+            titleEl.focus();
+            errorKey = 'titleRequired';
+          }
           if (errorKey === 'project_incomplete') errorKey = 'projectPublishRequirements';
-          if (errorKey === 'course_incomplete') errorKey = 'coursePublishRequirements';
-          if (errorKey === 'invalid_cover_version') errorKey = 'versionHistoryCoverMissing';
-          if (errorKey === 'coursePublishRequirements') {
+          if (errorKey === 'invalid_project_url') errorKey = 'invalidProjectUrl';
+          if (errorKey === 'course_incomplete') {
             var serverMissing = res && res.missing || [];
+            errorKey = coursePublishMessageKey(serverMissing[0]);
             var focusByField = {
               title: titleEl,
               titleEnglish: titleEnglishEl,
@@ -1720,6 +2300,7 @@
               summary: summaryEl,
               content: contentEl,
               category: categoryEl,
+              demo: demoEl,
               price: priceEl,
               duration: durationEl,
               tags: tagsInput,
@@ -1731,6 +2312,7 @@
             }
             if (focusTarget) focusTarget.focus();
           }
+          if (errorKey === 'invalid_cover_version') errorKey = 'versionHistoryCoverMissing';
           throw { saveError: errorKey, response: res };
         }
         var previousId = p.id;
@@ -1766,13 +2348,25 @@
           if (pendingDeletionHistory.length) clearDeletionHistory();
         }
         if (redirect && !queuedSave && submittedVersion === changeVersion) {
+          if (isCourse && status === 'published') {
+            try {
+              window.sessionStorage.setItem('dc-course-published-toast', '1');
+            } catch (error) {
+              console.warn('تعذر حفظ تنبيه نشر الدورة.', error);
+            }
+          }
+          if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
+              window.Admin && typeof window.Admin.navigate === 'function') {
+            window.Admin.navigate(isCourse ? 'courses' : 'projects');
+            return;
+          }
           location.href = res.url;
           return;
         }
         if (!queuedSave && submittedVersion === changeVersion) {
           if (dirty) setStatusDraft();
           else setStatus('saved');
-          if (!silent) UI.toast(t('savedOk'), 'success');
+          if (!silent && hadChanges) UI.toast(t('savedOk'), 'success');
         }
       }).catch(function (error) {
         setStatusDraft();
@@ -1867,10 +2461,19 @@
 
     document.getElementById('edPublishBtn').addEventListener('click', function () {
       collect();
+      if (!updateTitleValidation(true)) {
+        titleEl.focus();
+        return;
+      }
+      if (!isValidTrainingCategory()) {
+        updateTrainingCategoryValidation(true);
+        if (categorySearchEl) categorySearchEl.focus();
+        return;
+      }
       if (isCourse) {
         var courseMissing = coursePublishMissing();
         if (courseMissing.length) {
-          UI.toast(t('coursePublishRequirements'), 'error');
+          UI.toast(t(coursePublishMessageKey(courseMissing[0].key)), 'error');
           if (courseMissing[0].key === 'cover') {
             var courseCoverInput = coverHost.querySelector('input[type="file"]');
             if (courseCoverInput) courseCoverInput.focus();
@@ -1912,6 +2515,34 @@
       }
       if (dirty) { collect(); Store.upsert(COL, Object.assign({}, p, { status: p.status === 'published' ? 'published' : 'draft' })); }
     });
+
+    if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
+        window.Admin && typeof window.Admin.setEditorLeaveHandler === 'function') {
+      window.Admin.setEditorLeaveHandler(function () {
+        function confirmLeave() {
+          if (!dirty && !syllabusDirty) return Promise.resolve(true);
+          return UI.confirm(t('editorLeaveWarning'), {
+            title: t('editorLeaveTitle'),
+            icon: 'alert-triangle',
+            className: 'editor-leave-confirm',
+            cancelLabel: t('editorStay'),
+            confirmLabel: t('editorLeave'),
+            confirmClass: 'btn-danger'
+          }).then(function (confirmed) {
+            if (!confirmed) return false;
+            if (!isCourse || typeof window.courseEditorDiscardPendingChanges !== 'function') return true;
+            return window.courseEditorDiscardPendingChanges().then(function () {
+              return true;
+            }).catch(function (error) {
+              console.error('تعذر استعادة آخر نسخة منشورة قبل مغادرة محرر الدورة.', error);
+              UI.toast(t('courseLeaveRestoreFailed'), 'error');
+              return false;
+            });
+          });
+        }
+        return waitForSaveIdle().then(confirmLeave);
+      });
+    }
   }
 
   /* ---------- daily editor ---------- */
@@ -2126,10 +2757,21 @@
 
   /* ---------- boot ---------- */
 
+  window.ContentEditor = {
+    mount: function (editorPage, id) {
+      page = editorPage;
+      activeAdminEditorId = id || '';
+      UI.init();
+      initProjectEditor();
+      activeAdminEditorId = '';
+    }
+  };
+
   UI.init();
   if (page === 'edit-project' || page === 'edit-course') initProjectEditor();
 
   document.addEventListener('i18n:change', UI.debounce(function () {
+    if (window.Admin && document.getElementById('admSide')) return;
     location.reload();
   }, 400));
 })();

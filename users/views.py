@@ -1,19 +1,24 @@
 """Authentication views: login, signup, logout and profile editing."""
 import base64
 import binascii
+import hashlib
 import json
+import re
 import uuid
 
 from django.contrib import messages
+from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView as BaseLoginView
 from django.contrib.auth.views import LogoutView as BaseLogoutView
-from django.core.exceptions import ValidationError
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
+from django.core.validators import EmailValidator
 from django.db import IntegrityError, transaction
-from django.http import JsonResponse
-from django.shortcuts import redirect
+from django.http import Http404, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -28,6 +33,7 @@ from .models import (
     ProfileSkill,
     SignupRateLimit,
     SignupVerification,
+    StudentSetupLink,
     Skill,
     SocialLink,
     User,
@@ -59,6 +65,11 @@ class LoginView(BaseLoginView):
     def get_default_redirect_url(self):
         if self.request.user.role == UserRole.ADMIN:
             return reverse('dashboard:home')
+        if self.request.user.role == UserRole.STUDENT:
+            return reverse(
+                'accounts:profile',
+                kwargs={'handle': self.request.user.handle},
+            )
         return super().get_default_redirect_url()
 
     def post(self, request, *args, **kwargs):
@@ -76,7 +87,9 @@ class LoginView(BaseLoginView):
 
     def form_valid(self, form):
         user = form.get_user()
-        if not device_login_allowed(user, getattr(self.request, 'device_id', '')):
+        if user.role == UserRole.STUDENT and not device_login_allowed(
+            user, getattr(self.request, 'device_id', '')
+        ):
             form.add_error(
                 None,
                 'يُسمح بتسجيل الدخول من جهازين فقط لنفس الحساب. '
@@ -84,7 +97,8 @@ class LoginView(BaseLoginView):
             )
             return self.form_invalid(form)
         response = super().form_valid(form)
-        register_device_session(user, self.request)
+        if user.role == UserRole.STUDENT:
+            register_device_session(user, self.request)
         clear_failed_logins(user.phone)
         return response
 
@@ -167,6 +181,83 @@ class LogoutView(BaseLogoutView):
     def post(self, request, *args, **kwargs):
         unregister_device_session(request.user, request.session.session_key)
         return super().post(request, *args, **kwargs)
+
+
+@require_http_methods(['GET', 'POST'])
+def student_setup(request, token):
+    """Set a new student's password from a short-lived, single-use link."""
+    token_hash = hashlib.sha256(token.encode('utf-8')).hexdigest()
+    errors = []
+    link = None
+    user = None
+    redirect_url = None
+
+    with transaction.atomic():
+        link = (
+            StudentSetupLink.objects.select_for_update()
+            .select_related('user')
+            .filter(token_hash=token_hash)
+            .first()
+        )
+        if (
+            link is None
+            or link.consumed_at is not None
+            or link.expires_at <= timezone.now()
+            or link.user.has_usable_password()
+            or not link.user.is_active
+        ):
+            link = None
+        elif request.method == 'POST':
+            user = link.user
+            password = request.POST.get('password', '')
+            password_confirm = request.POST.get('password_confirm', '')
+            if password != password_confirm:
+                errors.append('كلمتا المرور غير متطابقتين.')
+            if not errors:
+                try:
+                    validate_password(password, user)
+                except ValidationError as exc:
+                    errors.extend(exc.messages)
+
+            device_id = getattr(request, 'device_id', '')
+            if not errors and device_id and not device_login_allowed(user, device_id):
+                errors.append(
+                    'لا يمكن تسجيل الدخول من هذا الجهاز؛ تم بلوغ الحد المسموح للأجهزة.'
+                )
+
+            if not errors:
+                user.set_password(password)
+                user.save(update_fields=['password'])
+                link.consumed_at = timezone.now()
+                link.save(update_fields=['consumed_at'])
+                redirect_url = reverse(
+                    'accounts:profile',
+                    kwargs={'handle': user.handle},
+                )
+
+    if link is None:
+        return render(
+            request,
+            'users/student_setup.html',
+            {'invalid_link': True},
+            status=410,
+        )
+
+    if redirect_url:
+        auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        register_device_session(user, request)
+        return redirect(redirect_url)
+
+    return render(
+        request,
+        'users/student_setup.html',
+        {
+            'invalid_link': False,
+            'expires_at': link.expires_at,
+            'errors': errors,
+        },
+        status=400 if errors else 200,
+    )
 
 
 @require_GET
@@ -270,27 +361,47 @@ def verify_signup_disabled(request):
 
 
 class ProfileUpdateView(LoginRequiredMixin, UpdateView):
-    """The logged-in user edits their own profile (users/profile_edit.html)."""
+    """Edit the logged-in user's profile or a trainer/student profile as admin."""
 
     template_name = 'users/profile_edit.html'
     form_class = ProfileEditForm
 
-    @method_decorator(transaction.atomic)
-    def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
+    def _is_admin(self):
+        return self.request.user.is_staff or self.request.user.is_admin_role
+
+    def _target_user(self, lock=False):
+        target_id = self.request.GET.get('user_id')
+        if not target_id:
+            return self.request.user
+        if not self._is_admin():
+            raise PermissionDenied
+        if not str(target_id).isdigit():
+            raise Http404
+        users = User.objects
+        if lock:
+            users = users.select_for_update()
+        return get_object_or_404(
+            users, pk=target_id, role__in=(UserRole.TRAINER, UserRole.STUDENT)
+        )
 
     def get_object(self, queryset=None):
-        user = self.request.user
-        if self.request.method == 'POST':
-            user = User.objects.select_for_update().get(pk=user.pk)
+        user = self._target_user(lock=self.request.method == 'POST')
         profile, _ = Profile.objects.get_or_create(user=user)
         return profile
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.setdefault('socials', SocialLinkFormSet(instance=self.object, prefix='socials'))
+        context['profile_editing_other'] = self.object.user_id != self.request.user.pk
+        context['profile_target_name'] = self.object.user.display_name
+        context['profile_cancel_url'] = (
+            reverse('accounts:profile', kwargs={'handle': self.object.user.handle})
+            if self.object.user.handle and self.object.is_public
+            else reverse('accounts:list')
+        )
         return context
 
+    @method_decorator(transaction.atomic)
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         form = self.get_form()
@@ -309,6 +420,10 @@ class ProfileUpdateView(LoginRequiredMixin, UpdateView):
         return self.render_to_response(self.get_context_data(form=form, socials=socials))
 
     def get_success_url(self):
+        if self.object.user_id != self.request.user.pk:
+            if self.object.user.handle and self.object.is_public:
+                return reverse('accounts:profile', kwargs={'handle': self.object.user.handle})
+            return reverse('accounts:list')
         return reverse('portfolio:home') + '?saved=1'
 
 
@@ -341,9 +456,36 @@ def _decode_data_url(data_url):
 @transaction.atomic
 def profile_update_ajax(request):
     """AJAX endpoint used by the client-side profile edit modal."""
-    user = User.objects.select_for_update().get(pk=request.user.pk)
-    profile, _ = Profile.objects.get_or_create(user=user)
+    target_user_id = request.POST.get('target_user_id')
+    if target_user_id:
+        if not (request.user.is_staff or request.user.is_admin_role):
+            return JsonResponse({'ok': False, 'error': 'permission_denied'}, status=403)
+        if not target_user_id.isdigit():
+            return JsonResponse({'ok': False, 'error': 'invalid_target'}, status=400)
+        user = get_object_or_404(
+            User.objects.select_for_update(),
+            pk=target_user_id,
+            role__in=(UserRole.TRAINER, UserRole.STUDENT),
+        )
+    else:
+        user = User.objects.select_for_update().get(pk=request.user.pk)
+    profile_form = request.POST.get('profile_form') == '1'
+    email = (request.POST.get('email') or '').strip()
+    if profile_form and not email:
+        return JsonResponse({'ok': False, 'error': 'invalid_email'}, status=400)
+    if email:
+        try:
+            EmailValidator()(email)
+        except ValidationError:
+            return JsonResponse({'ok': False, 'error': 'invalid_email'}, status=400)
 
+    whatsapp = (request.POST.get('whatsapp') or '').strip()
+    if profile_form and not whatsapp:
+        return JsonResponse({'ok': False, 'error': 'required_whatsapp'}, status=400)
+    if whatsapp and not re.fullmatch(r'\+?[0-9]{1,12}', whatsapp):
+        return JsonResponse({'ok': False, 'error': 'invalid_whatsapp'}, status=400)
+
+    profile, _ = Profile.objects.get_or_create(user=user)
     handle = (request.POST.get('handle') or '').strip().lstrip('@')
     if handle and handle != user.handle:
         if User.objects.filter(handle=handle).exclude(pk=user.pk).exists():
@@ -360,14 +502,31 @@ def profile_update_ajax(request):
             )
         user.full_name = full_name[:150]
 
+    admin_legal_names = None
     if user.is_trainer and 'trainer_name_en' in request.POST:
         user.trainer_name_en = (request.POST.get('trainer_name_en') or '').strip()[:200]
-    elif not user.is_trainer and (
+    if 'whatsapp' in request.POST:
+        profile.whatsapp = whatsapp
+    if not user.is_trainer and (
         'full_name_ar' in request.POST or 'full_name_en' in request.POST
     ):
         full_name_ar = ' '.join((request.POST.get('full_name_ar') or '').split())
         full_name_en = ' '.join((request.POST.get('full_name_en') or '').split())
-        if user.full_name_ar or user.full_name_en:
+        if target_user_id:
+            if bool(full_name_ar) != bool(full_name_en):
+                return JsonResponse(
+                    {'ok': False, 'error': 'legal_name_pair_required'}, status=400
+                )
+            if full_name_ar:
+                try:
+                    validate_arabic_three_part_name(full_name_ar)
+                    validate_english_three_part_name(full_name_en)
+                except ValidationError:
+                    return JsonResponse(
+                        {'ok': False, 'error': 'invalid_legal_name'}, status=400
+                    )
+            admin_legal_names = (full_name_ar, full_name_en)
+        elif user.full_name_ar or user.full_name_en:
             if (
                 full_name_ar and full_name_ar != user.full_name_ar
                 or full_name_en and full_name_en != user.full_name_en
@@ -385,10 +544,16 @@ def profile_update_ajax(request):
             user.full_name_en = full_name_en
 
     if 'email' in request.POST:
-        user.email = (request.POST.get('email') or '').strip()
+        user.email = email
 
     user.is_verified = user.is_trainer
     user.save()
+    if target_user_id and not user.is_trainer and admin_legal_names is not None:
+        user.full_name_ar, user.full_name_en = admin_legal_names
+        User.objects.filter(pk=user.pk).update(
+            full_name_ar=user.full_name_ar,
+            full_name_en=user.full_name_en,
+        )
 
     profile.headline = (request.POST.get('headline') or '').strip()[:35]
     profile.bio = (request.POST.get('bio') or '').strip()[:150]
@@ -448,6 +613,7 @@ def profile_update_ajax(request):
             SocialLink.objects.create(profile=profile, platform=platform, url=url)
 
     data = profile.to_public_dict()
+    data['whatsapp'] = profile.whatsapp
     data['fullNameArabic'] = user.full_name_ar
     data['fullNameEnglish'] = user.full_name_en
     data['trainerNameEnglish'] = user.trainer_name_en or user.full_name_en

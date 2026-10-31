@@ -23,15 +23,17 @@
 
   function matchesSearch(course, query) {
     if (!query) return true;
+    var tags = [].concat(course.tags || [], course.skills || []);
     var searchable = normalizeSearchText([
       course.title,
+      course.titleEnglish,
       course.summary,
       course.description,
       course.category,
       course.instructor,
       course.issuer,
       course.owner && course.owner.name,
-      (course.skills || []).join(' ')
+      tags.join(' ')
     ].join(' '));
     return query.split(/\s+/).every(function (term) {
       return searchable.indexOf(term) !== -1;
@@ -42,22 +44,73 @@
     return !category || normalizeSearchText(course.category) === normalizeSearchText(category);
   }
 
-  function populateCategoryFilter() {
-    var select = document.getElementById('coursesCategoryFilter');
-    if (!select) return;
+  function updateCategoryTags() {
+    var host = document.getElementById('coursesCategoryTags');
+    if (!host) return;
+    host.querySelectorAll('[data-course-category]').forEach(function (button) {
+      var isSelected = normalizeSearchText(button.dataset.courseCategory) === normalizeSearchText(selectedCategory);
+      button.classList.toggle('is-active', isSelected);
+      button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      button.disabled = reorderMode;
+    });
+    updateCategoryResetVisibility();
+  }
+
+  function updateCategoryResetVisibility() {
+    var host = document.getElementById('coursesCategoryTags');
+    var resetButton = document.getElementById('coursesCategoryReset');
+    var firstTag = host && host.querySelector('[data-course-category]');
+    if (!host || !resetButton || !firstTag) return;
+    var hostBounds = host.getBoundingClientRect();
+    var tagBounds = firstTag.getBoundingClientRect();
+    var isFirstTagVisible = tagBounds.left < hostBounds.right &&
+      tagBounds.right > hostBounds.left;
+    resetButton.hidden = reorderMode || isFirstTagVisible || host.scrollWidth <= host.clientWidth;
+  }
+
+  function populateCategoryTags() {
+    var host = document.getElementById('coursesCategoryTags');
+    if (!host) return;
     var categories = {};
-    Store.collection('certificates').forEach(function (course) {
-      var category = String(course.category || '').trim();
-      if (category) categories[category] = true;
+    var trainingCategories = SITE.trainingCategories();
+    var orderedCategories = [];
+    if (trainingCategories) {
+      trainingCategories.forEach(function (category) {
+        category = String(category || '').trim();
+        if (category && !categories[category]) {
+          categories[category] = true;
+          orderedCategories.push(category);
+        }
+      });
+    } else {
+      Store.collection('certificates').forEach(function (course) {
+        var category = String(course.category || '').trim();
+        if (category && !categories[category]) {
+          categories[category] = true;
+          orderedCategories.push(category);
+        }
+      });
+    }
+    if (!orderedCategories.length) {
+      orderedCategories = Object.keys(categories);
+    }
+    var allCategories = document.createElement('button');
+    allCategories.type = 'button';
+    allCategories.className = 'course-category-tag is-active';
+    allCategories.dataset.courseCategory = '';
+    allCategories.textContent = I18n.t('coursesAllCategories');
+    allCategories.setAttribute('aria-pressed', 'true');
+    host.appendChild(allCategories);
+    orderedCategories.forEach(function (category) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'course-category-tag';
+      button.dataset.courseCategory = category;
+      button.textContent = category;
+      button.setAttribute('aria-pressed', 'false');
+      host.appendChild(button);
     });
-    Object.keys(categories).sort(function (a, b) {
-      return a.localeCompare(b, I18n.getLang() === 'en' ? 'en' : 'ar');
-    }).forEach(function (category) {
-      var option = document.createElement('option');
-      option.value = category;
-      option.textContent = category;
-      select.appendChild(option);
-    });
+    updateCategoryResetVisibility();
   }
 
   function renderCerts() {
@@ -68,18 +121,12 @@
     var list = orderedCourses.filter(function (course) {
       return matchesSearch(course, query) && matchesCategory(course, selectedCategory);
     });
-    var resultCount = document.getElementById('coursesResultCount');
-    if (resultCount) {
-      resultCount.textContent = I18n.t('coursesSearchCount', {
-        shown: Math.min(visibleLimit, list.length),
-        total: list.length
-      });
-    }
     var visibleCourses = reorderMode ? list : list.slice(0, visibleLimit);
     host.innerHTML = visibleCourses.length
       ? visibleCourses.map(function (course) {
           return AppPage.certCard(course, {
             course: true,
+            homeCourseCard: true,
             allowComingSoon: !!reorderTools,
             from: 'all-courses',
             returnTo: location.pathname + location.search + location.hash
@@ -95,9 +142,6 @@
     if (reorderMode) addReorderControls(host, visibleCourses);
     var moreWrap = document.getElementById('coursesMoreWrap');
     if (moreWrap) moreWrap.hidden = reorderMode || list.length <= visibleLimit;
-    if (resultCount && reorderMode) {
-      resultCount.textContent = 'اسحب مقبض البطاقة أو استخدم أزرار التحريك لتغيير موضع الدورة.';
-    }
   }
 
   function addComingSoonControls(host, courses) {
@@ -206,10 +250,7 @@
       searchInput.value = '';
       searchInput.disabled = enabled;
     }
-    if (categoryFilter) {
-      categoryFilter.value = '';
-      categoryFilter.disabled = enabled;
-    }
+    updateCategoryTags();
     document.getElementById('courseReorderStart').hidden = enabled;
     document.getElementById('courseReorderSave').hidden = !enabled;
     document.getElementById('courseReorderCancel').hidden = !enabled;
@@ -221,8 +262,8 @@
 
   SiteChrome.mount();
   var searchInput = document.getElementById('coursesSearch');
-  var categoryFilter = document.getElementById('coursesCategoryFilter');
-  populateCategoryFilter();
+  var categoryTags = document.getElementById('coursesCategoryTags');
+  populateCategoryTags();
   renderCerts();
 
   if (searchInput) {
@@ -232,12 +273,70 @@
       renderCerts();
     }, 180));
   }
-  if (categoryFilter) {
-    categoryFilter.addEventListener('change', function () {
-      selectedCategory = categoryFilter.value;
+  if (categoryTags) {
+    var categoryReset = document.getElementById('coursesCategoryReset');
+    var categoryDrag = null;
+    var suppressCategoryClick = false;
+
+    categoryTags.addEventListener('mousedown', function (event) {
+      if (event.button !== 0) return;
+      categoryDrag = {
+        startX: event.clientX,
+        startScrollLeft: categoryTags.scrollLeft,
+        moved: false
+      };
+    });
+
+    document.addEventListener('mousemove', function (event) {
+      if (!categoryDrag) return;
+      var deltaX = event.clientX - categoryDrag.startX;
+      if (Math.abs(deltaX) > 4) {
+        categoryDrag.moved = true;
+        categoryTags.classList.add('is-dragging');
+      }
+      if (categoryDrag.moved) {
+        categoryTags.scrollLeft = categoryDrag.startScrollLeft - deltaX;
+        event.preventDefault();
+      }
+    });
+
+    document.addEventListener('mouseup', function () {
+      if (!categoryDrag) return;
+      suppressCategoryClick = categoryDrag.moved;
+      categoryDrag = null;
+      categoryTags.classList.remove('is-dragging');
+      if (suppressCategoryClick) {
+        window.setTimeout(function () { suppressCategoryClick = false; }, 0);
+      }
+    });
+
+    categoryTags.addEventListener('click', function (event) {
+      if (suppressCategoryClick) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      var button = event.target.closest('[data-course-category]');
+      if (!button || reorderMode) return;
+      selectedCategory = button.dataset.courseCategory;
       visibleLimit = INITIAL_LIMIT;
+      updateCategoryTags();
       renderCerts();
     });
+
+    categoryTags.addEventListener('scroll', updateCategoryResetVisibility, { passive: true });
+
+    if (categoryReset) {
+      categoryReset.addEventListener('click', function () {
+        selectedCategory = '';
+        visibleLimit = INITIAL_LIMIT;
+        categoryTags.scrollTo({ left: 0, behavior: 'smooth' });
+        updateCategoryTags();
+        renderCerts();
+      });
+    }
+
+    window.addEventListener('resize', updateCategoryResetVisibility);
   }
 
   var moreButton = document.getElementById('coursesMore');

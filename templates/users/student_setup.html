@@ -1,0 +1,40 @@
+{% extends "users/auth_base.html" %}
+
+{% block title %}إعداد كلمة المرور — مركز داتا للتدريب والتطوير{% endblock %}
+{% block description %}أنشئ كلمة مرور لحسابك في مركز داتا للتدريب والتطوير.{% endblock %}
+
+{% block auth_content %}
+  <main class="auth-wrap">
+    <section class="auth-card" aria-label="إعداد كلمة المرور">
+      <div class="auth-head">
+        <h1>إعداد كلمة المرور</h1>
+        {% if invalid_link %}
+          <p>رابط الإعداد غير صالح أو انتهت صلاحيته أو سبق استخدامه. يرجى التواصل مع الإدارة لطلب رابط جديد.</p>
+        {% else %}
+          <p>أنشئ كلمة مرور لحسابك. ينتهي الرابط في {{ expires_at|date:"Y-m-d H:i" }}.</p>
+        {% endif %}
+      </div>
+      {% if not invalid_link %}
+        <form method="post">
+          {% csrf_token %}
+          {% if errors %}
+            <div class="auth-alert" role="alert" aria-live="polite">
+              {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+            </div>
+          {% endif %}
+          <div class="field">
+            <label class="label" for="studentSetupPassword">كلمة المرور</label>
+            <input class="input" id="studentSetupPassword" name="password" type="password"
+                   autocomplete="new-password" required>
+          </div>
+          <div class="field">
+            <label class="label" for="studentSetupPasswordConfirm">تأكيد كلمة المرور</label>
+            <input class="input" id="studentSetupPasswordConfirm" name="password_confirm" type="password"
+                   autocomplete="new-password" required>
+          </div>
+          <button type="submit" class="btn btn-grad btn-lg btn-block">حفظ وتسجيل الدخول</button>
+        </form>
+      {% endif %}
+    </section>
+  </main>
+{% endblock %}

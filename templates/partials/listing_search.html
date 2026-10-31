@@ -1,0 +1,25 @@
+<div class="freelancers-search-wrap listing-search-sticky" data-listing-search="{{ listing_search_id }}">
+  <button class="listing-search-toggle" id="{{ listing_search_id }}SearchToggle" type="button" aria-controls="{{ listing_search_id }}SearchPanel" aria-expanded="true" aria-label="إغلاق البحث والفئات">
+    <svg class="listing-search-toggle-open-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+    <svg class="listing-search-toggle-close-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+  </button>
+  <div class="listing-search-panel" id="{{ listing_search_id }}SearchPanel">
+    <div class="listing-search-content">
+      <div class="courses-filter-row courses-search-row">
+        <label class="freelancers-search" for="{{ listing_search_id }}Search">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+          <input id="{{ listing_search_id }}Search" type="search" data-i18n-ph="{{ listing_search_id }}SearchPlaceholder" autocomplete="off">
+        </label>
+      </div>
+      <div class="course-category-strip">
+        <div class="course-category-tags" id="{{ listing_search_id }}CategoryTags" role="group" aria-label="تصفية حسب الفئة"></div>
+        <button class="course-category-reset" id="{{ listing_search_id }}CategoryReset" type="button" aria-label="كل الفئات والعودة لبداية القائمة" title="كل الفئات" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+        </button>
+      </div>
+      {% if listing_search_show_count %}
+        <p class="freelancers-result-count" id="{{ listing_search_id }}ResultCount" aria-live="polite"></p>
+      {% endif %}
+    </div>
+  </div>
+</div>

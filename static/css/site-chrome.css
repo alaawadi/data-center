@@ -367,18 +367,18 @@ body.no-scroll { overflow: hidden; }
   .sheet-overlay,
   .courses-sheet { --u: 8.32px; }
   .header {
-    padding: calc(1.1 * var(--u)) 5%;
+    padding: calc(1.7 * var(--u)) 5%;
     border-radius: 0 0 calc(2 * var(--u)) calc(2 * var(--u));
   }
   .header .navbar { display: none; }
   .header .icons button,
   .header .icons a.i-account {
-    width: calc(3.9 * var(--u));
-    height: calc(3.9 * var(--u));
-    font-size: calc(1.7 * var(--u));
+    width: calc(4.8 * var(--u));
+    height: calc(4.8 * var(--u));
+    font-size: calc(2.2 * var(--u));
   }
-  .header .logo { font-size: calc(2 * var(--u)); }
-  .header .logo img { width: calc(3.8 * var(--u)); }
+  .header .logo { font-size: calc(2.4 * var(--u)); }
+  .header .logo img { width: calc(4.3 * var(--u)); }
   .footer { padding-inline: 5%; }
 
   .bottom-navbar { display: flex; justify-content: space-around; }

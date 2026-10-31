@@ -1,0 +1,26 @@
+<script id="theme-bootstrap">
+  (function () {
+    try {
+      var theme = '';
+      var savedTheme = localStorage.getItem('dc-theme');
+      if (savedTheme === 'dark' || savedTheme === 'light') {
+        theme = savedTheme;
+      } else {
+        var stored = localStorage.getItem('student_portfolio_v2');
+        if (stored) {
+          try {
+            var state = JSON.parse(stored);
+            if (state && state.ui && (state.ui.theme === 'dark' || state.ui.theme === 'light')) {
+              theme = state.ui.theme;
+            }
+          } catch (error) {
+            console.warn('Saved portfolio state could not be read while restoring the theme.', error);
+          }
+        }
+      }
+      if (theme) document.documentElement.setAttribute('data-theme', theme);
+    } catch (error) {
+      console.warn('Saved theme could not be restored before rendering.', error);
+    }
+  })();
+</script>

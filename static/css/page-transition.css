@@ -2,11 +2,6 @@
   display: none;
 }
 
-html.is-page-transitioning {
-  overflow: hidden;
-  scrollbar-gutter: stable;
-}
-
 html.is-page-transitioning body > :not(.page-transition-skeleton):not(.header):not(.topbar):not(.footer):not(.bottom-navbar) {
   visibility: hidden !important;
 }

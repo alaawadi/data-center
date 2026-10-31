@@ -9,6 +9,8 @@
   var userCounts = { certs: 0, projs: 0, posts: 0 };
   var isTrainerProfile = false;
   var isSelfProfile = false;
+  var profileSkillsExpanded = false;
+  var profileSkillItems = [];
 
   function profileText(ar, en) {
     return I18n.getLang() === 'en' ? en : ar;
@@ -34,6 +36,26 @@
     return SITE.u('users');
   }
 
+  function confirmWebsiteOpen(url) {
+    var dialog = UI.modal({
+      title: t('websiteConfirmTitle'),
+      body: '<div class="website-confirm-content">' +
+        '<span class="website-confirm-icon" aria-hidden="true">' + UI.icon('external-link', 22) + '</span>' +
+        '<p class="modal-text">' + e(t('websiteConfirm')) + '</p>' +
+        '<span class="website-confirm-url" dir="ltr">' + e(url) + '</span>' +
+        '</div>',
+      footer: '<button class="btn btn-ghost" type="button" data-website-cancel>' + e(t('cancel')) + '</button>' +
+        '<button class="btn btn-primary" type="button" data-website-confirm>' +
+        UI.icon('external-link', 16) + e(t('websiteOpen')) + '</button>',
+      size: 'sm'
+    });
+    dialog.el.querySelector('[data-website-cancel]').addEventListener('click', dialog.close);
+    dialog.el.querySelector('[data-website-confirm]').addEventListener('click', function () {
+      dialog.close();
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
+  }
+
   function renderUserProfileHeader(p, selfProfile) {
     var host = document.getElementById('profileHost');
     if (!host) return;
@@ -41,10 +63,14 @@
 
     host.innerHTML =
       '<a class="detail-back" href="' + e(profileBackUrl()) + '">' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(t('back')) + '</a>' +
+      (p.adminTargetUserId ? '<button class="btn btn-primary" style="margin-block:12px" type="button" data-act="edit-admin-profile">' + UI.icon('pencil', 16) + ' تعديل البروفايل</button>' : '') +
       '<section class="card profile-card">' +
       '<div class="profile-banner"' + (p.cover ? ' style="background-image:url(\'' + e(p.cover) + '\')"' : '') + '>' +
       '<span class="bub" style="width:160px;height:160px;top:-60px;inset-inline-end:12%"></span>' +
       '<span class="bub" style="width:90px;height:90px;bottom:-30px;inset-inline-start:18%"></span>' +
+      (p.isTrainer && p.whatsapp
+        ? '<button class="btn btn-primary profile-banner-contact" type="button" data-act="trainer-whatsapp" data-phone="' + e(p.whatsapp) + '">' + UI.icon('whatsapp', 16) + ' تواصل معي</button>'
+        : '') +
       '</div>' +
       '<div class="profile-body">' +
       '<div class="profile-top">' +
@@ -58,9 +84,10 @@
       '</div>' +
       (p.bio ? '<p class="bio">' + e(p.bio) + '</p>' : '') +
       '<div class="profile-meta">' +
-      (p.website ? '<a class="pm" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
-      (p.email ? '<span class="pm">' + UI.icon('message-circle', 14) + e(p.email) + '</span>' : '') +
-      (p.joined ? '<span class="pm">' + UI.icon('calendar', 14) + e(t('joined')) + ' ' + e(UI.formatDate(p.joined)) + '</span>' : '') +
+      (p.website ? '<a class="pm" data-act="open-profile-website" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
+      (p.email ? '<span class="pm profile-email">' + UI.icon('message-circle', 14) + e(p.email) +
+        '<button class="profile-email-copy" type="button" data-act="copy-profile-email" data-email="' + e(p.email) +
+        '" title="' + e(t('copyEmail')) + '" aria-label="' + e(t('copyEmail')) + '">' + UI.icon('copy', 14) + '</button></span>' : '') +
       '</div></div>' +
       (selfProfile && typeof p.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
@@ -85,27 +112,68 @@
   function renderUserSkills(p) {
     var host = document.getElementById('publicSkills');
     if (!host) return;
-    var skills = Array.isArray(p.skills) ? p.skills : [];
-    host.innerHTML = '<div class="card-head"><h2>' + UI.icon('zap', 17) + e(t('skills')) + '</h2></div>' +
-      (skills.length
-        ? '<div class="skills-grid is-collapsed">' + skills.map(function (skill) {
-            return '<span class="skill-item skill-tag"><span class="sk-name">' + e(skill) + '</span></span>';
-          }).join('') + '</div>'
-        : '<p class="tiny muted">' + e(t('skillsEmpty')) + '</p>');
+    var skills = Array.isArray(p.skills)
+      ? p.skills.filter(function (skill) { return String(skill || '').trim(); })
+      : [];
+    var levelsByName = {};
+    (Array.isArray(p.skillsWithLevels) ? p.skillsWithLevels : []).forEach(function (skill) {
+      if (!skill || !skill.name) return;
+      levelsByName[String(skill.name).trim().toLowerCase()] = skill.level;
+    });
+    profileSkillItems = skills.map(function (skill) {
+      var name = String(skill).trim();
+      var rawLevel = Number(levelsByName[name.toLowerCase()]);
+      var level = Number.isFinite(rawLevel) ? Math.max(0, Math.min(100, rawLevel)) : 0;
+      return { name: name, level: level };
+    });
+    renderUserSkillsContent(host);
+  }
+
+  function renderUserSkillsContent(host) {
+    host = host || document.getElementById('publicSkills');
+    if (!host) return;
+    var skills = profileSkillItems;
+    host.hidden = skills.length === 0;
+    if (!skills.length) {
+      host.innerHTML = '';
+      return;
+    }
+    host.innerHTML = '<div class="card-head"><h2>' + UI.icon('zap', 17) + e(t('skills')) + '</h2>' +
+      (skills.length > 4
+        ? '<span class="spacer"></span><button class="link-btn" type="button" data-act="toggle-profile-skills" aria-expanded="' + profileSkillsExpanded + '">' +
+          e(t(profileSkillsExpanded ? 'showLess' : 'showAll')) + UI.icon('chevron-down', 14) + '</button>'
+        : '') + '</div>' +
+      '<div class="skills-grid ' + (profileSkillsExpanded ? 'is-expanded' : 'is-collapsed skill-tags-scroll') + '">' +
+      skills.map(function (skill) {
+        return profileSkillsExpanded
+          ? '<div class="skill-item"><div class="skill-top"><span class="sk-name">' + e(skill.name) + '</span><span class="sk-pct">' + skill.level + '%</span></div>' +
+            '<div class="skill-bar"><i style="width:' + skill.level + '%"></i></div></div>'
+          : '<span class="skill-item skill-tag"><span class="sk-name">' + e(skill.name) + '</span></span>';
+      }).join('') + '</div>';
+    if (!profileSkillsExpanded && window.AppPage && AppPage.initSkillTagScroller) {
+      AppPage.initSkillTagScroller(host.querySelector('.skill-tags-scroll'));
+    }
   }
 
   function renderProfileTabs() {
     var host = document.getElementById('profileTabs');
     if (!host) return;
-    var tabs = [
-      {
+    var tabs = [];
+    if (userCounts.certs > 0) tabs.push({
         id: 'certificates',
         count: userCounts.certs,
-        label: isTrainerProfile ? 'statTrainerCourses' : 'statCertificates',
+        label: isTrainerProfile ? 'statTrainerCourses' : 'studentProfileCertificates',
         icon: isTrainerProfile ? 'graduation-cap' : 'award'
-      },
-      { id: 'projects', count: userCounts.projs, label: 'statProjects', icon: 'folder' }
-    ];
+      });
+    if (userCounts.projs > 0) tabs.push({
+      id: 'projects',
+      count: userCounts.projs,
+      label: isTrainerProfile ? 'trainerProfileProjects' : 'studentProfileProjects',
+      icon: 'folder'
+    });
+    if (!tabs.some(function (tab) { return tab.id === activeTab; })) {
+      activeTab = tabs.length ? tabs[0].id : '';
+    }
     host.innerHTML = tabs.map(function (tab) {
       var selected = activeTab === tab.id;
       return '<button class="profile-tab' + (selected ? ' is-active' : '') + '" type="button" role="tab" ' +
@@ -188,12 +256,16 @@
 
   function setTab(id) {
     if (id === 'saved' && !isSelfProfile) return;
+    if (id === 'certificates' && !userCounts.certs) return;
+    if (id === 'projects' && !userCounts.projs) return;
     activeTab = id;
     document.querySelectorAll('.panel').forEach(function (el) {
       el.classList.toggle('active', el.id === 'panel-' + id);
     });
     syncStatTabs();
-    try { history.replaceState(null, '', location.pathname + location.search + '#' + id); } catch (err) { }
+    if (id) {
+      try { history.replaceState(null, '', location.pathname + location.search + '#' + id); } catch (err) { }
+    }
   }
 
   var EMBEDDED_PROFILE = (function () {
@@ -309,9 +381,15 @@
         location: EMBEDDED_PROFILE.location,
         website: EMBEDDED_PROFILE.website,
         email: EMBEDDED_PROFILE.email,
+        whatsapp: EMBEDDED_PROFILE.whatsapp,
         joined: EMBEDDED_PROFILE.joined,
-        referral_points: EMBEDDED_PROFILE.referral_points,
-        referral_visits: EMBEDDED_PROFILE.referral_visits
+        adminTargetUserId: EMBEDDED_PROFILE.adminTargetUserId,
+        fullNameArabic: EMBEDDED_PROFILE.fullNameArabic,
+        fullNameEnglish: EMBEDDED_PROFILE.fullNameEnglish,
+        trainerNameEnglish: EMBEDDED_PROFILE.trainerNameEnglish,
+        skillsWithLevels: EMBEDDED_PROFILE.skillsWithLevels,
+        isTrainer: EMBEDDED_PROFILE.isTrainer,
+        roleKey: EMBEDDED_PROFILE.roleKey
       });
     }
     if (!user) {
@@ -321,6 +399,9 @@
 
     /* هل صاحب البروفايل مدرب؟ عندها يُستبدل قسم الشهادات بقسم «الدورات التدريبية» */
     isTrainerProfile = !!(EMBEDDED_PROFILE && (EMBEDDED_PROFILE.isTrainer || EMBEDDED_PROFILE.roleKey === 'trainer'));
+    if (isTrainerProfile && tabFromHash !== 'projects') {
+      activeTab = 'certificates';
+    }
 
     var earnedCerts = window.Store && Store.profileCerts ? Store.profileCerts() : null;
     var earnedById = {};
@@ -376,6 +457,42 @@
   document.addEventListener('DOMContentLoaded', boot);
   document.addEventListener('i18n:change', UI.debounce(boot, 60));
   document.addEventListener('click', function (ev) {
+    var websiteLink = ev.target.closest('[data-act="open-profile-website"]');
+    if (websiteLink) {
+      ev.preventDefault();
+      confirmWebsiteOpen(websiteLink.href);
+      return;
+    }
+    var copyEmailButton = ev.target.closest('[data-act="copy-profile-email"]');
+    if (copyEmailButton) {
+      ev.preventDefault();
+      UI.shareLink(copyEmailButton.getAttribute('data-email'), t('copied'));
+      return;
+    }
+    var skillsButton = ev.target.closest('[data-act="toggle-profile-skills"]');
+    if (skillsButton) {
+      profileSkillsExpanded = !profileSkillsExpanded;
+      renderUserSkillsContent();
+      return;
+    }
+    var whatsappButton = ev.target.closest('[data-act="trainer-whatsapp"]');
+    if (whatsappButton) {
+      ev.preventDefault();
+      var phone = (whatsappButton.getAttribute('data-phone') || '').replace(/\D/g, '');
+      if (!phone) return;
+      if (window.confirm('سيتم فتح واتساب للتواصل مع المدرب. هل تريد المتابعة؟')) {
+        window.open('https://wa.me/' + phone, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
+    var adminEditButton = ev.target.closest('[data-act="edit-admin-profile"]');
+    if (adminEditButton) {
+      ev.preventDefault();
+      if (window.AppPage && AppPage.openProfileModal && EMBEDDED_PROFILE) {
+        AppPage.openProfileModal(EMBEDDED_PROFILE);
+      }
+      return;
+    }
     var actEl = ev.target.closest('[data-act="utab"]');
     if (!actEl) return;
     ev.preventDefault();

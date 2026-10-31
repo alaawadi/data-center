@@ -910,7 +910,6 @@
   }
 
   document.addEventListener('click', handleLeaveClick, true);
-
   window.addEventListener('beforeunload', function (ev) {
     if (!quizInProgress()) return;
     ev.preventDefault();

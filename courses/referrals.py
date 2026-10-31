@@ -1,6 +1,11 @@
 from django.db import transaction
 
-from .models import CourseProgress, StudentPointTransaction, StudentReferral
+from .models import (
+    CourseProgress,
+    StudentPointTransaction,
+    StudentReferral,
+)
+from users.models import UserRole
 
 
 @transaction.atomic
@@ -41,3 +46,27 @@ def award_referral_points_for_enrollment(student, course=None):
         )
         awarded = awarded or created
     return awarded
+
+
+@transaction.atomic
+def award_referral_points_for_registration_request(registration_request):
+    if not registration_request.referral_link_id:
+        return False
+
+    referral_link = registration_request.referral_link
+    if (
+        referral_link.referrer.role != UserRole.STUDENT
+        or referral_link.course_id != registration_request.course_id
+    ):
+        return False
+
+    _, created = StudentPointTransaction.objects.get_or_create(
+        registration_request=registration_request,
+        defaults={
+            'student': referral_link.referrer,
+            'points': 10,
+            'kind': StudentPointTransaction.Kind.REFERRAL,
+            'course_id': registration_request.course_id,
+        },
+    )
+    return created

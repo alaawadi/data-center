@@ -22,9 +22,11 @@
     try {
       if (body && body.getAttribute('data-page') === 'edit-course') {
         sessionStorage.removeItem('dc-page-transition');
-        root.classList.remove(transitionClass);
-        root.classList.remove('is-page-transition-settling');
         root.removeAttribute(pendingAttribute);
+        if (!root.hasAttribute('data-initial-page-loading')) {
+          root.classList.remove(transitionClass);
+          root.classList.remove('is-page-transition-settling');
+        }
         return;
       }
 
@@ -39,6 +41,9 @@
           root.setAttribute(pendingAttribute, '');
           window.setTimeout(function () {
             if (root.hasAttribute(pendingAttribute)) {
+              if (!window.__pageLoadingStartedAt) {
+                window.__pageLoadingStartedAt = performance.now();
+              }
               root.classList.add(transitionClass);
             }
           }, 100);

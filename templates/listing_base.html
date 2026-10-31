@@ -8,6 +8,6 @@
     {% block listing_tools %}{% endblock %}
     <section class="card-grid listing" id="{% block grid_id %}{% endblock %}" aria-label="{% block grid_label %}{% endblock %}"></section>
     {% block listing_pagination %}{% endblock %}
-    {% block data_json %}{% endblock %}
+    {% block data_json %}{{ training_categories_json|json_script:"training-categories-data" }}{% endblock %}
   </main>
 {% endblock %}

@@ -1,3 +1,6 @@
+import hashlib
+from datetime import timedelta
+
 from django.contrib.auth.hashers import make_password
 from django.core import mail
 from django.core.exceptions import ValidationError
@@ -6,7 +9,15 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from .forms import ProfileEditForm
-from .models import DeviceSession, LoginAttempt, Profile, SignupVerification, User, UserRole
+from .models import (
+    DeviceSession,
+    LoginAttempt,
+    Profile,
+    SignupVerification,
+    StudentSetupLink,
+    User,
+    UserRole,
+)
 from .models import SignupRateLimit
 
 PHONE = '0591000010'
@@ -65,10 +76,14 @@ class LoginSecurityTests(TestCase):
 
         self.assertRedirects(response, reverse('dashboard:home'), fetch_redirect_response=False)
 
-    def test_student_login_keeps_default_redirect(self):
+    def test_student_login_redirects_to_personal_profile(self):
         response = self._post()
 
-        self.assertRedirects(response, reverse('portfolio:home'), fetch_redirect_response=False)
+        self.assertRedirects(
+            response,
+            reverse('accounts:profile', kwargs={'handle': self.user.handle}),
+            fetch_redirect_response=False,
+        )
 
     def test_login_preserves_local_next_redirect(self):
         next_url = '/projects/target-project/'
@@ -102,6 +117,40 @@ class LoginSecurityTests(TestCase):
         self.assertIn('جهازين فقط', response.content.decode('utf-8'))
         self.assertEqual(DeviceSession.objects.filter(user=self.user).count(), 2)
         self.assertFalse(response.wsgi_request.user.is_authenticated)
+
+    def test_trainer_can_log_in_from_more_than_two_devices(self):
+        trainer = User.objects.create_user(
+            phone='0591000013',
+            password=PASSWORD,
+            full_name='مدرب تجربة',
+            role=UserRole.TRAINER,
+        )
+
+        clients = [Client(), Client(), Client()]
+        responses = [
+            self._post(phone=trainer.phone, client=client)
+            for client in clients
+        ]
+
+        self.assertTrue(all(response.status_code == 302 for response in responses))
+        self.assertEqual(DeviceSession.objects.filter(user=trainer).count(), 0)
+
+    def test_admin_can_log_in_from_more_than_two_devices(self):
+        admin = User.objects.create_user(
+            phone='0591000014',
+            password=PASSWORD,
+            full_name='مدير تجريبي',
+            role=UserRole.ADMIN,
+        )
+
+        clients = [Client(), Client(), Client()]
+        responses = [
+            self._post(phone=admin.phone, client=client)
+            for client in clients
+        ]
+
+        self.assertTrue(all(response.status_code == 302 for response in responses))
+        self.assertEqual(DeviceSession.objects.filter(user=admin).count(), 0)
 
     def test_logout_frees_device_slot(self):
         self._post()
@@ -345,6 +394,62 @@ class SignupStepOneTests(TestCase):
 
 
 class ProfileVerificationTests(TestCase):
+    def test_profile_modal_requires_valid_email_and_whatsapp_for_students_and_trainers(self):
+        for index, role in enumerate((UserRole.STUDENT, UserRole.TRAINER), start=1):
+            user = User.objects.create_user(
+                phone=f'059100006{index}',
+                password='pass1234',
+                full_name=f'مستخدم تجربة {index}',
+                role=role,
+            )
+            self.client.force_login(user)
+            url = reverse('users:profile-update')
+            common_data = {
+                'profile_form': '1',
+                'full_name': user.full_name,
+                'email': 'valid@example.com',
+            }
+            if role == UserRole.STUDENT:
+                common_data.update({'full_name_ar': '', 'full_name_en': ''})
+            else:
+                common_data['trainer_name_en'] = ''
+
+            missing_whatsapp = self.client.post(url, common_data)
+            self.assertEqual(missing_whatsapp.status_code, 400)
+            self.assertEqual(missing_whatsapp.json()['error'], 'required_whatsapp')
+
+            missing_email = self.client.post(url, {
+                **common_data,
+                'email': '',
+                'whatsapp': '+970599999999',
+            })
+            self.assertEqual(missing_email.status_code, 400)
+            self.assertEqual(missing_email.json()['error'], 'invalid_email')
+
+            invalid_email = self.client.post(url, {
+                **common_data,
+                'email': 'not-an-email',
+                'whatsapp': '+970599999999',
+            })
+            self.assertEqual(invalid_email.status_code, 400)
+            self.assertEqual(invalid_email.json()['error'], 'invalid_email')
+
+            invalid_whatsapp = self.client.post(url, {
+                **common_data,
+                'whatsapp': 'not-a-number',
+            })
+            self.assertEqual(invalid_whatsapp.status_code, 400)
+            self.assertEqual(invalid_whatsapp.json()['error'], 'invalid_whatsapp')
+
+            valid_update = self.client.post(url, {
+                **common_data,
+                'whatsapp': '+970599999999',
+            })
+            self.assertEqual(valid_update.status_code, 200, valid_update.content)
+            user.refresh_from_db()
+            self.assertEqual(user.email, 'valid@example.com')
+            self.assertEqual(user.profile.whatsapp, '+970599999999')
+
     def test_profile_update_does_not_allow_student_to_set_verified_badge(self):
         student = User.objects.create_user(
             phone='0591000050',
@@ -435,11 +540,34 @@ class LegalCertificateNameTests(TestCase):
             'full_name_ar': 'أحمد خالد الحسن',
             'full_name_en': 'Ahmad Khaled',
         })
+        invalid_language_or_digits = [
+            {
+                'full_name_ar': 'أحمد خالد 3',
+                'full_name_en': 'Ahmad Khaled Alhasan',
+            },
+            {
+                'full_name_ar': 'أحمد خالد الحسن',
+                'full_name_en': 'Ahmad Khaled 3',
+            },
+            {
+                'full_name_ar': 'Ahmed Khaled Alhasan',
+                'full_name_en': 'Ahmad Khaled Alhasan',
+            },
+            {
+                'full_name_ar': 'أحمد خالد الحسن',
+                'full_name_en': 'أحمد خالد الحسن',
+            },
+        ]
 
         self.assertEqual(partial.status_code, 400)
         self.assertEqual(partial.json()['error'], 'legal_name_pair_required')
         self.assertEqual(invalid.status_code, 400)
         self.assertEqual(invalid.json()['error'], 'invalid_legal_name')
+        for invalid_names in invalid_language_or_digits:
+            with self.subTest(invalid_names=invalid_names):
+                response = self.client.post(url, invalid_names)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'invalid_legal_name')
         self.user.refresh_from_db()
         self.assertEqual(self.user.full_name_ar, '')
         self.assertEqual(self.user.full_name_en, '')
@@ -535,6 +663,7 @@ class LegalCertificateNameTests(TestCase):
 
         response = self.client.post(reverse('users:profile-update'), {
             'trainer_name_en': 'Jordan Doe',
+            'whatsapp': '+970599999999',
             'full_name_ar': 'Changed Arabic Name',
             'full_name_en': 'Changed English Name',
         })
@@ -544,7 +673,26 @@ class LegalCertificateNameTests(TestCase):
         self.assertEqual(trainer.trainer_name_en, 'Jordan Doe')
         self.assertEqual(trainer.full_name_ar, 'مدرب تجربة أول')
         self.assertEqual(trainer.full_name_en, 'Trainer Example Name')
+        self.assertEqual(trainer.profile.whatsapp, '+970599999999')
         self.assertEqual(response.json()['profile']['trainerNameEnglish'], 'Jordan Doe')
+        self.assertEqual(response.json()['profile']['whatsapp'], '+970599999999')
+
+    def test_trainer_ajax_rejects_invalid_whatsapp(self):
+        trainer = User.objects.create_user(
+            phone='0591000055',
+            password='pass1234',
+            full_name='مدرب تجربة',
+            role=UserRole.TRAINER,
+        )
+        self.client.force_login(trainer)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'whatsapp': '+1234567890123',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_whatsapp')
+        self.assertEqual(trainer.profile.whatsapp, '')
 
     def test_model_rejects_changing_a_saved_legal_name(self):
         self.user.full_name_ar = 'أحمد خالد الحسن'
@@ -554,3 +702,200 @@ class LegalCertificateNameTests(TestCase):
 
         with self.assertRaises(ValidationError):
             self.user.save()
+
+
+class AdminProfileEditingTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000091', password='pass1234', full_name='مدير النظام',
+            role=UserRole.ADMIN,
+        )
+        self.trainer = User.objects.create_user(
+            phone='0591000092', password='pass1234', full_name='مدرب تجريبي',
+            role=UserRole.TRAINER,
+        )
+        self.profile, _ = Profile.objects.get_or_create(user=self.trainer)
+        self.profile.is_public = True
+        self.profile.save(update_fields=['is_public'])
+        self.edit_url = reverse('users:profile-edit') + f'?user_id={self.trainer.pk}'
+
+    def test_admin_can_open_another_trainer_profile_for_editing(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.edit_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['object'].user, self.trainer)
+        self.assertContains(response, 'تعديل بروفايل')
+        self.assertContains(response, 'id="id_trainer_name_en"')
+
+    def test_admin_can_save_another_trainer_profile(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(self.edit_url, {
+            'full_name': 'اسم المدرب المعدل',
+            'email': '',
+            'trainer_name_en': 'Trainer Example',
+            'gender': 'unspecified',
+            'skills_count': '1',
+            'skill_1': 'برمجة',
+            'socials-TOTAL_FORMS': '2',
+            'socials-INITIAL_FORMS': '0',
+            'socials-MIN_NUM_FORMS': '0',
+            'socials-MAX_NUM_FORMS': '1000',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.trainer.refresh_from_db()
+        self.assertEqual(self.trainer.full_name, 'اسم المدرب المعدل')
+        self.assertEqual(self.trainer.trainer_name_en, 'Trainer Example')
+
+    def test_admin_profile_modal_endpoint_updates_target_profile(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'target_user_id': str(self.trainer.pk),
+            'full_name': 'اسم المدرب المعدل',
+            'trainer_name_en': 'Trainer Example',
+            'headline': 'مدرب برمجة',
+            'bio': 'نبذة جديدة',
+            'email': 'trainer@example.com',
+            'website': 'https://example.com',
+            'skills': '[{"name":"برمجة","level":80}]',
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.trainer.refresh_from_db()
+        self.profile.refresh_from_db()
+        self.assertEqual(self.trainer.full_name, 'اسم المدرب المعدل')
+        self.assertEqual(self.trainer.trainer_name_en, 'Trainer Example')
+        self.assertEqual(self.profile.headline, 'مدرب برمجة')
+        self.assertEqual(self.profile.bio, 'نبذة جديدة')
+        self.assertEqual(
+            list(self.profile.profile_skills.values_list('skill__name', flat=True)),
+            ['برمجة'],
+        )
+
+    def test_admin_can_change_student_legal_names_multiple_times(self):
+        student = User.objects.create_user(
+            phone='0591000093', password='pass1234', full_name='طالب تجريبي',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(self.admin)
+        url = reverse('users:profile-update')
+        names = [
+            ('أحمد خالد الحسن', 'Ahmad Khaled Alhasan'),
+            ('محمد علي حسن', 'Mohammad Ali Hassan'),
+        ]
+
+        for full_name_ar, full_name_en in names:
+            response = self.client.post(url, {
+                'target_user_id': str(student.pk),
+                'full_name': 'طالب تجريبي',
+                'full_name_ar': full_name_ar,
+                'full_name_en': full_name_en,
+            })
+            self.assertEqual(response.status_code, 200, response.content)
+            student.refresh_from_db()
+            self.assertEqual(student.full_name_ar, full_name_ar)
+            self.assertEqual(student.full_name_en, full_name_en)
+
+    def test_non_admin_cannot_update_another_profile_through_modal_endpoint(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'target_user_id': str(self.admin.pk),
+            'full_name': 'تم التغيير',
+        })
+
+        self.assertEqual(response.status_code, 403)
+        self.admin.refresh_from_db()
+        self.assertEqual(self.admin.full_name, 'مدير النظام')
+
+    def test_non_admin_cannot_select_another_profile_for_editing(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.get(
+            reverse('users:profile-edit') + f'?user_id={self.admin.pk}'
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_admin_edit_button_is_only_injected_for_admin(self):
+        profile_url = reverse('accounts:profile', kwargs={'handle': self.trainer.handle})
+
+        self.client.force_login(self.admin)
+        admin_response = self.client.get(profile_url)
+        self.assertIn('adminTargetUserId', admin_response.context['profile_json'])
+
+        self.client.force_login(self.trainer)
+        owner_response = self.client.get(profile_url)
+        self.assertNotIn('adminTargetUserId', owner_response.context['profile_json'])
+
+
+class StudentSetupLinkTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create(
+            phone='0594567891',
+            full_name='محمد أحمد علي حسن',
+            role=UserRole.STUDENT,
+        )
+        self.user.set_unusable_password()
+        self.user.save(update_fields=['password'])
+        self.token = 'test-student-setup-token'
+        self.link = StudentSetupLink.objects.create(
+            user=self.user,
+            token_hash=hashlib.sha256(self.token.encode()).hexdigest(),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+        self.url = reverse('users:student-setup', kwargs={'token': self.token})
+
+    def test_setup_sets_password_logs_in_and_redirects_to_student_profile(self):
+        response = self.client.post(self.url, {
+            'password': 'Very-Strong!9-password',
+            'password_confirm': 'Very-Strong!9-password',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(
+            response,
+            reverse('accounts:profile', kwargs={'handle': self.user.handle}),
+            fetch_redirect_response=False,
+        )
+        self.user.refresh_from_db()
+        self.link.refresh_from_db()
+        self.assertTrue(self.user.has_usable_password())
+        self.assertIsNotNone(self.link.consumed_at)
+        self.assertEqual(self.client.session['_auth_user_id'], str(self.user.pk))
+        self.assertEqual(DeviceSession.objects.filter(user=self.user).count(), 1)
+
+    def test_setup_link_is_single_use(self):
+        self.client.post(self.url, {
+            'password': 'Very-Strong!9-password',
+            'password_confirm': 'Very-Strong!9-password',
+        })
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 410)
+
+    def test_expired_setup_link_is_rejected(self):
+        self.link.expires_at = timezone.now() - timedelta(seconds=1)
+        self.link.save(update_fields=['expires_at'])
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 410)
+
+    def test_mismatched_passwords_do_not_consume_link(self):
+        response = self.client.post(self.url, {
+            'password': 'Very-Strong!9-password',
+            'password_confirm': 'Different-Strong!8-password',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, 'كلمتا المرور غير متطابقتين.', status_code=400)
+        self.link.refresh_from_db()
+        self.user.refresh_from_db()
+        self.assertIsNone(self.link.consumed_at)
+        self.assertFalse(self.user.has_usable_password())

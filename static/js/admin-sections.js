@@ -4,6 +4,10 @@
   var t = Admin.t;
   var e = Admin.e;
 
+  function editorRoute(type, id) {
+    return '#/editor/' + type + '/' + (id ? encodeURIComponent(id) : 'new');
+  }
+
   function stLabel(s) { return t('st' + s.charAt(0).toUpperCase() + s.slice(1)); }
   function stOpts(list) { return list.map(function (s) { return { v: s, l: stLabel(s) }; }); }
   var ROLE_OPTS = [
@@ -203,6 +207,28 @@
       '<span dir="ltr">@' + e(u.handle) + '</span></div></div>';
   }
 
+  function displayOrdered(rows) {
+    return rows.slice().map(function (row, index) {
+      return { row: row, index: index };
+    }).sort(function (left, right) {
+      var leftOrder = Number(left.row.displayOrder);
+      var rightOrder = Number(right.row.displayOrder);
+      var leftMissing = left.row.displayOrder == null || !isFinite(leftOrder);
+      var rightMissing = right.row.displayOrder == null || !isFinite(rightOrder);
+      if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+      if (!leftMissing && leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.index - right.index;
+    }).map(function (item) {
+      return item.row;
+    });
+  }
+
+  function orderDragHandle() {
+    var label = I18n.getLang() === 'en' ? 'Drag to reorder' : 'اسحب لإعادة الترتيب';
+    return '<span class="admin-order-drag-handle" aria-label="' + e(label) +
+      '" title="' + e(label) + '">⠿</span>';
+  }
+
   function trainerCell(tr) {
     return '<div class="cell-user">' + UI.avatarOf(tr, 34) +
       '<div class="cu-b"><b>' + e(tr.name) + '</b><span dir="ltr">@' + e(tr.handle) + '</span></div></div>';
@@ -247,8 +273,10 @@
     render: function () {
       return Admin.table({
         key: 'users',
-        id: function (u) { return u.id; },
-        rows: Store.collection('users').filter(function (u) { return u.role === 'student'; }),
+        id: function (u) { return u.databaseId || u.id; },
+        rows: displayOrdered(Store.collection('users').filter(function (u) { return u.role === 'student'; })),
+        reorderKind: 'students',
+        draggableRows: true,
         pageSize: 12,
         search: function (u) { return [u.name, u.handle, u.email, u.phone].join(' '); },
         filters: [
@@ -279,7 +307,38 @@
           },
           {
             k: 'status', label: t('colStatus'), sortVal: function (u) { return u.status; },
-            render: function (u) { return Admin.statusChip(u.status); }, csv: function (u) { return u.status; }
+            render: function (u) {
+              var active = u.status === 'active';
+              return '<button type="button" class="st st-toggle ' + (active ? 'st-ok' : 'st-danger') +
+                '" data-act="user-toggle" data-id="' + e(u.id) + '" aria-label="' +
+                e(t(active ? 'studentSuspend' : 'studentActivate')) + '">' +
+                e(t(active ? 'stActive' : 'stSuspended')) + '</button>';
+            },
+            csv: function (u) { return u.status; }
+          },
+          {
+            k: 'certificates',
+            label: t('studentCertificatesTitle'),
+            sortVal: function (u) { return studentEarnedCertificates(u).length; },
+            render: function (u) {
+              var count = studentEarnedCertificates(u).length;
+              return '<button type="button" class="chip neutral linkish" data-act="student-certificates-list" data-id="' +
+                e(u.id) + '" aria-label="' + e(t('studentCertificatesTitle') + ' — ' + u.name) +
+                '" style="font-weight:600">' + count + '</button>';
+            },
+            csv: function (u) { return studentEarnedCertificates(u).length; }
+          },
+          {
+            k: 'activeCourses',
+            label: t('studentActiveCoursesTitle'),
+            sortVal: function (u) { return studentActiveCourses(u).length; },
+            render: function (u) {
+              var count = studentActiveCourses(u).length;
+              return '<button type="button" class="chip neutral linkish" data-act="student-active-courses" data-id="' +
+                e(u.id) + '" aria-label="' + e(t('studentActiveCoursesTitle') + ' — ' + u.name) +
+                '" style="font-weight:600">' + count + '</button>';
+            },
+            csv: function (u) { return studentActiveCourses(u).length; }
           },
           {
             k: 'joined', label: t('colJoined'), sortVal: function (u) { return u.joined; },
@@ -290,6 +349,12 @@
             k: 'last', label: t('colActivity'), sortVal: function (u) { return u.lastActive; },
             render: function (u) { return '<span class="tiny muted">' + e(UI.timeAgo(u.lastActive)) + '</span>'; },
             csv: function (u) { return u.lastActive; }
+          },
+          {
+            k: 'activeDevices', label: t('colRegisteredDevices'),
+            sortVal: function (u) { return Number(u.activeDevices) || 0; },
+            render: function (u) { return '<span class="chip neutral">' + (Number(u.activeDevices) || 0) + '</span>'; },
+            csv: function (u) { return Number(u.activeDevices) || 0; }
           },
           {
             k: 'referralVisits', label: t('colReferralVisits'),
@@ -306,8 +371,8 @@
           {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (u) {
-              return iconBtn('user-edit', u.id, 'pencil', t('edit')) +
-                iconBtn('user-toggle', u.id, 'refresh-cw', t('actStatus')) +
+              return orderDragHandle() +
+                iconBtn('user-edit', u.id, 'pencil', t('edit')) +
                 iconBtn('user-redeem-referral-points', u.id, 'graduation-cap', t('redeemReferralPoints')) +
                 iconBtn('user-del', u.id, 'trash', t('delete'), 'danger');
             }
@@ -339,22 +404,52 @@
     return AdminData.completions().filter(function (cp) { return cp.userId === u.id; }).length;
   }
 
+  function studentEarnedCertificates(user) {
+    var studentId = String(user.databaseId || '').replace(/^db-user-/, '');
+    return AdminData.studentCertificates().filter(function (certificate) {
+      if (certificate.type !== 'course' && certificate.type !== 'workshop') return false;
+      if (certificate.studentId) return String(certificate.studentId) === studentId;
+      return !!user.handle && certificate.studentHandle === user.handle;
+    });
+  }
+
+  function studentActiveCourses(user) {
+    return AdminData.enrollments().filter(function (enrollment) {
+      var progress = Number(enrollment.progress) || 0;
+      return String(enrollment.userId) === String(user.id) &&
+        enrollment.status === 'active' &&
+        !enrollment.completed &&
+        progress < 100;
+    }).map(function (enrollment) {
+      return {
+        enrollment: enrollment,
+        course: Store.find('certificates', enrollment.courseId)
+      };
+    }).filter(function (item) {
+      return !!item.course;
+    });
+  }
+
   function userModal(id) {
     var u = id ? Store.find('users', id) : null;
     function isDuplicate(field, value) {
       return Store.collection('users').some(function (candidate) {
-        return candidate.id !== (u && u.id) && String(candidate[field] || '').toLowerCase() === value.toLowerCase();
+        return candidate.id !== (u && u.id) &&
+          String(candidate[field] || '').toLowerCase() === value.toLowerCase();
       });
     }
     var fields = [
       sectionField(t('secBasic')),
       { k: 'name', label: t('uName'), type: 'text', required: true, maxLength: 150, value: u ? u.name : '' },
       {
-        k: 'handle', label: t('uHandle'), type: 'text', required: true, maxLength: 40, value: u ? u.handle : '', dir: 'ltr',
-        validate: function (value) {
-          if (isDuplicate('handle', value)) return t('userHandleTaken');
-          return '';
-        }
+        k: 'fullNameArabic', label: t('fullNameArabic'), type: 'text', required: true,
+        maxLength: 150, value: u ? (u.fullNameArabic || '') : '',
+        readonly: !!(u && u.fullNameArabic)
+      },
+      {
+        k: 'fullNameEnglish', label: t('fullNameEnglish'), type: 'text', required: true,
+        maxLength: 150, value: u ? (u.fullNameEnglish || '') : '', dir: 'ltr',
+        readonly: !!(u && u.fullNameEnglish)
       },
       {
         k: 'email', label: t('uEmail'), type: 'text', inputType: 'email', maxLength: 254, value: u ? u.email : '', dir: 'ltr',
@@ -381,9 +476,7 @@
       { k: 'avatar', label: t('uAvatar'), type: 'image', emoji: '👤', value: u ? u.avatar : '' },
       sectionField(t('secMeta')),
       { k: 'status', label: t('uStatus'), type: 'select', options: stOpts(['active', 'suspended']), value: u ? u.status : 'active' },
-      { k: 'verified', label: t('uVerified'), type: 'switch', value: u ? !!u.verified : false },
-      { k: 'joined', label: t('colJoined'), type: 'date', value: u && u.joined ? String(u.joined).slice(0, 10) : '' },
-      { k: 'bio', label: t('uBio'), type: 'textarea', full: true, rows: 3, value: u ? u.bio : '' }
+      { k: 'verified', label: t('uVerified'), type: 'switch', value: u ? !!u.verified : false }
     ];
     if (u) {
       var enrolled = userEnrollments(u);
@@ -413,13 +506,13 @@
           body: JSON.stringify({
             id: u ? (u.databaseId || u.id) : '',
             name: v.name,
-            handle: v.handle,
+            fullNameArabic: v.fullNameArabic,
+            fullNameEnglish: v.fullNameEnglish,
             email: v.email,
             phone: v.phone,
             password: v.password || '',
             status: v.status,
             verified: v.verified,
-            bio: v.bio,
             avatar: v.avatar
           })
         }).then(function (response) {
@@ -454,6 +547,92 @@
 
   Admin.on('user-add', function () { userModal(null); });
   Admin.on('user-edit', function (el) { userModal(el.getAttribute('data-id')); });
+  function openStudentSessions(user) {
+    if (!user || !user.databaseId) return;
+    var modal = UI.modal({
+      title: t('deviceSessionsTitle') + ' — ' + user.name,
+      size: 'md',
+      body: '<div id="studentDeviceSessions" class="form-info-rows">' +
+        e(t('deviceSessionsLoading')) + '</div>',
+      footer: '<button type="button" class="btn btn-ghost" data-sessions-close>' + e(t('cancel')) + '</button>' +
+        '<button type="button" class="btn btn-danger" data-sessions-revoke-all>' +
+        UI.icon('log-out', 15) + e(t('deviceSessionsRevokeAll')) + '</button>'
+    });
+    var host = modal.body.querySelector('#studentDeviceSessions');
+    var revokeAllButton = modal.el.querySelector('[data-sessions-revoke-all]');
+    var sessionsUrl = SITE.u('studentSessions', user.databaseId);
+
+    function loadSessions() {
+      host.textContent = t('deviceSessionsLoading');
+      fetch(sessionsUrl, { credentials: 'same-origin' })
+        .then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+            user.activeDevices = data.activeDevices;
+            Store.save(true);
+            Admin.renderAll();
+            host.innerHTML = data.sessions.length
+              ? data.sessions.map(function (session) {
+                  return '<div class="form-info-row"><div>' +
+                    '<b>' + e(session.userAgent || t('manageDevices')) + '</b>' +
+                    '<div class="tiny muted">' + e(t('deviceIp')) + ': ' + e(session.ip || '—') +
+                    ' · ' + e(t('deviceLastSeen')) + ': ' + e(UI.timeAgo(session.lastSeen)) + '</div></div>' +
+                    '<button type="button" class="btn btn-ghost btn-sm danger" data-revoke-session="' + e(session.id) + '">' +
+                    UI.icon('log-out', 14) + e(t('deviceSessionRevoke')) + '</button></div>';
+                }).join('')
+              : '<p class="tiny muted">' + e(t('noDeviceSessions')) + '</p>';
+            revokeAllButton.disabled = data.sessions.length === 0;
+          });
+        })
+        .catch(function (error) {
+          host.textContent = error.message || t('saveError');
+        });
+    }
+
+    function revokeSessions(payload, successMessage) {
+      revokeAllButton.disabled = true;
+      fetch(sessionsUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify(payload)
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          user.activeDevices = data.activeDevices;
+          UI.toast(successMessage, 'success');
+          loadSessions();
+        });
+      }).catch(function (error) {
+        revokeAllButton.disabled = false;
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    }
+
+    modal.el.querySelector('[data-sessions-close]').addEventListener('click', modal.close);
+    host.addEventListener('click', function (event) {
+      var button = event.target.closest('[data-revoke-session]');
+      if (!button) return;
+      revokeSessions(
+        { deviceSessionId: Number(button.getAttribute('data-revoke-session')) },
+        t('deviceSessionsRevoked')
+      );
+    });
+    revokeAllButton.addEventListener('click', function () {
+      if (!user.activeDevices) return;
+      UI.confirm(t('deviceSessionsConfirmAll')).then(function (confirmed) {
+        if (confirmed) revokeSessions({ all: true }, t('deviceSessionsRevokedAll'));
+      });
+    });
+    loadSessions();
+  }
+
+  Admin.on('user-sessions', function (el) {
+    openStudentSessions(Store.find('users', el.getAttribute('data-id')));
+  });
   Admin.on('user-del', function (el) {
     var id = el.getAttribute('data-id');
     var u = Store.find('users', id);
@@ -465,14 +644,18 @@
   Admin.on('user-toggle', function (el) {
     var u = Store.find('users', el.getAttribute('data-id'));
     if (!u) return;
-    fetch(SITE.u('studentStatus', u.databaseId || u.id), {
+    var active = u.status !== 'active';
+    UI.confirm(t(active ? 'studentActivate' : 'studentSuspend') + '?').then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      return fetch(SITE.u('studentStatus', u.databaseId || u.id), {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': window.CSRF_TOKEN || ''
       },
-      body: JSON.stringify({ active: u.status !== 'active' })
+      body: JSON.stringify({ active: active })
     }).then(function (response) {
       return response.json().then(function (data) {
         if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
@@ -483,7 +666,38 @@
         Admin.renderAll();
       });
     }).catch(function (error) {
+      el.disabled = false;
       UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+  Admin.on('referral-points-reset', function (el) {
+    var user = Store.find('users', el.getAttribute('data-id'));
+    if (!user || !user.databaseId) return;
+    UI.confirm(t('referralPointsResetConfirm')).then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      fetch(SITE.u('studentResetReferralPoints', user.databaseId), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({})
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('referralPointsResetFailed'));
+          user.referralPoints = data.points;
+          AdminData.addReferralPointsReset(data.reset);
+          Store.save(true);
+          Admin.renderAll();
+          UI.toast(t('referralPointsResetSuccess'), 'success');
+        });
+      }).catch(function (error) {
+        el.disabled = false;
+        UI.toast(error.message || t('referralPointsResetFailed'), 'error');
+      });
     });
   });
   Admin.on('user-redeem-referral-points', function (el) {
@@ -558,7 +772,9 @@
       return Admin.table({
         key: 'trainers',
         id: function (tr) { return tr.id; },
-        rows: Store.collection('trainers'),
+        rows: displayOrdered(Store.collection('trainers')),
+        reorderKind: 'trainers',
+        draggableRows: true,
         pageSize: 12,
         search: function (tr) { return [tr.name, tr.handle, tr.specialty, tr.email].join(' '); },
         filters: [
@@ -579,32 +795,46 @@
             render: function (tr) { return e(tr.specialty || '—'); }, csv: function (tr) { return tr.specialty || ''; }
           },
           {
-            k: 'rating', label: t('colRating'), sortVal: function (tr) { return tr.rating || 0; },
-            render: function (tr) { return '<span class="chip ok">★ ' + e(String(tr.rating || 0)) + '</span>'; },
-            csv: function (tr) { return tr.rating || 0; }
-          },
-          {
             k: 'courses', label: t('statCourses'), sortVal: function (tr) { return AdminData.courseTrainerCount(tr.id); },
             render: function (tr) {
               var count = tr.coursesCount != null ? tr.coursesCount : AdminData.courseTrainerCount(tr.id);
-              return '<span class="chip neutral">' + count + '</span>';
+              return '<button type="button" class="chip neutral linkish" data-act="trainer-courses" data-id="' +
+                e(tr.id) + '" aria-label="' + e(t('trainerCoursesTitle') + ' — ' + tr.name) +
+                '" style="font-weight:600">' + count + '</button>';
             },
             csv: function (tr) { return tr.coursesCount != null ? tr.coursesCount : AdminData.courseTrainerCount(tr.id); }
           },
           {
-            k: 'status', label: t('colStatus'), sortVal: function (tr) { return tr.status; },
-            render: function (tr) { return Admin.statusChip(tr.status); }, csv: function (tr) { return tr.status; }
+            k: 'contentPermission',
+            label: t('trainerContentAllowed'),
+            sortVal: function (tr) { return tr.canPublishContent === false ? 0 : 1; },
+            render: function (tr) {
+              var allowed = tr.canPublishContent !== false;
+              var label = t(allowed ? 'trainerContentAllowed' : 'trainerContentDenied');
+              return '<button type="button" class="st st-toggle ' + (allowed ? 'st-ok' : 'st-warn') +
+                '" data-act="trainer-content-toggle" data-id="' + e(tr.id) + '" aria-label="' +
+                e(allowed ? t('trainerDenyContent') : t('trainerAllowContent')) + '" title="' +
+                e(allowed ? t('trainerDenyContent') : t('trainerAllowContent')) + '">' +
+                e(label) + '</button>';
+            },
+            csv: function (tr) { return tr.canPublishContent === false ? t('trainerContentDenied') : t('trainerContentAllowed'); }
           },
           {
-            k: 'joined', label: t('colJoined'), sortVal: function (tr) { return tr.joined; },
-            render: function (tr) { return '<span class="tiny muted">' + e(UI.formatDate(tr.joined)) + '</span>'; },
-            csv: function (tr) { return tr.joined; }
+            k: 'status', label: t('colStatus'), sortVal: function (tr) { return tr.status; },
+            render: function (tr) {
+              var active = tr.status === 'active';
+              return '<button type="button" class="st st-toggle ' + (active ? 'st-ok' : 'st-warn') +
+                '" data-act="trainer-toggle" data-id="' + e(tr.id) + '" aria-label="' +
+                e(t(active ? 'trainerDeactivate' : 'trainerActivate')) + '">' +
+                e(t(active ? 'stActive' : 'stPaused')) + '</button>';
+            },
+            csv: function (tr) { return tr.status; }
           },
           {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (tr) {
-              return iconBtn('trainer-edit', tr.id, 'pencil', t('edit')) +
-                iconBtn('trainer-toggle', tr.id, 'refresh-cw', t('actStatus'));
+              return orderDragHandle() +
+                iconBtn('trainer-edit', tr.id, 'pencil', t('edit'));
             }
           }
         ]
@@ -622,7 +852,16 @@
     var fields = [
       sectionField(t('secBasic')),
       { k: 'name', label: t('uName'), type: 'text', required: true, value: tr ? tr.name : '' },
-      { k: 'handle', label: t('uHandle'), type: 'text', required: true, value: tr ? tr.handle : '', dir: 'ltr' },
+      {
+        k: 'fullNameArabic', label: t('fullNameArabic'), type: 'text', required: true,
+        maxLength: 150, value: tr ? (tr.fullNameArabic || '') : '',
+        readonly: !!(tr && tr.fullNameArabic)
+      },
+      {
+        k: 'fullNameEnglish', label: t('fullNameEnglish'), type: 'text', required: true,
+        maxLength: 150, value: tr ? (tr.fullNameEnglish || '') : '', dir: 'ltr',
+        readonly: !!(tr && tr.fullNameEnglish)
+      },
       { k: 'specialty', label: t('tSpecialty'), type: 'text', required: true, value: tr ? tr.specialty : '' },
       { k: 'avatar', label: t('uAvatar'), type: 'image', emoji: '🎓', value: tr ? tr.avatar : '' },
       { k: 'email', label: t('uEmail'), type: 'text', value: tr ? tr.email : '', dir: 'ltr' },
@@ -637,20 +876,23 @@
           return '';
         }
       },
-      sectionField(t('secLinks')),
-      { k: 'linkedin', label: t('tLinkedin'), type: 'text', dir: 'ltr', value: tr ? tr.linkedin : '' },
-      { k: 'github', label: t('tGithub'), type: 'text', dir: 'ltr', value: tr ? tr.github : '' },
+      {
+        k: 'whatsapp', label: t('trainerWhatsapp'), type: 'text', inputType: 'tel',
+        value: tr ? (tr.whatsapp || '') : '', dir: 'ltr', maxLength: 13, inputMode: 'tel',
+        autocomplete: 'off', pattern: '\\+?[0-9]{1,12}',
+        hint: t('trainerWhatsappHint'),
+        validate: function (value) {
+          return !value || /^\+?[0-9]{1,12}$/.test(value) ? '' : t('trainerWhatsappInvalid');
+        }
+      },
       sectionField(t('secMeta')),
-      { k: 'rating', label: t('tRating'), type: 'number', min: 0, max: 5, step: 0.1, value: tr ? (tr.rating != null ? tr.rating : '') : '' },
       { k: 'status', label: t('uStatus'), type: 'select', options: stOpts(['active', 'paused']), value: tr ? tr.status : 'active' },
       { k: 'verified', label: t('uVerified'), type: 'switch', value: tr ? !!tr.verified : true },
-      { k: 'joined', label: t('colJoined'), type: 'date', value: tr && tr.joined ? String(tr.joined).slice(0, 10) : '' },
       {
         k: 'password', label: t('accountPassword'), type: 'text', inputType: 'password',
         required: !tr, value: '', dir: 'ltr',
         hint: tr ? t('passwordKeepHint') : ''
-      },
-      { k: 'bio', label: t('uBio'), type: 'textarea', full: true, rows: 3, value: tr ? tr.bio : '' }
+      }
     ];
     if (tr) {
       fields.push(sectionField(t('secRelated'), t('tRelatedHint')));
@@ -677,19 +919,16 @@
           body: JSON.stringify({
             id: tr ? tr.id : '',
             name: v.name,
-            handle: v.handle,
+            fullNameArabic: v.fullNameArabic,
+            fullNameEnglish: v.fullNameEnglish,
             specialty: v.specialty,
             password: v.password || '',
-            rating: v.rating === '' ? 0 : v.rating,
             email: v.email,
             phone: v.phone,
+            whatsapp: v.whatsapp,
             status: v.status,
-            bio: v.bio,
-            linkedin: v.linkedin,
-            github: v.github,
             avatar: v.avatar,
-            verified: v.verified,
-            joined: v.joined
+            verified: v.verified
           })
         }).then(function (response) {
           return response.json().then(function (data) {
@@ -725,51 +964,397 @@
   Admin.on('trainer-toggle', function (el) {
     var tr = Store.find('trainers', el.getAttribute('data-id'));
     if (!tr) return;
-    fetch(SITE.u('trainerStatus', tr.id), {
+    var active = tr.status !== 'active';
+    UI.confirm(t(active ? 'trainerActivate' : 'trainerDeactivate') + '?').then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      return fetch(SITE.u('trainerStatus', tr.id), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ active: active })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          tr.status = data.active ? 'active' : 'paused';
+          Store.save(true);
+          UI.toast(t('statusUpd'), 'success');
+          Admin.renderAll();
+        });
+      }).catch(function (error) {
+        el.disabled = false;
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+  Admin.on('trainer-content-toggle', function (el) {
+    var tr = Store.find('trainers', el.getAttribute('data-id'));
+    if (!tr) return;
+    var allowed = tr.canPublishContent === false;
+    UI.confirm(t(allowed ? 'trainerAllowContent' : 'trainerDenyContent') + '?').then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      fetch(SITE.u('trainerContentPermission', tr.id), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ allowed: allowed })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          tr.canPublishContent = data.canPublishContent;
+          Store.save(true);
+          UI.toast(t('statusUpd'), 'success');
+          Admin.renderAll();
+        });
+      }).catch(function (error) {
+        el.disabled = false;
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+
+  var trainingCategoryDrag = null;
+  var trainingCategoryReorderSaving = false;
+
+  function trainingCategoryRows(tbody) {
+    return Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row-id]'));
+  }
+
+  function trainingCategoryOrder() {
+    return AdminData.trainingCategories().slice().sort(function (left, right) {
+      var leftOrder = left.display_order == null ? Number.MAX_SAFE_INTEGER : left.display_order;
+      var rightOrder = right.display_order == null ? Number.MAX_SAFE_INTEGER : right.display_order;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return String(left.name || '').localeCompare(String(right.name || ''), I18n.getLang() === 'en' ? 'en' : 'ar');
+    }).map(function (category) {
+      return String(category.id);
+    });
+  }
+
+  function animateTrainingCategoryRows(tbody, moveRows) {
+    var before = new Map();
+    trainingCategoryRows(tbody).forEach(function (row) {
+      before.set(row, row.getBoundingClientRect().top);
+    });
+    moveRows();
+    trainingCategoryRows(tbody).forEach(function (row) {
+      if (row === (trainingCategoryDrag && trainingCategoryDrag.row)) return;
+      var delta = before.get(row) - row.getBoundingClientRect().top;
+      if (!delta) return;
+      row.style.transition = 'none';
+      row.style.transform = 'translateY(' + delta + 'px)';
+      row.getBoundingClientRect();
+      requestAnimationFrame(function () {
+        row.style.transition = '';
+        row.style.transform = '';
+      });
+    });
+  }
+
+  function setTrainingCategoryRowOrder(tbody, ids) {
+    var rows = trainingCategoryRows(tbody);
+    var rowsById = new Map();
+    rows.forEach(function (row) { rowsById.set(row.getAttribute('data-row-id'), row); });
+    animateTrainingCategoryRows(tbody, function () {
+      ids.forEach(function (id) {
+        var row = rowsById.get(String(id));
+        if (row) tbody.appendChild(row);
+      });
+    });
+  }
+
+  function persistTrainingCategoryOrder(ids, tbody, previousIds) {
+    if (trainingCategoryReorderSaving) return;
+    trainingCategoryReorderSaving = true;
+    var table = tbody.closest('[data-table-key="training-categories"]');
+    if (table) table.classList.add('is-saving-order');
+    fetch(SITE.u('trainingCategories'), {
       method: 'POST',
       credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': window.CSRF_TOKEN || ''
       },
-      body: JSON.stringify({ active: tr.status !== 'active' })
+      body: JSON.stringify({ action: 'reorder', order: ids })
     }).then(function (response) {
       return response.json().then(function (data) {
         if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
-        tr.status = data.active ? 'active' : 'paused';
-        Store.save(true);
-        UI.toast(t('statusUpd'), 'success');
-        Admin.renderAll();
+        AdminData.setTrainingCategories(Array.isArray(data.categories) ? data.categories : []);
+        UI.toast(t('updated'), 'success');
       });
     }).catch(function (error) {
+      setTrainingCategoryRowOrder(tbody, previousIds);
       UI.toast(error.message || t('saveError'), 'error');
+    }).then(function () {
+      trainingCategoryReorderSaving = false;
+      if (table) table.classList.remove('is-saving-order');
+    });
+  }
+
+  document.addEventListener('dragstart', function (event) {
+    var row = event.target.closest && event.target.closest(
+      'table[data-table-key="training-categories"] tbody tr[data-row-id]'
+    );
+    if (!row) return;
+    if (trainingCategoryReorderSaving) {
+      event.preventDefault();
+      return;
+    }
+    var tbody = row.parentElement;
+    trainingCategoryDrag = {
+      row: row,
+      tbody: tbody,
+      originalIds: trainingCategoryRows(tbody).map(function (item) {
+        return item.getAttribute('data-row-id');
+      })
+    };
+    row.classList.add('is-dragging');
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', row.getAttribute('data-row-id'));
+    }
+  });
+
+  document.addEventListener('dragover', function (event) {
+    if (!trainingCategoryDrag) return;
+    var target = event.target.closest && event.target.closest(
+      'table[data-table-key="training-categories"] tbody tr[data-row-id]'
+    );
+    if (!target || target.parentElement !== trainingCategoryDrag.tbody) return;
+    event.preventDefault();
+    if (target === trainingCategoryDrag.row) return;
+    var bounds = target.getBoundingClientRect();
+    var after = event.clientY > bounds.top + bounds.height / 2;
+    animateTrainingCategoryRows(trainingCategoryDrag.tbody, function () {
+      trainingCategoryDrag.tbody.insertBefore(
+        trainingCategoryDrag.row,
+        after ? target.nextElementSibling : target
+      );
     });
   });
 
-  Admin.register('courses', {
+  document.addEventListener('drop', function (event) {
+    if (!trainingCategoryDrag) return;
+    var targetTable = event.target.closest && event.target.closest(
+      'table[data-table-key="training-categories"]'
+    );
+    if (!targetTable || targetTable.querySelector('tbody') !== trainingCategoryDrag.tbody) return;
+    event.preventDefault();
+    var drag = trainingCategoryDrag;
+    trainingCategoryDrag = null;
+    drag.row.classList.remove('is-dragging');
+    var ids = trainingCategoryRows(drag.tbody).map(function (row) {
+      return row.getAttribute('data-row-id');
+    });
+    if (ids.join(',') !== drag.originalIds.join(',')) {
+      var fullOrder = trainingCategoryOrder();
+      var page = Admin.ts('training-categories').page || 1;
+      var pageStart = (page - 1) * 10;
+      fullOrder.splice.apply(fullOrder, [pageStart, ids.length].concat(ids));
+      persistTrainingCategoryOrder(fullOrder, drag.tbody, drag.originalIds);
+    }
+  });
+
+  document.addEventListener('dragend', function () {
+    if (!trainingCategoryDrag) return;
+    var drag = trainingCategoryDrag;
+    trainingCategoryDrag = null;
+    drag.row.classList.remove('is-dragging');
+    setTrainingCategoryRowOrder(drag.tbody, drag.originalIds);
+  });
+
+  Admin.register('training-categories', {
     render: function () {
-      var cats = Store.collection('certificates').map(function (c) { return c.category || ''; })
-        .filter(Boolean).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      var rows = AdminData.trainingCategories().slice().sort(function (left, right) {
+        var leftOrder = left.display_order == null ? Number.MAX_SAFE_INTEGER : left.display_order;
+        var rightOrder = right.display_order == null ? Number.MAX_SAFE_INTEGER : right.display_order;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return String(left.name || '').localeCompare(String(right.name || ''), I18n.getLang() === 'en' ? 'en' : 'ar');
+      });
       return Admin.table({
-        key: 'courses',
-        id: function (c) { return c.id; },
-        rows: Store.collection('certificates'),
-        pageSize: 10,
+        key: 'training-categories',
+        id: function (category) { return category.id; },
+        draggableRows: true,
+        rows: rows,
+        pageSize: Math.max(rows.length, 20),
+        search: function (category) { return category.name; },
+        add: { act: 'training-category-add', label: t('trainingCategoryAdd'), icon: 'plus' },
+        empty: {
+          icon: 'layers',
+          title: t('emptyTitle'),
+          sub: t('subTrainingCategories')
+        },
+        columns: [
+          {
+            k: 'name', label: t('trainingCategoryName'), sortVal: function (category) { return category.name; },
+            render: function (category) { return '<b>' + e(category.name) + '</b>'; },
+            csv: function (category) { return category.name; }
+          },
+          {
+            k: 'courses', label: t('secCourses'), cls: 'num',
+            sortVal: function (category) { return category.courses; },
+            render: function (category) { return category.courses || 0; },
+            csv: function (category) { return category.courses || 0; }
+          },
+          {
+            k: 'projects', label: t('secProjects'), cls: 'num',
+            sortVal: function (category) { return category.projects; },
+            render: function (category) { return category.projects || 0; },
+            csv: function (category) { return category.projects || 0; }
+          },
+          {
+            k: 'trainers', label: t('trainingCategoryTrainers'), cls: 'num',
+            sortVal: function (category) { return category.trainers; },
+            render: function (category) { return category.trainers || 0; },
+            csv: function (category) { return category.trainers || 0; }
+          },
+          {
+            k: 'students', label: t('trainingCategoryStudents'), cls: 'num',
+            sortVal: function (category) { return category.students; },
+            render: function (category) { return category.students || 0; },
+            csv: function (category) { return category.students || 0; }
+          },
+          {
+            k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
+            render: function (category) {
+              return '<span class="training-category-drag-handle" aria-label="' + e(t('trainingCategoryDrag')) + '" title="' + e(t('trainingCategoryDrag')) + '">⠿</span>' +
+                iconBtn('training-category-edit', category.id, 'pencil', t('edit')) +
+                iconBtn('training-category-delete', category.id, 'trash', t('delete'), 'danger');
+            }
+          }
+        ]
+      });
+    }
+  });
+
+  function trainingCategoryModal(category) {
+    Admin.formModal({
+      title: category ? t('trainingCategoryEdit') : t('trainingCategoryAdd'),
+      fields: [
+        {
+          k: 'name',
+          label: t('trainingCategoryName'),
+          type: 'text',
+          required: true,
+          maxLength: 120,
+          value: category ? category.name : ''
+        }
+      ],
+      onSubmit: function (values, modal) {
+        var saveButton = modal.el.querySelector('[data-fm="save"]');
+        saveButton.disabled = true;
+        fetch(SITE.u('trainingCategories'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify({
+            action: category ? 'update' : 'create',
+            id: category ? category.id : '',
+            name: values.name
+          })
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+            var rows = AdminData.trainingCategories();
+            var savedIndex = rows.findIndex(function (item) {
+              return String(item.id) === String(data.category.id);
+            });
+            if (savedIndex === -1) rows.unshift(data.category);
+            else rows[savedIndex] = data.category;
+            AdminData.setTrainingCategories(rows);
+            modal.close();
+            Admin.renderAll();
+            UI.toast(t(category ? 'updated' : 'created'), 'success');
+          });
+        }).catch(function (error) {
+          saveButton.disabled = false;
+          UI.toast(error.message || t('saveError'), 'error');
+        });
+        return false;
+      }
+    });
+  }
+
+  Admin.on('training-category-add', function () { trainingCategoryModal(null); });
+  Admin.on('training-category-edit', function (el) {
+    var category = AdminData.trainingCategories().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (category) trainingCategoryModal(category);
+  });
+  Admin.on('training-category-delete', function (el) {
+    UI.confirm(t('trainingCategoryDeleteConfirm')).then(function (confirmed) {
+      if (!confirmed) return;
+      fetch(SITE.u('trainingCategories'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ action: 'delete', id: el.getAttribute('data-id') })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          AdminData.setTrainingCategories(AdminData.trainingCategories().filter(function (category) {
+            return String(category.id) !== String(data.id);
+          }));
+          Admin.renderAll();
+          UI.toast(t('deleted'), 'success');
+        });
+      }).catch(function (error) {
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+
+  function renderCourseTable(sectionKey, inPersonOnly) {
+      var courses = Store.collection('certificates').filter(function (course) {
+        return course.courseType === (inPersonOnly ? 'in_person' : 'online');
+      });
+      var cats = courses.map(function (c) { return c.category || ''; })
+        .filter(Boolean).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      var bulkActions = inPersonOnly
+        ? [
+          { act: 'inperson-course-bulk-pub', label: t('bulkPublish'), icon: 'check' },
+          { act: 'inperson-course-bulk-draft', label: t('bulkDraft'), icon: 'pencil' },
+          { act: 'inperson-course-bulk-del', label: t('bulkDelete'), icon: 'trash', danger: true }
+        ]
+        : [
+          { act: 'course-bulk-pub', label: t('bulkPublish'), icon: 'check' },
+          { act: 'course-bulk-draft', label: t('bulkDraft'), icon: 'pencil' },
+          { act: 'course-bulk-del', label: t('bulkDelete'), icon: 'trash', danger: true }
+        ];
+      return Admin.table({
+        key: sectionKey,
+        id: function (c) { return c.pk || c.id; },
+        rows: displayOrdered(courses),
+        reorderKind: inPersonOnly ? null : 'courses',
+        draggableRows: !inPersonOnly,
+        pageSize: courses.length || 10,
         search: function (c) { return [c.title, c.issuer, c.category, trainerLabel(c.trainerId)].join(' '); },
         filters: [
           { k: 'category', label: t('fCat'), val: function (c) { return c.category || ''; }, options: cats.map(function (x) { return { v: x, l: x }; }) },
           { k: 'trainer', label: t('fTrainer'), val: function (c) { return c.trainerId || ''; }, options: trainerOpts().filter(function (o) { return o.v; }) },
           { k: 'status', label: t('allStatus'), val: function (c) { return c.status || 'published'; }, options: stOpts(['published', 'draft', 'archived']) }
         ],
-        add: { label: t('cAdd'), url: SITE.u('courseCreate'), icon: 'plus' },
-        bulk: [
-          { act: 'course-bulk-pub', label: t('bulkPublish'), icon: 'check' },
-          { act: 'course-bulk-draft', label: t('bulkDraft'), icon: 'pencil' },
-          { act: 'course-bulk-del', label: t('bulkDelete'), icon: 'trash', danger: true }
-        ],
+        add: { label: t('cAdd'), url: editorRoute('course'), icon: 'plus' },
+        bulk: bulkActions,
         empty: {
-          icon: 'graduation-cap', title: t('emptyCourses'), sub: t('emptyCoursesSub'),
-          action: '<a class="btn btn-primary btn-sm" href="' + SITE.u('courseCreate') + '">' + UI.icon('plus', 15) + e(t('cAdd')) + '</a>'
+          icon: 'graduation-cap',
+          title: t(inPersonOnly ? 'emptyInPersonCourses' : 'emptyCourses'),
+          sub: t(inPersonOnly ? 'emptyInPersonCoursesSub' : 'emptyCoursesSub'),
+          action: '<a class="btn btn-primary btn-sm" href="' + editorRoute('course') + '">' + UI.icon('plus', 15) + e(t('cAdd')) + '</a>'
         },
         columns: [
           {
@@ -792,7 +1377,12 @@
           },
           {
             k: 'lessons', label: t('colLessons'), sortVal: courseLessons, cls: 'num',
-            render: function (c) { return courseLessons(c); }, csv: courseLessons
+            render: function (c) {
+              var count = courseLessons(c);
+              return '<button class="chip neutral linkish" data-act="course-lessons" data-id="' + e(c.id) +
+                '" aria-label="' + e(t('actLessons') + ' — ' + c.title) + '" style="font-weight:600">' + count + '</button>';
+            },
+            csv: courseLessons
           },
           {
             k: 'students', label: t('colStudents'), cls: 'num',
@@ -807,30 +1397,1077 @@
             k: 'status', label: t('colStatus'), sortVal: function (c) { return c.status || 'published'; },
             render: function (c) {
               var active = (c.status || 'published') === 'published';
-              return '<span class="st ' + (active ? 'st-ok' : 'st-mute') + '">' +
-                e(t(active ? 'courseActive' : 'courseInactive')) + '</span>';
+              return '<button type="button" class="st st-toggle ' + (active ? 'st-ok' : 'st-mute') +
+                '" data-act="course-toggle" data-id="' + e(c.pk || c.id) + '" aria-label="' +
+                e(t(active ? 'courseDeactivate' : 'courseActivate')) + '">' +
+                e(t(active ? 'courseActive' : 'courseInactive')) + '</button>';
             },
             csv: function (c) { return (c.status || 'published') === 'published' ? t('courseActive') : t('courseInactive'); }
           },
           {
-            k: 'date', label: t('colDate'), sortVal: function (c) { return c.addedAt || c.date; },
-            render: function (c) { return '<span class="tiny muted">' + e(UI.formatDate(c.addedAt || c.date)) + '</span>'; },
-            csv: function (c) { return c.addedAt || c.date || ''; }
-          },
-          {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (c) {
-              return               linkBtn(SITE.u('course', c.id), 'eye', t('openCourse')) +
-              iconBtn('course-students', c.id, 'users', t('actStudents')) +
-              iconBtn('course-lessons', c.id, 'list', t('actLessons')) +
-              linkBtn(SITE.u('courseEdit', c.id), 'external-link', t('editCourse')) +
-              iconBtn('course-toggle', c.pk || c.id, (c.status || 'published') === 'published' ? 'eye-off' : 'eye',
-                t((c.status || 'published') === 'published' ? 'courseDeactivate' : 'courseActivate'));
+              var cohortCount = AdminData.inPersonCohorts().filter(function (cohort) {
+                return String(cohort.courseId) === String(c.id);
+              }).length;
+              var cohortButton = inPersonOnly
+                ? '<button type="button" class="chip neutral linkish" data-act="course-cohorts" data-id="' +
+                  e(c.pk || c.id) + '" aria-label="' + e(t('courseCohorts') + ' — ' + c.title) + '">' +
+                  e(t('courseCohorts')) + ' (' + cohortCount + ')</button>'
+                : '';
+              return (inPersonOnly ? '' : orderDragHandle()) + cohortButton +
+                linkBtn(SITE.u('course', c.id), 'eye', t('openCourse')) +
+                linkBtn(editorRoute('course', c.id), 'external-link', t('editCourse'));
             }
           }
         ]
       });
+  }
+
+  Admin.register('courses', {
+    render: function () {
+      return renderCourseTable('courses', false);
     }
+  });
+
+  Admin.register('in-person-courses', {
+    render: function () {
+      return renderCourseTable('in-person-courses', true);
+    }
+  });
+
+  Admin.register('referral-points', {
+    render: function () {
+      var students = Store.collection('users').filter(function (user) {
+        return user.role === 'student' && Number(user.referralPoints) > 0;
+      });
+      return '<section class="course-cohort-page-section"><h3>' +
+        e(t('secReferralPoints')) + '</h3>' +
+        Admin.table({
+          key: 'referral-points',
+          id: function (user) { return user.databaseId || user.id; },
+          rows: students,
+          pageSize: 10,
+          search: function (user) {
+            return [user.name, user.handle, user.phone, user.referralPoints].join(' ');
+          },
+          empty: {
+            icon: 'award',
+            title: t('referralPointsEmpty'),
+            sub: t('subReferralPoints')
+          },
+          columns: [
+            {
+              k: 'name',
+              label: t('registrationRequestName'),
+              sortVal: function (user) { return user.name; },
+              render: function (user) {
+                return '<b>' + e(user.name) + '</b>' +
+                  (user.handle ? '<span class="tiny muted" dir="ltr"> @' + e(user.handle) + '</span>' : '');
+              },
+              csv: function (user) { return user.name; }
+            },
+            {
+              k: 'phone',
+              label: t('registrationRequestPhone'),
+              sortVal: function (user) { return user.phone; },
+              render: function (user) { return '<span dir="ltr">' + e(user.phone) + '</span>'; },
+              csv: function (user) { return user.phone; }
+            },
+            {
+              k: 'points',
+              label: t('referralPointsBalance'),
+              sortVal: function (user) { return Number(user.referralPoints) || 0; },
+              render: function (user) {
+                return '<span class="chip ok">' + (Number(user.referralPoints) || 0) + '</span>';
+              },
+              csv: function (user) { return Number(user.referralPoints) || 0; }
+            },
+            {
+              k: 'actions',
+              label: t('colActions'),
+              cls: 'acts',
+              noCsv: true,
+              render: function (user) {
+                return '<button type="button" class="btn btn-soft btn-sm" data-act="referral-points-reset" data-id="' +
+                  e(user.id) + '">' + UI.icon('refresh-cw', 14) +
+                  e(t('referralPointsReset')) + '</button>';
+              }
+            }
+          ]
+        }) +
+        '</section>';
+    }
+  });
+
+  function courseRegistrationPaymentCell(request) {
+    var currencySymbol = request.currency === 'USD' ? '$' : '₪';
+    var payments = (request.payments || []).map(function (payment) {
+      return '<li><span>' + e(payment.amount) + ' ' + currencySymbol +
+        '</span><time>' + e(UI.formatDate(payment.createdAt)) + '</time></li>';
+    }).join('');
+    return '<div class="course-cohort-paid-editor">' +
+      '<div class="course-cohort-paid-input"><input class="input" type="number" min="0.01" step="0.01"' +
+      (request.remainingAmount !== '' && request.remainingAmount != null
+        ? ' max="' + e(request.remainingAmount) + '"' : '') +
+      ' data-registration-paid-amount="' + e(request.id) + '" aria-label="' +
+      e(t('courseRegistrationNewPayment')) + '" placeholder="' +
+      e(t('courseRegistrationNewPayment')) + '"' +
+      ' aria-describedby="course-payment-feedback-' + e(request.id) + '"' +
+      (request.remainingAmount === '' || Number(request.remainingAmount) <= 0 ? ' disabled' : '') +
+      ' required>' +
+      '<button type="button" class="btn-icon sm course-cohort-payment-confirm" data-act="course-registration-paid-amount-save" data-id="' +
+      e(request.id) + '" title="' + e(t('courseRegistrationConfirmPayment')) +
+      '" aria-label="' + e(t('courseRegistrationConfirmPayment')) + '"' +
+      ' disabled' +
+      '>' + UI.icon('check', 15) + '</button></div>' +
+      '<small class="course-cohort-payment-feedback" id="course-payment-feedback-' +
+      e(request.id) + '" role="alert" hidden></small>' +
+      '<small>' + e(t('courseRegistrationAmountOfCourse')) + ': ' +
+      e(request.coursePriceAmount || '—') + ' ' + currencySymbol + '</small>' +
+      '<small>' + e(t('courseRegistrationPaidAmount')) + ': ' +
+      e(request.paidAmount || '0.00') + ' ' + currencySymbol + '</small>' +
+      '<small class="course-cohort-remaining">' + e(t('courseRegistrationRemaining')) + ': ' +
+      e(request.remainingAmount || '—') + ' ' + currencySymbol + '</small>' +
+      (payments ? '<ul class="course-cohort-payment-list">' + payments + '</ul>' : '') +
+      '</div>';
+  }
+
+  function inPersonStudentSetupActions(request, includeEdit) {
+    var linkAvailable = isStudentSetupLinkAvailable(request);
+    var actions = includeEdit === false ? '' :
+      '<button type="button" class="btn-icon" data-act="in-person-student-edit" data-id="' +
+      e(request.id) + '" title="' + e(t('studentEdit')) + '" aria-label="' +
+      e(t('studentEdit')) + '">' + UI.icon('pencil', 15) + '</button>';
+    actions += request.accountReady
+      ? '<small class="tiny muted">' + e(t('studentAccountReady')) + '</small>'
+      : '<button type="button" class="btn-icon" data-act="student-setup-link-create" data-id="' +
+        e(request.id) + '" title="' + e(t('studentSetupLinkCreate')) + '" aria-label="' +
+        e(t('studentSetupLinkCreate')) + '">' + UI.icon('link', 15) + '</button>';
+    actions += '<button type="button" class="btn-icon" data-act="student-setup-link-copy" data-id="' +
+      e(request.id) + '" title="' + e(t('studentSetupLinkCopy')) + '" aria-label="' +
+      e(t('studentSetupLinkCopy')) + '"' + (linkAvailable ? '' : ' disabled') + '>' +
+      UI.icon('copy', 15) + '</button>';
+    actions += '<button type="button" class="btn-icon" data-act="student-setup-link-qr" data-id="' +
+      e(request.id) + '" title="' + e(t('studentSetupLinkShowQr')) + '" aria-label="' +
+      e(t('studentSetupLinkShowQr')) + '"' + (linkAvailable ? '' : ' disabled') + '>' +
+      UI.icon('image', 15) + '</button>';
+    return '<div class="inperson-student-setup-actions">' + actions + '</div>';
+  }
+
+  function copyStudentSetupLink(link) {
+    function copyWithLegacyApi() {
+      var input = document.createElement('textarea');
+      input.value = link;
+      input.setAttribute('readonly', '');
+      input.setAttribute('aria-hidden', 'true');
+      input.style.position = 'fixed';
+      input.style.opacity = '0';
+      document.body.appendChild(input);
+      input.focus();
+      input.select();
+      input.setSelectionRange(0, input.value.length);
+      try {
+        return document.execCommand('copy');
+      } catch (error) {
+        return false;
+      } finally {
+        document.body.removeChild(input);
+      }
+    }
+
+    if (window.navigator.clipboard && window.isSecureContext) {
+      return Promise.resolve()
+        .then(function () { return window.navigator.clipboard.writeText(link); })
+        .catch(function () {
+          if (copyWithLegacyApi()) return;
+          throw new Error(t('studentSetupLinkCopyFailed'));
+        });
+    }
+    if (copyWithLegacyApi()) return Promise.resolve();
+    return Promise.reject(new Error(t('studentSetupLinkCopyFailed')));
+  }
+
+  function isStudentSetupLinkAvailable(request) {
+    var expires = Date.parse(request.setupLinkExpiresAt || '');
+    return !!request.setupUrl && Number.isFinite(expires) && expires > Date.now();
+  }
+
+  function inPersonStudentEditForm(request) {
+    var modal = Admin.formModal({
+      title: t('studentEdit') + ' — ' + request.fullName,
+      submit: t('saveChanges'),
+      fields: [
+        {
+          k: 'fullName',
+          label: t('registrationRequestName'),
+          value: request.fullName || '',
+          required: true,
+          maxLength: 200,
+          validate: function (value) {
+            var words = value.trim().split(/\s+/);
+            return value && words.length >= 3 && words.length <= 6 &&
+              words.every(function (word) { return /^[\p{L}\p{M}]+$/u.test(word); })
+              ? '' : t('registrationRequestNameInvalid');
+          }
+        },
+        {
+          k: 'phone',
+          label: t('registrationRequestPhone'),
+          value: request.phone || '',
+          required: true,
+          maxLength: 13,
+          dir: 'ltr',
+          inputMode: 'tel',
+          placeholder: '+970xxxxxxxxx أو +972xxxxxxxxx',
+          validate: function (value) {
+            return /^\+97(?:0|2)(?:59|56)\d{7}$/.test(value)
+              ? '' : t('registrationRequestPhoneInvalid');
+          }
+        },
+        {
+          k: 'address',
+          label: t('registrationRequestAddress'),
+          value: request.address || '',
+          required: true,
+          maxLength: 255
+        },
+        {
+          k: 'specialty',
+          label: t('registrationRequestSpecialty'),
+          value: request.specialty || '',
+          required: true,
+          maxLength: 150
+        },
+        {
+          k: 'studentStatus',
+          label: t('registrationRequestStatus'),
+          type: 'select',
+          value: request.studentStatus || 'student',
+          required: true,
+          options: [
+            { v: 'student', l: t('registrationRequestStudent') },
+            { v: 'graduate', l: t('registrationRequestGraduate') }
+          ]
+        }
+      ],
+      onSubmit: function (values, formModal) {
+        var saveButton = formModal.el.querySelector('[data-fm="save"]');
+        saveButton.disabled = true;
+        fetch(SITE.u('courseRegistrationRequestUpdate', request.id), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify(values)
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) {
+              throw new Error(data.message || t('saveError'));
+            }
+            return data;
+          });
+        }).then(function (data) {
+          AdminData.updateCourseRegistrationRequest(data.request);
+          formModal.close();
+          Admin.renderAll();
+          UI.toast(t('studentUpdated'), 'success');
+        }).catch(function (error) {
+          saveButton.disabled = false;
+          UI.toast(error.message || t('saveError'), 'error');
+        });
+        return false;
+      }
+    });
+    return modal;
+  }
+
+  Admin.register('in-person-students', {
+    render: function () {
+      var students = AdminData.courseRegistrationRequests().filter(function (request) {
+        return request.status === 'accepted';
+      });
+      return Admin.table({
+        key: 'in-person-students',
+        id: function (request) { return request.id; },
+        rows: students,
+        pageSize: 10,
+        search: function (request) {
+          return [
+            request.courseTitle,
+            request.cohortName,
+            request.fullName,
+            request.phone,
+            request.sourceStudentName,
+            request.specialty,
+            request.address
+          ].join(' ');
+        },
+        empty: {
+          icon: 'users',
+          title: t('inPersonStudentsEmpty'),
+          sub: t('subInPersonStudents')
+        },
+        columns: [
+          {
+            k: 'course',
+            label: t('registrationRequestCourse'),
+            sortVal: function (request) { return request.courseTitle; },
+            render: function (request) { return '<b>' + e(request.courseTitle) + '</b>'; },
+            csv: function (request) { return request.courseTitle; }
+          },
+          {
+            k: 'cohort',
+            label: t('courseCohort'),
+            sortVal: function (request) { return request.cohortName || ''; },
+            render: function (request) {
+              return request.cohortName ? e(request.cohortName) : '<span class="tiny muted">—</span>';
+            },
+            csv: function (request) { return request.cohortName || ''; }
+          },
+          {
+            k: 'name',
+            label: t('registrationRequestName'),
+            sortVal: function (request) { return request.fullName; },
+            render: function (request) {
+              return '<button type="button" class="course-cohort-request-name" data-act="course-registration-details" data-id="' +
+                e(request.id) + '">' + e(request.fullName) + '</button>';
+            },
+            csv: function (request) { return request.fullName; }
+          },
+          {
+            k: 'phone',
+            label: t('registrationRequestPhone'),
+            sortVal: function (request) { return request.phone; },
+            render: function (request) {
+              return '<a href="https://wa.me/' + e(String(request.phone || '').replace(/\D/g, '')) +
+                '" target="_blank" rel="noopener noreferrer" dir="ltr">' + e(request.phone) + '</a>';
+            },
+            csv: function (request) { return request.phone; }
+          },
+          {
+            k: 'specialty',
+            label: t('registrationRequestSpecialty'),
+            sortVal: function (request) { return request.specialty; },
+            render: function (request) { return e(request.specialty); },
+            csv: function (request) { return request.specialty; }
+          },
+          {
+            k: 'paidAmount',
+            label: t('courseRegistrationPaymentDetails'),
+            sortVal: function (request) { return Number(request.paidAmount || 0); },
+            render: function (request) {
+              return courseRegistrationPaymentCell(request);
+            },
+            csv: function (request) {
+              return (request.paidAmount || '0.00') + ' ' + (request.currency === 'USD' ? '$' : '₪');
+            }
+          },
+          {
+            k: 'remainingAmount',
+            label: t('courseRegistrationRemaining'),
+            sortVal: function (request) { return Number(request.remainingAmount || 0); },
+            render: function (request) {
+              return request.remainingAmount === ''
+                ? '<span class="tiny muted">—</span>'
+                : e(request.remainingAmount || '0.00') + ' ' + (request.currency === 'USD' ? '$' : '₪');
+            },
+            csv: function (request) {
+              return request.remainingAmount === ''
+                ? ''
+                : (request.remainingAmount || '0.00') + ' ' + (request.currency === 'USD' ? '$' : '₪');
+            }
+          },
+          {
+            k: 'account',
+            label: t('inPersonStudentAccount'),
+            sortVal: function (request) { return request.studentId || ''; },
+            render: function (request) {
+              return inPersonStudentSetupActions(request);
+            },
+            csv: function () { return ''; }
+          }
+        ]
+      });
+    },
+    wire: wireInPersonStudentPayments
+  });
+
+  function validateInPersonStudentPayment(input) {
+    var value = input.value.trim();
+    var message = '';
+    var remaining = Number(input.max);
+    if (!value) {
+      message = t('courseRegistrationPaymentRequired');
+    } else if (!/^\d+(?:\.\d{1,2})?$/.test(value)) {
+      message = t('courseRegistrationPaymentFormatInvalid');
+    } else if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+      message = t('courseRegistrationPaymentMustBePositive');
+    } else if (Number(value) > remaining) {
+      message = t('courseRegistrationPaymentExceedsRemaining');
+    }
+
+    input.setCustomValidity(message);
+    input.setAttribute('aria-invalid', message ? 'true' : 'false');
+    input.classList.toggle('is-invalid', !!message);
+    var editor = input.closest('.course-cohort-paid-editor');
+    var feedback = editor && editor.querySelector('.course-cohort-payment-feedback');
+    var confirmButton = editor && editor.querySelector('.course-cohort-payment-confirm');
+    if (feedback) {
+      feedback.textContent = message;
+      feedback.hidden = !message;
+    }
+    if (confirmButton) confirmButton.disabled = !!message || input.disabled;
+    return !message;
+  }
+
+  function wireInPersonStudentPayments(host) {
+    host.querySelectorAll('[data-registration-paid-amount]').forEach(function (input) {
+      input.addEventListener('input', function () {
+        validateInPersonStudentPayment(input);
+      });
+      input.addEventListener('change', function () {
+        validateInPersonStudentPayment(input);
+      });
+    });
+  }
+
+  var courseCohortSourceQueries = {};
+  var courseCohortApplicantQueries = {};
+  var expandedHistoricalCohorts = {};
+
+  function getCourseCohortRoute() {
+    var match = (location.hash || '').replace(/^#\/?/, '').match(/^in-person-course-cohorts\/(.+)$/);
+    if (!match) return null;
+    try {
+      return decodeURIComponent(match[1]);
+    } catch (error) {
+      return match[1];
+    }
+  }
+
+  function courseCohortRequestRow(request, includeCourse, editing) {
+    var status = request.status || 'new';
+    var statusOptions = [
+      { value: 'new', label: 'registrationRequestNew', cls: 'st-warn' },
+      { value: 'contacted', label: 'registrationRequestContacted', cls: 'st-brand' },
+      { value: 'accepted', label: 'registrationRequestAccepted', cls: 'st-ok' },
+      { value: 'rejected', label: 'registrationRequestRejected', cls: 'st-danger' }
+    ];
+    var statusIndex = statusOptions.findIndex(function (option) {
+      return option.value === status;
+    });
+    if (statusIndex < 0) statusIndex = 0;
+    var currentStatus = statusOptions[statusIndex];
+    var nextStatus = statusOptions[(statusIndex + 1) % statusOptions.length];
+    var source = request.sourceStudentName || t('registrationRequestDirect');
+    var paidAmountCell = status === 'accepted'
+      ? courseRegistrationPaymentCell(request)
+      : '<span class="tiny muted">—</span>';
+    var labels = {
+      course: t('registrationRequestCourse'),
+      name: t('registrationRequestName'),
+      phone: t('registrationRequestPhone'),
+      source: t('registrationRequestSource'),
+      status: t('registrationRequestStatus'),
+      date: t('registrationRequestDate'),
+      paid: t('courseRegistrationPaidAmount'),
+      account: t('inPersonStudentAccount')
+    };
+    return '<tr class="course-cohort-applicant-row' + (editing ? ' is-editing' : '') +
+      '" data-registration-request-row="' +
+      e(request.id) + '" data-include-course="' + (includeCourse ? 'true' : 'false') +
+      '" data-editing="' + (editing ? 'true' : 'false') +
+      '" data-request-status="' + e(status) + '" data-request-created-at="' +
+      e(request.createdAt || '') +
+      '" data-cohort-source="' +
+      e(request.sourceStudentName || '') + '" data-applicant-search="' +
+      e([request.fullName || '', request.phone || ''].join(' ').toLocaleLowerCase()) + '">' +
+      (includeCourse ? '<td data-label="' + e(labels.course) + '"><b>' + e(request.courseTitle || '—') + '</b></td>' : '') +
+      '<td data-label="' + e(labels.name) + '">' + (editing
+        ? '<div class="course-request-inline-fields">' +
+          '<input class="input" type="text" maxlength="200" data-registration-field="fullName" placeholder="' +
+          e(labels.name) + '" value="' +
+          e(request.fullName || '') + '" aria-label="' + e(labels.name) + '">' +
+          '<input class="input" type="text" maxlength="255" data-registration-field="address" placeholder="' +
+          e(t('registrationRequestAddress')) + '" value="' +
+          e(request.address || '') + '" aria-label="' + e(t('registrationRequestAddress')) + '">' +
+          '<input class="input" type="text" maxlength="150" data-registration-field="specialty" placeholder="' +
+          e(t('registrationRequestSpecialty')) + '" value="' +
+          e(request.specialty || '') + '" aria-label="' + e(t('registrationRequestSpecialty')) + '">' +
+          '<select class="input" data-registration-field="studentStatus" aria-label="' +
+          e(t('registrationRequestStudentStatus')) + '">' +
+          '<option value="student"' + (request.studentStatus === 'student' ? ' selected' : '') + '>' +
+          e(t('registrationRequestStudent')) + '</option>' +
+          '<option value="graduate"' + (request.studentStatus === 'graduate' ? ' selected' : '') + '>' +
+          e(t('registrationRequestGraduate')) + '</option></select></div>'
+        : '<button type="button" class="course-cohort-request-name" data-act="course-registration-details" data-id="' +
+          e(request.id) + '" aria-label="' + e(t('courseCohortRequestDetails') + ' — ' + request.fullName) +
+          '">' + e(request.fullName) + '</button>') + '</td>' +
+      '<td data-label="' + e(labels.phone) + '">' + (editing
+        ? '<input class="input course-request-inline-phone" type="tel" maxlength="13" dir="ltr" data-registration-field="phone" value="' +
+          e(request.phone || '') + '" aria-label="' + e(labels.phone) + '">'
+        : '<a href="https://wa.me/' + e(String(request.phone || '').replace(/\D/g, '')) +
+          '" target="_blank" rel="noopener noreferrer" dir="ltr">' + e(request.phone || '—') + '</a>') +
+      '</td>' +
+      '<td data-label="' + e(labels.source) + '">' + e(source) + '</td>' +
+      '<td data-label="' + e(labels.status) + '">' + (editing
+        ? '<select class="input course-request-inline-status" data-registration-field="status" aria-label="' +
+          e(labels.status) + '">' +
+          statusOptions.map(function (option) {
+            return '<option value="' + option.value + '"' +
+              (status === option.value ? ' selected' : '') + '>' +
+              e(t(option.label)) + '</option>';
+          }).join('') + '</select>'
+        : '<button type="button" class="st st-toggle ' + currentStatus.cls +
+        ' course-registration-status-toggle' + (status === 'accepted' ? ' is-final' : '') + '"' +
+        (status === 'accepted'
+          ? ' disabled aria-disabled="true" title="' + e(t(currentStatus.label)) + '"'
+          : ' data-act="course-registration-status-toggle" data-id="' + e(request.id) +
+            '" data-next-status="' + nextStatus.value + '" title="' +
+            e(t('courseRegistrationStatusClick') + ' ' + t(nextStatus.label)) + '"') +
+        ' aria-label="' + e(t('courseRegistrationStatus') + ': ' + t(currentStatus.label) +
+          (status === 'accepted' ? '' : '. ' + t('courseRegistrationStatusClick') +
+            ' ' + t(nextStatus.label))) +
+        '">' + e(t(currentStatus.label)) + '</button>') + '</td>' +
+      (includeCourse ? '' : '<td data-label="' + e(labels.date) + '">' + e(UI.formatDate(request.createdAt)) + '</td>') +
+      (includeCourse ? '' : '<td data-label="' + e(labels.paid) + '">' + paidAmountCell + '</td>') +
+      (includeCourse ? '' : '<td data-label="' + e(labels.account) + '">' + (status === 'accepted'
+        ? inPersonStudentSetupActions(request, false)
+        : '<span class="tiny muted">—</span>') + '</td>') +
+      '<td class="course-request-row-actions" data-label="' + e(t('edit')) + '"><div class="course-request-row-actions-inner">' +
+      (editing
+        ? '<button type="button" class="btn btn-primary btn-sm" data-act="course-registration-row-save" data-id="' +
+          e(request.id) + '">' + UI.icon('check', 14) + e(t('save')) + '</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm" data-act="course-registration-row-cancel" data-id="' +
+          e(request.id) + '">' + UI.icon('x', 14) + e(t('cancel')) + '</button>'
+        : '<button type="button" class="btn-icon" data-act="course-registration-row-edit" data-id="' +
+          e(request.id) + '" title="' + e(t('studentEdit')) + '" aria-label="' +
+          e(t('studentEdit')) + '">' + UI.icon('pencil', 15) + '</button>') +
+      '</div></td>' +
+      '</tr>';
+  }
+
+  function renderCourseCohortRequests(cohort, cohortRequests, includeCourse) {
+    if (!cohortRequests.length) {
+      return '<p class="tiny muted">' +
+        e(t(includeCourse ? 'registrationRequestEmpty' : 'courseCohortNoApplicants')) + '</p>';
+    }
+    cohortRequests = cohortRequests.slice().sort(function (left, right) {
+      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+    });
+    var sourceNames = cohortRequests.map(function (request) {
+      return request.sourceStudentName || '';
+    }).filter(function (name, index, names) {
+      return name && names.indexOf(name) === index;
+    });
+    return '<div class="course-cohort-filters">' +
+      '<label class="course-cohort-filter">' +
+      '<span>' + e(t('courseCohortApplicantSearch')) + '</span>' +
+      '<input class="input" type="search" data-cohort-applicant-search="' + e(cohort.id) +
+      '" autocomplete="off" placeholder="' + e(t('courseCohortApplicantPlaceholder')) +
+      '" value="' + e(courseCohortApplicantQueries[cohort.id] || '') + '">' +
+      '</label>' +
+      '<label class="course-cohort-filter">' +
+      '<span>' + e(t('courseCohortSourceSearch')) + '</span>' +
+      '<select class="input" data-cohort-source-filter="' + e(cohort.id) + '">' +
+      '<option value="">' + e(t('courseCohortAllSources')) + '</option>' +
+      sourceNames.map(function (name) {
+        return '<option value="' + e(name) + '"' +
+          (courseCohortSourceQueries[cohort.id] === name ? ' selected' : '') + '>' +
+          e(name) + '</option>';
+      }).join('') +
+      '</select></label></div>' +
+      '<p class="tiny muted course-cohort-no-matches" hidden>' +
+      e(t('courseCohortNoApplicantMatches')) + '</p>' +
+      '<div class="tbl-wrap course-cohort-table-wrap' +
+      (includeCourse ? ' course-registration-requests-table-wrap' : '') +
+      '"><table class="adm-table"><thead><tr>' +
+      (includeCourse ? '<th scope="col">' + e(t('registrationRequestCourse')) + '</th>' : '') +
+      '<th scope="col">' + e(t('registrationRequestName')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestPhone')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestSource')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestStatus')) + '</th>' +
+      (includeCourse ? '' : '<th scope="col">' + e(t('registrationRequestDate')) + '</th>') +
+      (includeCourse ? '' : '<th scope="col">' + e(t('courseRegistrationPaidAmount')) + '</th>') +
+      (includeCourse ? '' : '<th scope="col">' + e(t('inPersonStudentAccount')) + '</th>') +
+      '<th scope="col">' + e(t('edit')) + '</th>' +
+      '</tr></thead><tbody>' + cohortRequests.map(function (request) {
+        return courseCohortRequestRow(request, includeCourse);
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  function replaceCourseRegistrationRequestRow(row, request, editing) {
+    var replacementHost = document.createElement('tbody');
+    replacementHost.innerHTML = courseCohortRequestRow(
+      request,
+      row.getAttribute('data-include-course') === 'true',
+      !!editing
+    );
+    var replacement = replacementHost.firstElementChild;
+    if (!replacement) return null;
+    replacement.hidden = row.hidden;
+    row.parentNode.replaceChild(replacement, row);
+    return replacement;
+  }
+
+  function courseCohortCard(cohort, requests, expanded) {
+    var cohortRequests = requests.filter(function (request) {
+      return String(request.cohortId) === String(cohort.id);
+    });
+    var historyToggle = cohort.active ? '' :
+      '<button type="button" class="btn btn-soft btn-sm" data-act="course-cohort-history-toggle" data-id="' +
+      e(cohort.id) + '">' + UI.icon(expanded ? 'chevron-up' : 'chevron-down', 14) +
+      e(t(expanded ? 'courseCohortHideRequests' : 'courseCohortViewRequests')) + '</button>';
+    return '<section class="course-cohort-card">' +
+      '<header><div><b>' + e(t('courseCohort')) + ' ' + e(cohort.name) + '</b>' +
+      '<span class="st ' + (cohort.active ? 'st-ok' : 'st-mute') + '">' +
+      e(t(cohort.active ? 'courseCohortActive' : 'courseCohortClosed')) + '</span></div>' +
+      '<div class="course-cohort-card-actions">' + historyToggle + '</div></header>' +
+      '<div class="course-cohort-dates"><span>' + e(t('courseCohortStart')) + ': ' +
+      e(UI.formatDate(cohort.startedAt)) + '</span><span>' + e(t('courseCohortEnd')) + ': ' +
+      e(cohort.endedAt ? UI.formatDate(cohort.endedAt) : '—') + '</span>' +
+      '<span>' + e(t('courseCohortApplicants')) + ': ' + cohortRequests.length + '</span></div>' +
+      (cohort.active || expanded
+        ? renderCourseCohortRequests(cohort, cohortRequests)
+        : '') + '</section>';
+  }
+
+  function renderCourseCohortsPage() {
+    var courseId = getCourseCohortRoute();
+    var course = Store.collection('certificates').filter(function (item) {
+      return String(item.pk || item.id) === String(courseId);
+    })[0];
+    if (!course) {
+      return '<button type="button" class="btn btn-ghost btn-sm" data-act="course-cohorts-back">' +
+        UI.icon('arrow-right', 14) + e(t('courseCohortsBack')) + '</button>' +
+        '<p class="tiny muted">' + e(t('courseCohortCourseMissing')) + '</p>';
+    }
+    var cohorts = AdminData.inPersonCohorts().filter(function (cohort) {
+      return String(cohort.courseId) === String(course.id);
+    }).sort(function (left, right) {
+      return Number(right.number) - Number(left.number);
+    });
+    var requests = AdminData.courseRegistrationRequests().filter(function (request) {
+      return String(request.courseId || course.id) === String(course.id);
+    });
+    var activeCohort = cohorts.filter(function (cohort) { return cohort.active; })[0];
+    var history = cohorts.filter(function (cohort) { return !cohort.active; });
+    return '<div class="course-cohort-page">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-act="course-cohorts-back">' +
+      UI.icon('arrow-right', 14) + e(t('courseCohortsBack')) + '</button>' +
+      '<h2>' + e(course.title) + '</h2>' +
+      '<section class="course-cohort-page-section"><h3>' + e(t('courseCohortActiveRequests')) + '</h3>' +
+      (activeCohort
+        ? courseCohortCard(activeCohort, requests, false)
+        : '<p class="tiny muted">' + e(t('courseCohortNoActive')) + '</p>') +
+      '</section><section class="course-cohort-page-section"><h3>' +
+      e(t('courseCohortHistory')) + '</h3>' +
+      (history.length
+        ? '<div class="course-cohorts-list">' + history.map(function (cohort) {
+          return courseCohortCard(cohort, requests, !!expandedHistoricalCohorts[cohort.id]);
+        }).join('') + '</div>'
+        : '<p class="tiny muted">' + e(t('courseCohortNoHistory')) + '</p>') +
+      '</section></div>';
+  }
+
+  function wireCourseCohortPage(host) {
+    wireInPersonStudentPayments(host);
+
+    function filterRequests(cohortId, card) {
+      var query = (courseCohortApplicantQueries[cohortId] || '').trim().toLocaleLowerCase();
+      var selectedSource = courseCohortSourceQueries[cohortId] || '';
+      var rows = card.querySelectorAll('.course-cohort-applicant-row');
+      var visibleCount = 0;
+      rows.forEach(function (row) {
+        var matchesApplicant = !query ||
+          (row.getAttribute('data-applicant-search') || '').indexOf(query) !== -1;
+        var matchesSource = !selectedSource ||
+          row.getAttribute('data-cohort-source') === selectedSource;
+        var matches = matchesApplicant && matchesSource;
+        row.hidden = !matches;
+        if (matches) visibleCount += 1;
+      });
+      var noMatches = card.querySelector('.course-cohort-no-matches');
+      noMatches.hidden = visibleCount > 0;
+    }
+
+    host.querySelectorAll('[data-cohort-applicant-search]').forEach(function (input) {
+      var cohortId = input.getAttribute('data-cohort-applicant-search');
+      var card = input.closest('.course-cohort-card');
+      input.addEventListener('input', function () {
+        courseCohortApplicantQueries[cohortId] = input.value;
+        filterRequests(cohortId, card);
+      });
+      if (input.value || courseCohortSourceQueries[cohortId]) filterRequests(cohortId, card);
+    });
+
+    host.querySelectorAll('[data-cohort-source-filter]').forEach(function (select) {
+      var cohortId = select.getAttribute('data-cohort-source-filter');
+      var card = select.closest('.course-cohort-card');
+      select.addEventListener('change', function () {
+        courseCohortSourceQueries[cohortId] = select.value;
+        filterRequests(cohortId, card);
+      });
+      if (select.value || courseCohortApplicantQueries[cohortId]) filterRequests(cohortId, card);
+    });
+  }
+
+  Admin.register('in-person-course-cohorts', {
+    render: renderCourseCohortsPage,
+    wire: wireCourseCohortPage
+  });
+
+  Admin.on('course-cohorts', function (el) {
+    Admin.navigate('in-person-course-cohorts/' + encodeURIComponent(el.getAttribute('data-id')));
+  });
+
+  Admin.on('course-cohorts-back', function () {
+    Admin.navigate('in-person-courses');
+  });
+
+  Admin.on('course-cohort-history-toggle', function (el) {
+    var cohortId = el.getAttribute('data-id');
+    expandedHistoricalCohorts[cohortId] = !expandedHistoricalCohorts[cohortId];
+    Admin.renderAll();
+  });
+
+  Admin.on('course-registration-details', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!request) return;
+
+    var statusKeys = {
+      new: 'registrationRequestNew',
+      contacted: 'registrationRequestContacted',
+      accepted: 'registrationRequestAccepted',
+      rejected: 'registrationRequestRejected'
+    };
+    var studentStatusKey = request.studentStatus === 'graduate'
+      ? 'registrationRequestGraduate'
+      : 'registrationRequestStudent';
+    var status = request.status || 'new';
+    var statusClass = status === 'accepted' ? 'st-ok'
+      : status === 'rejected' ? 'st-danger'
+        : status === 'contacted' ? 'st-brand' : 'st-warn';
+    function detailField(label, value, extraClass) {
+      return '<div class="course-request-detail-field' +
+        (extraClass ? ' ' + extraClass : '') + '"><span>' + e(label) +
+        '</span><b>' + e(value || '—') + '</b></div>';
+    }
+    UI.modal({
+      title: t('courseCohortRequestDetails'),
+      size: 'md',
+      body: '<div class="course-registration-details">' +
+        '<section class="course-request-summary">' +
+        '<span class="course-request-avatar">' + UI.icon('user', 22) + '</span>' +
+        '<div class="course-request-summary-main"><span>' + e(t('registrationRequestName')) +
+        '</span><h4>' + e(request.fullName || '—') + '</h4>' +
+        '<p>' + e(request.courseTitle || '—') + '</p></div>' +
+        '<span class="st ' + statusClass + '">' +
+        e(t(statusKeys[status] || 'registrationRequestNew')) + '</span></section>' +
+        '<a class="course-request-phone" href="https://wa.me/' +
+        e(String(request.phone || '').replace(/\D/g, '')) +
+        '" target="_blank" rel="noopener noreferrer" dir="ltr">' +
+        '<span class="course-request-phone-icon">' + UI.icon('message-circle', 18) + '</span>' +
+        '<span class="course-request-phone-copy"><small>' + e(t('registrationRequestPhone')) +
+        '</small><b>' + e(request.phone || '—') + '</b></span>' +
+        '<span class="course-request-phone-action">' + e(t('courseRequestOpenWhatsApp')) + '</span></a>' +
+        '<section class="course-request-detail-section"><h4>' +
+        e(t('courseCohortApplicantInfo')) + '</h4><div class="course-request-detail-grid">' +
+        detailField(t('registrationRequestAddress'), request.address) +
+        detailField(t('registrationRequestSpecialty'), request.specialty) +
+        detailField(t('colRole'), t(studentStatusKey)) +
+        '</div></section>' +
+        '<section class="course-request-detail-section"><h4>' +
+        e(t('courseCohortApplicationInfo')) + '</h4><div class="course-request-detail-grid">' +
+        detailField(t('registrationRequestSource'), request.sourceStudentName || t('registrationRequestDirect')) +
+        detailField(t('courseCohort'), request.cohortName) +
+        detailField(t('courseRegistrationPaidAmount'), (request.paidAmount || '0.00') +
+          ' ' + (request.currency === 'USD' ? '$' : '₪')) +
+        detailField(t('courseRegistrationRemaining'), request.remainingAmount
+          ? request.remainingAmount + ' ' + (request.currency === 'USD' ? '$' : '₪')
+          : '—') +
+        detailField(t('registrationRequestDate'), UI.formatDate(request.createdAt)) +
+        '</div></section></div>'
+    });
+  });
+
+  Admin.on('course-registration-row-edit', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    var row = el.closest('[data-registration-request-row]');
+    if (!request || !row) return;
+    var replacement = replaceCourseRegistrationRequestRow(row, request, true);
+    var nameInput = replacement && replacement.querySelector('[data-registration-field="fullName"]');
+    if (nameInput) nameInput.focus();
+  });
+
+  Admin.on('course-registration-row-cancel', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    var row = el.closest('[data-registration-request-row]');
+    if (!request || !row) return;
+    var replacement = replaceCourseRegistrationRequestRow(row, request, false);
+    var editButton = replacement && replacement.querySelector(
+      '[data-act="course-registration-row-edit"]'
+    );
+    if (editButton) editButton.focus({ preventScroll: true });
+  });
+
+  Admin.on('course-registration-row-save', function (el) {
+    var requestId = el.getAttribute('data-id');
+    var row = el.closest('[data-registration-request-row]');
+    if (!row) return;
+    var values = {};
+    Array.prototype.forEach.call(
+      row.querySelectorAll('[data-registration-field]'),
+      function (input) {
+        values[input.getAttribute('data-registration-field')] = input.value.trim();
+      }
+    );
+    var nameParts = (values.fullName || '').split(/\s+/);
+    if (nameParts.length < 3 || nameParts.length > 6 ||
+        !nameParts.every(function (part) { return /^[\p{L}\p{M}]+$/u.test(part); })) {
+      UI.toast(t('registrationRequestNameInvalid'), 'error');
+      return;
+    }
+    if (!/^\+97(?:0|2)(?:59|56)\d{7}$/.test(values.phone || '')) {
+      UI.toast(t('registrationRequestPhoneInvalid'), 'error');
+      return;
+    }
+    if (!values.address || values.address.length > 255 ||
+        !values.specialty || values.specialty.length > 150 ||
+        ['student', 'graduate'].indexOf(values.studentStatus) === -1 ||
+        ['new', 'contacted', 'accepted', 'rejected'].indexOf(values.status) === -1) {
+      UI.toast(t('registrationRequestInvalid'), 'error');
+      return;
+    }
+    el.disabled = true;
+    fetch(SITE.u('courseRegistrationRequestUpdate', requestId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify(values)
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('saveError'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateCourseRegistrationRequest(data.request);
+      var updatedRequest = AdminData.courseRegistrationRequests().filter(function (item) {
+        return String(item.id) === String(requestId);
+      })[0];
+      Array.prototype.forEach.call(
+        document.querySelectorAll('[data-registration-request-row]'),
+        function (requestRow) {
+          if (requestRow.getAttribute('data-registration-request-row') === String(requestId)) {
+            replaceCourseRegistrationRequestRow(requestRow, updatedRequest, false);
+          }
+        }
+      );
+      UI.toast(t('studentUpdated'), 'success');
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('saveError'), 'error');
+    });
+  });
+
+  Admin.on('course-registration-status-toggle', function (el) {
+    var requestId = el.getAttribute('data-id');
+    var nextStatus = el.getAttribute('data-next-status');
+    var restoreStatusFocus = document.activeElement === el;
+    el.disabled = true;
+    el.classList.add('is-updating');
+    fetch(SITE.u('courseRegistrationRequestStatus', requestId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ status: nextStatus })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('courseRegistrationConfirmFailed'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateCourseRegistrationRequest(data.request);
+      Array.prototype.forEach.call(
+        document.querySelectorAll('[data-registration-request-row]'),
+        function (row) {
+          if (row.getAttribute('data-registration-request-row') !== String(requestId)) return;
+          var replacementHost = document.createElement('tbody');
+          replacementHost.innerHTML = courseCohortRequestRow(
+            data.request,
+            row.getAttribute('data-include-course') === 'true'
+          );
+          var replacement = replacementHost.firstElementChild;
+          if (!replacement) return;
+          replacement.hidden = row.hidden;
+          var body = row.parentNode;
+          body.replaceChild(replacement, row);
+          if (restoreStatusFocus) {
+            var updatedToggle = replacement.querySelector('.course-registration-status-toggle');
+            if (updatedToggle) updatedToggle.focus({ preventScroll: true });
+          }
+        }
+      );
+      UI.toast(t('courseRegistrationStatusUpdated'), 'success');
+    }).catch(function (error) {
+      el.disabled = false;
+      el.classList.remove('is-updating');
+      UI.toast(error.message || t('courseRegistrationConfirmFailed'), 'error');
+    });
+  });
+
+  Admin.on('course-registration-confirm', function (el) {
+    var requestId = el.getAttribute('data-id');
+    el.disabled = true;
+    fetch(SITE.u('courseRegistrationRequestConfirm', requestId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': window.CSRF_TOKEN || '' }
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('courseRegistrationConfirmFailed'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateCourseRegistrationRequest(data.request);
+      Admin.renderAll();
+      UI.toast(t('courseRegistrationConfirmed'), 'success');
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('courseRegistrationConfirmFailed'), 'error');
+    });
+  });
+
+  Admin.on('student-setup-link-create', function (el) {
+    var requestId = el.getAttribute('data-id');
+    el.disabled = true;
+    fetch(SITE.u('courseRegistrationRequestSetupLink', requestId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': window.CSRF_TOKEN || '' }
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('saveError'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateCourseRegistrationRequest(data.request);
+      Admin.renderAll();
+      UI.toast(t('studentSetupLinkCreated'), 'success');
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('saveError'), 'error');
+    });
+  });
+
+  Admin.on('in-person-student-edit', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (request) inPersonStudentEditForm(request);
+  });
+
+  Admin.on('student-setup-link-copy', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!request || !request.setupUrl) {
+      UI.toast(t('studentSetupLinkCopyFailed'), 'error');
+      return;
+    }
+    if (!isStudentSetupLinkAvailable(request)) {
+      UI.toast(t('studentSetupLinkExpired'), 'error');
+      return;
+    }
+    copyStudentSetupLink(request.setupUrl).then(function () {
+      UI.toast(t('studentSetupLinkCopied'), 'success');
+    }).catch(function (error) {
+      UI.toast(error.message || t('studentSetupLinkCopyFailed'), 'error');
+    });
+  });
+
+  Admin.on('student-setup-link-qr', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!request || !request.setupQrImage || !request.setupUrl) return;
+    if (!isStudentSetupLinkAvailable(request)) {
+      UI.toast(t('studentSetupLinkExpired'), 'error');
+      return;
+    }
+    UI.modal({
+      title: t('studentSetupLinkQrTitle'),
+      size: 'sm',
+      body: '<div class="workshop-qr-preview"><img src="' + e(request.setupQrImage) +
+        '" alt="' + e(t('studentSetupLinkQrTitle')) + '">' +
+        '<p class="tiny muted">' + e(t('studentSetupLinkExpires')) + ': ' +
+        e(UI.formatDate(request.setupLinkExpiresAt)) + '</p>' +
+        '<a class="btn btn-soft btn-sm" href="' + e(request.setupUrl) +
+        '" target="_blank" rel="noopener noreferrer">' + UI.icon('external-link', 14) +
+        e(t('studentSetupLinkOpen')) + '</a>' +
+        '<code dir="ltr" style="overflow-wrap:anywhere">' +
+        e(request.setupUrl) + '</code></div>'
+    });
+  });
+
+  Admin.on('course-registration-paid-amount-save', function (el) {
+    var requestId = el.getAttribute('data-id');
+    var input = document.querySelector('[data-registration-paid-amount="' + requestId + '"]');
+    if (!input) return;
+    if (!validateInPersonStudentPayment(input)) {
+      input.reportValidity();
+      return;
+    }
+    el.disabled = true;
+    input.disabled = true;
+    fetch(SITE.u('courseRegistrationRequestPaidAmount', requestId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ amount: input.value })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('courseRegistrationPaidAmountSaveFailed'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateCourseRegistrationRequest(data.request);
+      Admin.renderAll();
+      UI.toast(t('courseRegistrationPaidAmountSaved'), 'success');
+    }).catch(function (error) {
+      el.disabled = false;
+      input.disabled = false;
+      UI.toast(error.message || t('courseRegistrationPaidAmountSaveFailed'), 'error');
+    });
   });
 
   Admin.on('course-toggle', function (el) {
@@ -839,32 +2476,39 @@
     })[0];
     if (!course) return;
     var active = (course.status || 'published') !== 'published';
-    el.disabled = true;
-    fetch(SITE.u('courseStatus', el.getAttribute('data-id')), {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': window.CSRF_TOKEN || ''
-      },
-      body: JSON.stringify({ active: active })
-    }).then(function (response) {
-      return response.json().then(function (data) {
-        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
-        course.status = data.active ? 'published' : 'draft';
-        Store.save(true);
-        Admin.renderAll();
-        UI.toast(t(data.active ? 'courseActive' : 'courseInactive'), 'success');
+    UI.confirm(t(active ? 'courseActivate' : 'courseDeactivate') + '?').then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      return fetch(SITE.u('courseStatus', el.getAttribute('data-id')), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ active: active })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          course.status = data.active ? 'published' : 'draft';
+          if (data.cohort) AdminData.updateInPersonCohort(data.cohort);
+          Store.save(true);
+          Admin.renderAll();
+          UI.toast(t(data.active ? 'courseActive' : 'courseInactive'), 'success');
+        });
+      }).catch(function (error) {
+        el.disabled = false;
+        UI.toast(error.message || t('saveError'), 'error');
       });
-    }).catch(function (error) {
-      el.disabled = false;
-      UI.toast(error.message || t('saveError'), 'error');
     });
   });
 
   Admin.on('course-bulk-pub', function () { bulkSet('courses', 'courses', 'certificates', 'status', 'published'); });
   Admin.on('course-bulk-draft', function () { bulkSet('courses', 'courses', 'certificates', 'status', 'draft'); });
   Admin.on('course-bulk-del', function () { bulkDel('courses', 'courses', 'certificates'); });
+  Admin.on('inperson-course-bulk-pub', function () { bulkSet('in-person-courses', 'courses', 'certificates', 'status', 'published'); });
+  Admin.on('inperson-course-bulk-draft', function () { bulkSet('in-person-courses', 'courses', 'certificates', 'status', 'draft'); });
+  Admin.on('inperson-course-bulk-del', function () { bulkDel('in-person-courses', 'courses', 'certificates'); });
 
   Admin.register('lessons', {
     render: function () {
@@ -1218,7 +2862,9 @@
       return Admin.table({
         key: 'projects',
         id: function (p) { return p.pk || p.id; },
-        rows: AdminData.projects(),
+        rows: displayOrdered(AdminData.projects()),
+        reorderKind: 'projects',
+        draggableRows: true,
         pageSize: 10,
         search: function (p) { return [p.title, p.summary, p.category, p.owner && p.owner.name, (p.tags || []).join(' ')].join(' '); },
         filters: [
@@ -1230,10 +2876,10 @@
             { v: 'student_manual', l: t('projectTypeStudentManual') }
           ] }
         ],
-        add: { label: t('pAdd'), url: SITE.u('projectCreate'), icon: 'plus' },
+        add: { label: t('pAdd'), url: editorRoute('project'), icon: 'plus' },
         empty: {
           icon: 'folder', title: t('emptyProjects'), sub: t('emptyProjectsSub'),
-          action: '<a class="btn btn-primary btn-sm" href="' + SITE.u('projectCreate') + '">' + UI.icon('plus', 15) + e(t('pAdd')) + '</a>'
+          action: '<a class="btn btn-primary btn-sm" href="' + editorRoute('project') + '">' + UI.icon('plus', 15) + e(t('pAdd')) + '</a>'
         },
         columns: [
           {
@@ -1271,23 +2917,19 @@
             k: 'status', label: t('colStatus'), sortVal: function (p) { return p.status || 'published'; },
             render: function (p) {
               var active = (p.status || 'published') === 'published';
-              return '<span class="st ' + (active ? 'st-ok' : 'st-mute') + '">' +
-                e(t(active ? 'projectActive' : 'projectInactive')) + '</span>';
+              return '<button type="button" class="st st-toggle ' + (active ? 'st-ok' : 'st-mute') +
+                '" data-act="project-toggle" data-id="' + e(p.pk || p.id) + '" aria-label="' +
+                e(t(active ? 'projectDeactivate' : 'projectActivate')) + '">' +
+                e(t(active ? 'projectActive' : 'projectInactive')) + '</button>';
             },
             csv: function (p) { return (p.status || 'published') === 'published' ? t('projectActive') : t('projectInactive'); }
           },
           {
-            k: 'date', label: t('colDate'), sortVal: function (p) { return p.createdAt || p.date; },
-            render: function (p) { return '<span class="tiny muted">' + e(UI.formatDate(p.createdAt || p.date)) + '</span>'; },
-            csv: function (p) { return p.createdAt || p.date || ''; }
-          },
-          {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (p) {
-              return linkBtn(SITE.u('project', p.id), 'eye', t('pView')) +
-                linkBtn(SITE.u('projectEdit', p.id), 'external-link', t('pEdit')) +
-                iconBtn('project-toggle', p.pk || p.id, (p.status || 'published') === 'published' ? 'eye-off' : 'eye',
-                  t((p.status || 'published') === 'published' ? 'projectDeactivate' : 'projectActivate'));
+              return orderDragHandle() +
+                linkBtn(SITE.u('project', p.id), 'eye', t('pView')) +
+                linkBtn(editorRoute('project', p.id), 'external-link', t('pEdit'));
             }
           }
         ]
@@ -1301,25 +2943,28 @@
     })[0];
     if (!project) return;
     var active = (project.status || 'published') !== 'published';
-    el.disabled = true;
-    fetch(SITE.u('projectStatus', el.getAttribute('data-id')), {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': window.CSRF_TOKEN || ''
-      },
-      body: JSON.stringify({ active: active })
-    }).then(function (response) {
-      return response.json().then(function (data) {
-        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
-        project.status = data.active ? 'published' : 'inactive';
-        Admin.renderAll();
-        UI.toast(t(data.active ? 'projectActive' : 'projectInactive'), 'success');
+    UI.confirm(t(active ? 'projectActivate' : 'projectDeactivate') + '?').then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      return fetch(SITE.u('projectStatus', el.getAttribute('data-id')), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ active: active })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          project.status = data.active ? 'published' : 'inactive';
+          Admin.renderAll();
+          UI.toast(t(data.active ? 'projectActive' : 'projectInactive'), 'success');
+        });
+      }).catch(function (error) {
+        el.disabled = false;
+        UI.toast(error.message || t('saveError'), 'error');
       });
-    }).catch(function (error) {
-      el.disabled = false;
-      UI.toast(error.message || t('saveError'), 'error');
     });
   });
 
@@ -1458,6 +3103,124 @@
     }
   });
 
+  Admin.register('course-registration-requests', {
+    render: function () {
+      var requests = AdminData.courseRegistrationRequests();
+      var allRequests = { id: 'all' };
+      return '<div class="course-cohort-page">' +
+        '<div class="workshop-admin-toolbar"><button class="btn btn-primary" data-act="course-registration-request-add">' +
+        UI.icon('plus', 15) + e(t('registrationRequestAdd')) + '</button></div>' +
+        '<section class="course-cohort-page-section"><div class="course-cohort-card">' +
+        '<header><div><b>' + e(t('courseCohortApplicants')) + '</b>' +
+        '<span class="chip neutral">' + requests.length + '</span></div></header>' +
+        renderCourseCohortRequests(allRequests, requests, true) +
+        '</div></section></div>';
+    },
+    wire: wireCourseCohortPage
+  });
+
+  function courseRegistrationRequestForm() {
+    var courses = Store.collection('certificates').filter(function (course) {
+      return course.courseType === 'in_person' && course.status === 'published';
+    });
+    if (!courses.length) {
+      UI.toast(t('registrationRequestNoCourses'), 'error');
+      return;
+    }
+
+    Admin.formModal({
+      title: t('registrationRequestAddTitle'),
+      fields: [
+        {
+          k: 'courseId',
+          label: t('registrationRequestCourse'),
+          type: 'select',
+          required: true,
+          options: [{ v: '', l: t('registrationRequestChooseCourse') }].concat(
+            courses.map(function (course) {
+              return { v: course.id, l: course.title };
+            })
+          )
+        },
+        {
+          k: 'fullName',
+          label: t('registrationRequestName'),
+          required: true,
+          maxLength: 200,
+          validate: function (value) {
+            var words = value.trim().split(/\s+/);
+            return value && words.length >= 3 && words.length <= 6 &&
+              words.every(function (word) { return /^[\p{L}\p{M}]+$/u.test(word); })
+              ? '' : t('registrationRequestNameInvalid');
+          }
+        },
+        {
+          k: 'phone',
+          label: t('registrationRequestPhone'),
+          required: true,
+          maxLength: 13,
+          dir: 'ltr',
+          inputMode: 'tel',
+          placeholder: '+970123456789',
+          validate: function (value) {
+            return /^\+[0-9]{12}$/.test(value) ? '' : t('registrationRequestPhoneInvalid');
+          }
+        },
+        {
+          k: 'address',
+          label: t('registrationRequestAddress'),
+          required: true,
+          maxLength: 255
+        },
+        {
+          k: 'specialty',
+          label: t('registrationRequestSpecialty'),
+          required: true,
+          maxLength: 150
+        },
+        {
+          k: 'studentStatus',
+          label: t('registrationRequestStatus'),
+          type: 'select',
+          required: true,
+          options: [
+            { v: 'student', l: t('registrationRequestStudent') },
+            { v: 'graduate', l: t('registrationRequestGraduate') }
+          ]
+        }
+      ],
+      onSubmit: function (values, modal) {
+        var saveButton = modal.el.querySelector('[data-fm="save"]');
+        saveButton.disabled = true;
+        fetch(SITE.u('courseRegistrationRequestSave'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify(values)
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+            AdminData.addCourseRegistrationRequest(data.request);
+            modal.close();
+            Admin.renderAll();
+            UI.toast(t('registrationRequestCreated'), 'success');
+          });
+        }).catch(function (error) {
+          saveButton.disabled = false;
+          UI.toast(error.message || t('saveError'), 'error');
+        });
+        return false;
+      }
+    });
+  }
+
+  Admin.on('course-registration-request-add', function () {
+    courseRegistrationRequestForm();
+  });
+
   Admin.on('workshop-add', function () {
     workshopForm(null);
   });
@@ -1572,6 +3335,7 @@
         id: function (certificate) { return certificate.id; },
         rows: AdminData.studentCertificates(),
         pageSize: 12,
+        add: { label: t('certificateAdd'), act: 'certificate-add', icon: 'plus' },
         search: function (certificate) {
           return [
             certificate.title,
@@ -1589,7 +3353,8 @@
             val: function (certificate) { return certificate.type; },
             options: [
               { v: 'course', l: t('certificateCourse') },
-              { v: 'manual', l: t('certificateExternal') }
+              { v: 'manual', l: t('certificateExternal') },
+              { v: 'workshop', l: t('certificateWorkshop') }
             ]
           }
         ],
@@ -1603,7 +3368,13 @@
             k: 'title', label: t('colTitle'), sortVal: function (certificate) { return certificate.title; },
             render: function (certificate) {
               return '<div><b>' + e(certificate.title) + '</b><div class="tiny muted">' +
-                e(certificate.type === 'course' ? t('certificateCourse') : t('certificateExternal')) +
+                e(t(
+                  certificate.type === 'course'
+                    ? 'certificateCourse'
+                    : certificate.type === 'workshop'
+                      ? 'certificateWorkshop'
+                      : 'certificateExternal'
+                )) +
                 '</div></div>';
             },
             csv: function (certificate) { return certificate.title; }
@@ -1626,16 +3397,33 @@
           {
             k: 'course', label: t('certificateCourseTitle'),
             sortVal: function (certificate) { return certificate.courseTitle || ''; },
-            render: function (certificate) { return '<span class="tiny muted">' + e(certificate.courseTitle || '—') + '</span>'; },
-            csv: function (certificate) { return certificate.courseTitle || ''; }
+            render: function (certificate) {
+              return '<span class="tiny muted">' +
+                e(certificate.type === 'workshop'
+                  ? certificate.title
+                  : certificate.courseTitle || '—') + '</span>';
+            },
+            csv: function (certificate) {
+              return certificate.type === 'workshop'
+                ? certificate.title
+                : certificate.courseTitle || '';
+            }
           },
           {
             k: 'review', label: t('certificateReviewStatus'),
             sortVal: function (certificate) { return certificate.reviewStatus || 'approved'; },
             render: function (certificate) {
-              return '<span class="tiny muted">' + e(certificate.reviewStatusLabel || t('certificateCourse')) + '</span>';
+              return '<span class="tiny muted">' + e(
+                certificate.reviewStatusLabel ||
+                  (certificate.type === 'workshop'
+                    ? t('certificateIssued')
+                    : t('certificateCourse'))
+              ) + '</span>';
             },
-            csv: function (certificate) { return certificate.reviewStatusLabel || ''; }
+            csv: function (certificate) {
+              return certificate.reviewStatusLabel ||
+                (certificate.type === 'workshop' ? t('certificateIssued') : '');
+            }
           },
           {
             k: 'active', label: t('colStatus'),
@@ -1656,69 +3444,13 @@
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (certificate) {
               return iconBtn('certificate-details', certificate.id, 'eye', t('certificateViewDetails')) +
-                iconBtn(
+                (certificate.type === 'workshop' ? '' : iconBtn(
                 'certificate-toggle',
                 certificate.id,
                 certificate.active ? 'eye-off' : 'eye',
                 t(certificate.active ? 'certificateDeactivate' : 'certificateActivate')
-              );
+              ));
             }
-          }
-        ]
-      });
-    }
-  });
-
-  Admin.register('point-discounts', {
-    render: function () {
-      var rows = AdminData.pointRedemptions();
-      return Admin.table({
-        key: 'point-discounts',
-        id: function (redemption) { return redemption.id; },
-        rows: rows,
-        pageSize: 12,
-        search: function (redemption) {
-          return [
-            redemption.studentName,
-            redemption.studentHandle,
-            redemption.courseTitle,
-            redemption.points
-          ].join(' ');
-        },
-        empty: {
-          icon: 'award',
-          title: t('pointDiscountsEmpty'),
-          sub: t('pointDiscountsEmptySub')
-        },
-        columns: [
-          {
-            k: 'student', label: t('certificateStudent'),
-            sortVal: function (redemption) { return redemption.studentName; },
-            render: function (redemption) {
-              return '<span>' + e(redemption.studentName) + '</span>' +
-                (redemption.studentHandle ? '<span class="tiny muted" dir="ltr"> @' + e(redemption.studentHandle) + '</span>' : '');
-            },
-            csv: function (redemption) {
-              return redemption.studentName + (redemption.studentHandle ? ' @' + redemption.studentHandle : '');
-            }
-          },
-          {
-            k: 'course', label: t('certificateCourseTitle'),
-            sortVal: function (redemption) { return redemption.courseTitle; },
-            render: function (redemption) { return '<span>' + e(redemption.courseTitle) + '</span>'; },
-            csv: function (redemption) { return redemption.courseTitle; }
-          },
-          {
-            k: 'points', label: t('pointDiscountPoints'),
-            sortVal: function (redemption) { return redemption.points; },
-            render: function (redemption) { return '<span class="tiny">' + redemption.points + '</span>'; },
-            csv: function (redemption) { return redemption.points; }
-          },
-          {
-            k: 'date', label: t('colDate'),
-            sortVal: function (redemption) { return redemption.date; },
-            render: function (redemption) { return '<span class="tiny muted">' + e(UI.formatDate(redemption.date)) + '</span>'; },
-            csv: function (redemption) { return redemption.date; }
           }
         ]
       });
@@ -1736,7 +3468,13 @@
     }).join(' ');
     var body = '<div class="form-info-rows">' +
       '<div class="if-row"><span class="k">' + e(t('certificateType')) + '</span><span class="v">' +
-      e(certificate.type === 'course' ? t('certificateCourse') : t('certificateExternal')) + '</span></div>' +
+      e(t(
+        certificate.type === 'course'
+          ? 'certificateCourse'
+          : certificate.type === 'workshop'
+            ? 'certificateWorkshop'
+            : 'certificateExternal'
+      )) + '</span></div>' +
       '<div class="if-row"><span class="k">' + e(t('certificateStudent')) + '</span><span class="v">' +
       e(certificate.studentName) + (certificate.studentHandle ? ' @' + e(certificate.studentHandle) : '') + '</span></div>' +
       '<div class="if-row"><span class="k">' + e(t('certificateIssuer')) + '</span><span class="v">' +
@@ -1745,7 +3483,16 @@
       (certificate.category ? '<div class="if-row"><span class="k">' + e(t('certificateCategory')) + '</span><span class="v">' + e(certificate.category) + '</span></div>' : '') +
       '<div class="if-row"><span class="k">' + e(t('certificateDate')) + '</span><span class="v">' + e(UI.formatDate(certificate.date) || '—') + '</span></div>' +
       (certificate.code ? '<div class="if-row"><span class="k">' + e(t('certificateCode')) + '</span><span class="v" dir="ltr">' + e(certificate.code) + '</span></div>' : '') +
-      (certificate.reviewStatusLabel ? '<div class="if-row"><span class="k">' + e(t('certificateReviewStatus')) + '</span><span class="v">' + e(certificate.reviewStatusLabel) + '</span></div>' : '') +
+      (certificate.workshopDuration
+        ? '<div class="if-row"><span class="k">' + e(t('workshopDuration')) + '</span><span class="v">' + e(certificate.workshopDuration) + ' ' + e(t('minutesShort')) + '</span></div>'
+        : '') +
+      (certificate.workshopLocation
+        ? '<div class="if-row"><span class="k">' + e(t('workshopLocation')) + '</span><span class="v">' + e(certificate.workshopLocation) + '</span></div>'
+        : '') +
+      ((certificate.reviewStatusLabel || certificate.type === 'workshop')
+        ? '<div class="if-row"><span class="k">' + e(t('certificateReviewStatus')) + '</span><span class="v">' +
+          e(certificate.reviewStatusLabel || t('certificateIssued')) + '</span></div>'
+        : '') +
       '<div class="if-row"><span class="k">' + e(t('colStatus')) + '</span><span class="v">' +
       e(t(certificate.active ? 'certificateVisible' : 'certificateHidden')) + '</span></div>' +
       (certificate.description ? '<div class="if-row"><span class="k">' + e(t('certificateDescription')) + '</span><span class="v">' + e(certificate.description) + '</span></div>' : '') +
@@ -1763,11 +3510,59 @@
     });
   });
 
+  Admin.on('student-certificates-list', function (el) {
+    var student = Store.find('users', el.getAttribute('data-id'));
+    if (!student) return;
+    var certificates = studentEarnedCertificates(student);
+    var body = certificates.length
+      ? '<div class="enroll-list">' + certificates.map(function (certificate) {
+        return '<button type="button" class="enroll-row" data-act="certificate-details" data-id="' +
+          e(certificate.id) + '">' +
+          '<span class="lr-av">' + UI.icon(
+            certificate.type === 'workshop' ? 'users' : 'graduation-cap',
+            16
+          ) + '</span>' +
+          '<span class="er-b"><b>' + e(certificate.title) + '</b><span>' +
+          e(t(certificate.type === 'workshop' ? 'certificateWorkshop' : 'certificateCourse')) +
+          ' · ' + e(UI.formatDate(certificate.date) || '—') + '</span></span></button>';
+      }).join('') + '</div>'
+      : '<p class="tiny muted">' + e(t('studentCertificatesEmpty')) + '</p>';
+    UI.modal({
+      title: t('studentCertificatesTitle') + ' — ' + student.name +
+        ' (' + certificates.length + ')',
+      size: 'md',
+      body: body
+    });
+  });
+
+  Admin.on('student-active-courses', function (el) {
+    var student = Store.find('users', el.getAttribute('data-id'));
+    if (!student) return;
+    var courses = studentActiveCourses(student);
+    var body = courses.length
+      ? '<div class="enroll-list">' + courses.map(function (item) {
+        var percent = Math.max(0, Math.min(100, Number(item.enrollment.progress) || 0));
+        return '<a class="enroll-row" href="' + e(SITE.u('course', item.course.id)) + '">' +
+          '<span class="lr-av">' + UI.icon('graduation-cap', 16) + '</span>' +
+          '<span class="er-b"><b>' + e(item.course.title) + '</b>' +
+          '<span class="er-meter"><span class="tiny muted">' + e(t('progress')) +
+          ' ' + percent + '%</span><span class="meter"><i style="width:' +
+          percent + '%"></i></span></span></span></a>';
+      }).join('') + '</div>'
+      : '<p class="tiny muted">' + e(t('studentActiveCoursesEmpty')) + '</p>';
+    UI.modal({
+      title: t('studentActiveCoursesTitle') + ' — ' + student.name +
+        ' (' + courses.length + ')',
+      size: 'md',
+      body: body
+    });
+  });
+
   Admin.on('certificate-toggle', function (el) {
     var certificate = AdminData.studentCertificates().filter(function (item) {
       return item.id === el.getAttribute('data-id');
     })[0];
-    if (!certificate) return;
+    if (!certificate || certificate.type === 'workshop') return;
     el.disabled = true;
     fetch(SITE.u('certificateStatus', certificate.id), {
       method: 'POST',
@@ -1949,6 +3744,31 @@
     var origClose = m.close;
     m.close = function () { document.removeEventListener('adm:lessons', onLessons); origClose(); };
     return m;
+  }
+
+  function openTrainerCourses(trainerId) {
+    var trainer = Store.collection('trainers').filter(function (item) {
+      return String(item.id) === String(trainerId);
+    })[0];
+    if (!trainer) return;
+    var courses = Store.collection('certificates').filter(function (course) {
+      return String(course.trainerId || '') === String(trainerId);
+    });
+    var body = courses.length
+      ? '<div class="enroll-list">' + courses.map(function (course) {
+        return '<a class="enroll-row" href="' + e(SITE.u('course', course.id)) + '">' +
+          '<span class="lr-av">' + UI.icon('graduation-cap', 16) + '</span>' +
+          '<span class="er-b"><b>' + e(course.title) + '</b><span>' +
+          e(course.category || '—') + '</span></span>' +
+          Admin.statusChip(course.status || 'published') +
+          '</a>';
+      }).join('') + '</div>'
+      : '<p class="tiny muted">' + e(t('trainerCoursesEmpty')) + '</p>';
+    UI.modal({
+      title: t('trainerCoursesTitle') + ' — ' + trainer.name,
+      size: 'md',
+      body: body
+    });
   }
 
   function courseStudentSearchResults(results, searched) {
@@ -2173,6 +3993,7 @@
     return m;
   }
 
+  Admin.on('trainer-courses', function (el) { openTrainerCourses(el.getAttribute('data-id')); });
   Admin.on('course-students', function (el) { openCourseStudents(el.getAttribute('data-id')); });
   Admin.on('course-lessons', function (el) { openCourseLessons(el.getAttribute('data-id')); });
 

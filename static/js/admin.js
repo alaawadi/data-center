@@ -9,23 +9,67 @@
       viewSite: 'عرض الموقع',
       menu: 'القائمة',
       secOverview: 'نظرة عامة',
-      secUsers: 'الطلاب',
+      secUsers: 'الطلاب أونلاين',
+      secReferralPoints: 'نقاط الإحالة',
       secTrainers: 'المدربون',
-      secCourses: 'الدورات',
+      secTrainingCategories: 'المجالات التدريبية',
+      trainingCategoryDrag: 'اسحب لترتيب المجال',
+      secCourses: 'الدورات الأونلاين',
+      secInPersonCourses: 'الدورات الوجاهية',
+      secInPersonStudents: 'الطلاب وجاهي',
       secLessons: 'الدروس',
       secProjects: 'المشاريع',
       secWorkshops: 'الورشات الوجاهية',
+      secCourseRegistrationRequests: 'طلبات التسجيل',
       secStudentCertificates: 'شهادات الطلاب',
-      secPointDiscounts: 'خصومات النقاط',
       secDailies: 'اليوميات',
       secSettings: 'الإعدادات',
       subOverview: 'ملخص أداء المنصة ومحتواها في مكان واحد',
       subUsers: 'إدارة حسابات الطلاب وحالاتهم',
+      subReferralPoints: 'عرض أرصدة نقاط الإحالة وتصفيرها',
+      referralPointsEmpty: 'لا يوجد طلاب لديهم رصيد نقاط إحالة حالياً.',
+      referralPointsBalance: 'رصيد النقاط',
+      referralPointsReset: 'تصفير النقاط',
+      referralPointsResetConfirm: 'هل تريد تصفير كامل رصيد نقاط الإحالة لهذا الطالب؟',
+      referralPointsResetSuccess: 'تم تصفير نقاط الإحالة بنجاح.',
+      referralPointsResetFailed: 'تعذر تصفير نقاط الإحالة.',
       subTrainers: 'إدارة فريق التدريب وتخصصاتهم ودوراتهم',
-      subCourses: 'إدارة الدورات والمدربين المرتبطين بها',
+      subTrainingCategories: 'إدارة الفئات المستخدمة في الدورات والمشاريع والمستقلين',
+      subCourses: 'إدارة الدورات الأونلاين والمدربين المرتبطين بها',
+      subInPersonCourses: 'عرض وإدارة الدورات الحضورية المنشورة والمسودات',
+      subInPersonStudents: 'قائمة الطلاب المقبولين في الدورات الوجاهية',
+      inPersonStudentsEmpty: 'لا يوجد طلاب مسجلون في الدورات الوجاهية حالياً.',
+      emptyInPersonCourses: 'لا توجد دورات وجاهية حتى الآن.',
+      emptyInPersonCoursesSub: 'يمكنك إضافة دورة جديدة من محرر الدورات.',
       subLessons: 'إدارة دروس كل دورة ووحداتها التعليمية',
       subProjects: 'إدارة مشاريع الطلاب وحالة نشرها',
       subWorkshops: 'إنشاء الورشات وإدارة رمز QR والحضور والشهادات',
+      subCourseRegistrationRequests: 'مراجعة بيانات المتقدمين للدورات الوجاهية وطرق التواصل معهم',
+      registrationRequestName: 'اسم المتقدم',
+      registrationRequestPhone: 'رقم الهاتف / واتساب',
+      registrationRequestAddress: 'العنوان',
+      registrationRequestSpecialty: 'التخصص',
+      registrationRequestStudent: 'طالب',
+      registrationRequestGraduate: 'خريج',
+      registrationRequestStudentStatus: 'الحالة الدراسية',
+      registrationRequestStatus: 'حالة الطلب',
+      registrationRequestNew: 'جديد',
+      registrationRequestContacted: 'تم التواصل',
+      registrationRequestAccepted: 'مقبول',
+      registrationRequestRejected: 'مرفوض',
+      registrationRequestDate: 'تاريخ الطلب',
+      registrationRequestCourse: 'الدورة',
+      registrationRequestSource: 'مصدر الطلب',
+      registrationRequestDirect: 'مباشر',
+      registrationRequestEmpty: 'لا توجد طلبات تسجيل حتى الآن.',
+      registrationRequestAdd: 'إضافة طلب جديد',
+      registrationRequestAddTitle: 'إضافة طلب تسجيل',
+      registrationRequestChooseCourse: 'اختر الدورة',
+      registrationRequestNoCourses: 'لا توجد دورات وجاهية منشورة لإضافة طلب عليها.',
+      registrationRequestNameInvalid: 'أدخل اسم المتقدم بشكل صحيح.',
+      registrationRequestPhoneInvalid: 'أدخل رقم هاتف صحيحاً يبدأ بـ +.',
+      registrationRequestInvalid: 'أكمل العنوان والتخصص والحالة الدراسية بشكل صحيح.',
+      registrationRequestCreated: 'تمت إضافة طلب التسجيل بنجاح.',
       workshopAdd: 'إضافة ورشة',
       workshopEdit: 'تعديل الورشة',
       workshopTitle: 'اسم الورشة',
@@ -48,16 +92,32 @@
       workshopRegenerateQr: 'تجديد رمز QR',
       workshopShowQr: 'عرض رمز QR',
       workshopDownloadQr: 'تنزيل رمز QR',
+      inPersonStudentAccount: 'حساب الطالب',
+      studentEdit: 'تعديل بيانات الطالب',
+      studentUpdated: 'تم تحديث بيانات الطالب.',
+      studentAccountReady: 'الحساب جاهز',
+      studentSetupLinkCreate: 'إنشاء رابط إعداد كلمة المرور',
+      studentSetupLinkCopy: 'نسخ رابط إعداد كلمة المرور',
+      studentSetupLinkShowQr: 'عرض رمز QR لرابط الإعداد',
+      studentSetupLinkCreated: 'تم إنشاء رابط إعداد كلمة المرور.',
+      studentSetupLinkCopied: 'تم نسخ رابط إعداد كلمة المرور.',
+      studentSetupLinkCopyFailed: 'تعذر نسخ الرابط من هذا المتصفح.',
+      studentSetupLinkQrTitle: 'رابط إعداد حساب الطالب',
+      studentSetupLinkExpires: 'ينتهي الرابط في',
+      studentSetupLinkExpired: 'انتهت صلاحية الرابط. أنشئ رابطاً جديداً.',
+      studentSetupLinkOpen: 'فتح الرابط',
+      courseRegistrationStatusClick: 'انقر للتغيير إلى',
+      courseRegistrationStatusUpdated: 'تم تحديث حالة الطلب.',
       workshopDelete: 'حذف الورشة',
       workshopDeleteConfirm: 'سيؤدي حذف الورشة إلى حذف سجلات الحضور وشهاداتها نهائياً. هل تريد المتابعة؟',
       workshopQrRotated: 'تم تجديد الرمز وإغلاق الحضور. افتح الحضور يدوياً عند الجاهزية.',
       workshopQrConfirm: 'سيتم إبطال رمز QR الحالي وإغلاق الحضور حتى تفتحه مجدداً. متابعة؟',
       subStudentCertificates: 'إدارة شهادات الدورات والخارجية وظهورها في الملفات العامة',
-      subPointDiscounts: 'سجل استبدال النقاط باشتراكات الدورات',
       subDailies: 'إدارة يوميات الطلاب وحالة نشرها',
       subSettings: 'بيانات المنصة وخيارات التشغيل والنسخ الاحتياطي',
       groupManage: 'الإدارة',
       groupContent: 'المحتوى',
+      groupOperations: 'العمليات',
       groupSystem: 'النظام',
       searchPh: 'بحث…',
       all: 'الكل',
@@ -92,6 +152,9 @@
       userEmailInvalid: 'أدخل بريداً إلكترونياً صحيحاً.',
       userPhoneInvalid: 'رقم الجوال يجب أن يتكوّن من 10 أرقام.',
       userPhoneTaken: 'رقم الجوال مستخدم بالفعل.',
+      trainerWhatsapp: 'رقم واتساب',
+      trainerWhatsappHint: 'اختياري: + ثم حتى 12 رقماً.',
+      trainerWhatsappInvalid: 'أدخل + اختيارياً ثم من 1 إلى 12 رقماً.',
       trainerPassword: 'كلمة المرور الأولية',
       accountPassword: 'كلمة المرور',
       passwordKeepHint: 'اتركه فارغاً للإبقاء على كلمة المرور الحالية.',
@@ -100,6 +163,20 @@
       created: 'تمت الإضافة بنجاح',
       updated: 'تم التحديث بنجاح',
       deleted: 'تم الحذف بنجاح',
+      trainingCategoryAdd: 'إضافة مجال',
+      trainingCategoryEdit: 'تعديل المجال',
+      trainingCategoryName: 'اسم المجال التدريبي',
+      trainingCategoryDeleteConfirm: 'سيؤدي حذف المجال إلى إزالته من الدورات والمشاريع وتخصصات المستقلين المرتبطة به. هل تريد المتابعة؟',
+      trainingCategoryTrainers: 'المدربون',
+      trainingCategoryStudents: 'الطلاب',
+      trainerActivate: 'إعادة تفعيل المدرب',
+      trainerDeactivate: 'إيقاف المدرب مؤقتاً',
+      trainerContentAllowed: 'النشر مسموح',
+      trainerContentDenied: 'النشر متوقف',
+      trainerAllowContent: 'السماح للمدرب بإنشاء ونشر الدورات والمشاريع',
+      trainerDenyContent: 'إيقاف صلاحية إنشاء ونشر الدورات والمشاريع',
+      studentActivate: 'إعادة تفعيل الطالب',
+      studentSuspend: 'إيقاف الطالب',
       statusUpd: 'تم تغيير الحالة',
       emptyTitle: 'لا توجد عناصر بعد',
       emptySub: 'ابدأ بإضافة عناصر جديدة لتظهر هنا.',
@@ -130,6 +207,18 @@
       colJoined: 'الانضمام',
       colReferralVisits: 'زيارات الإحالة',
       colReferralPoints: 'نقاط الإحالة',
+      colRegisteredDevices: 'الأجهزة المسجلة',
+      manageDevices: 'إدارة الجلسات',
+      deviceSessionsTitle: 'جلسات تسجيل الدخول',
+      noDeviceSessions: 'لا توجد جلسات نشطة لهذا الطالب.',
+      deviceSessionRevoke: 'إنهاء هذه الجلسة',
+      deviceSessionsRevokeAll: 'إنهاء جميع الجلسات',
+      deviceSessionsConfirmAll: 'سيتم تسجيل خروج الطالب من جميع الأجهزة. هل تريد المتابعة؟',
+      deviceSessionsLoading: 'جارٍ تحميل الجلسات...',
+      deviceSessionsRevoked: 'تم إنهاء الجلسة وتسجيل الخروج من الجهاز.',
+      deviceSessionsRevokedAll: 'تم إنهاء جميع الجلسات.',
+      deviceLastSeen: 'آخر نشاط',
+      deviceIp: 'عنوان IP',
       colActions: 'إجراءات',
       colTitle: 'العنوان',
       colTrainer: 'المدرب',
@@ -229,6 +318,50 @@
       trainerRequired: 'اختر مدرباً صالحاً لهذه الدورة',
       courseActivate: 'تفعيل الدورة',
       courseDeactivate: 'إيقاف الدورة',
+      courseCohorts: 'الشُعب والطلبات',
+      courseCohortsTitle: 'شُعب الدورة',
+      courseCohort: 'الشعبة',
+      courseCohortActive: 'نشطة',
+      courseCohortClosed: 'مغلقة',
+      courseCohortStart: 'تاريخ البداية',
+      courseCohortEnd: 'تاريخ النهاية',
+      courseCohortApplicants: 'طلبات التسجيل',
+      courseCohortNoApplicants: 'لا توجد طلبات تسجيل في هذه الشعبة.',
+      courseCohortApplicantSearch: 'البحث عن متقدم',
+      courseCohortApplicantPlaceholder: 'ابحث بالاسم أو رقم الهاتف',
+      courseCohortSourceSearch: 'تصفية حسب الطالب المُحيل',
+      courseCohortAllSources: 'كل مصادر الإحالة',
+      courseCohortNoApplicantMatches: 'لا توجد طلبات مطابقة لخيارات البحث.',
+      courseCohortNoHistory: 'لا توجد شُعب لهذه الدورة حتى الآن.',
+      courseCohortBack: 'العودة إلى الدورات الوجاهية',
+      courseCohortCourseMissing: 'تعذر العثور على الدورة المطلوبة.',
+      courseCohortActiveRequests: 'طلبات الشعبة النشطة',
+      courseCohortNoActive: 'لا توجد شعبة نشطة لهذه الدورة حالياً.',
+      courseCohortHistory: 'سجل الشُعب السابقة',
+      courseCohortViewRequests: 'عرض الطلبات',
+      courseCohortHideRequests: 'إخفاء الطلبات',
+      courseCohortRequestDetails: 'تفاصيل طلب التسجيل',
+      courseCohortApplicantInfo: 'بيانات المتقدم',
+      courseCohortApplicationInfo: 'معلومات الطلب',
+      courseRequestOpenWhatsApp: 'مراسلة عبر واتساب',
+      secInPersonCourseCohorts: 'الشُعب والطلبات',
+      subInPersonCourseCohorts: 'طلبات التسجيل وسجل شُعب الدورة الوجاهية',
+      courseRegistrationConfirm: 'تأكيد التسجيل',
+      courseRegistrationConfirmed: 'تم تأكيد التسجيل',
+      courseRegistrationConfirmFailed: 'تعذر تأكيد التسجيل.',
+      courseRegistrationRejectedCannotConfirm: 'لا يمكن تأكيد طلب مرفوض.',
+      courseRegistrationPaidAmount: 'المبلغ المدفوع',
+      courseRegistrationPaymentDetails: 'الدفعات والمبلغ المتبقي',
+      courseRegistrationAmountOfCourse: 'سعر الدورة',
+      courseRegistrationNewPayment: 'أدخل قيمة الدفعة',
+      courseRegistrationConfirmPayment: 'تأكيد إضافة الدفعة',
+      courseRegistrationRemaining: 'المبلغ المتبقي',
+      courseRegistrationPaymentRequired: 'أدخل قيمة الدفعة.',
+      courseRegistrationPaymentFormatInvalid: 'أدخل مبلغاً صحيحاً بمنزلتين عشريتين كحد أقصى.',
+      courseRegistrationPaymentMustBePositive: 'يجب أن تكون الدفعة أكبر من صفر.',
+      courseRegistrationPaymentExceedsRemaining: 'لا يمكن أن تتجاوز الدفعة المبلغ المتبقي.',
+      courseRegistrationPaidAmountSaved: 'تمت إضافة الدفعة',
+      courseRegistrationPaidAmountSaveFailed: 'تعذر إضافة الدفعة.',
       courseActive: 'نشطة',
       courseInactive: 'غير نشطة',
       projectActivate: 'تفعيل المشروع',
@@ -242,6 +375,8 @@
       mLesson: 'بيانات الدرس',
       uAdd: 'إضافة طالب',
       uName: 'الاسم الكامل',
+      fullNameArabic: 'الاسم العربي الكامل',
+      fullNameEnglish: 'الاسم الإنجليزي الكامل',
       uHandle: 'المعرّف',
       uEmail: 'البريد الإلكتروني',
       uPhone: 'رقم الجوال',
@@ -303,13 +438,25 @@
       projectDownloads: 'مرات التنزيل',
       certificateCourse: 'شهادة دورة',
       certificateExternal: 'شهادة خارجية',
+      certificateWorkshop: 'شهادة ورشة وجاهية',
+      certificateAdd: 'إضافة شهادة',
+      certificateBackToList: 'العودة إلى الشهادات',
+      studentCertificatesTitle: 'الشهادات',
+      studentCertificatesEmpty: 'لم يحصل الطالب على شهادات دورات أو ورشات بعد.',
+      studentActiveCoursesTitle: 'الدورات النشطة',
+      studentActiveCoursesEmpty: 'لا توجد دورات نشطة لهذا الطالب.',
+      progress: 'التقدم',
       certificateType: 'نوع الشهادة',
       certificateStudent: 'الطالب',
       certificateIssuer: 'الجهة المانحة',
-      certificateCourseTitle: 'الدورة',
+      certificateCourseTitle: 'الدورة / الورشة',
       certificateReviewStatus: 'حالة الاعتماد',
+      certificateIssued: 'صادرة',
       certificateDate: 'تاريخ الإصدار',
       certificateCode: 'رقم الشهادة',
+      workshopDuration: 'مدة الورشة',
+      minutesShort: 'دقيقة',
+      workshopLocation: 'مكان الورشة',
       certificateCategory: 'التصنيف',
       certificateDescription: 'الوصف',
       certificateSkills: 'المهارات',
@@ -319,10 +466,8 @@
       certificateVisible: 'معروضة في الملف',
       certificateHidden: 'مخفية من الملف',
       emptyCertificates: 'لا توجد شهادات',
-      emptyCertificatesSub: 'ستظهر هنا شهادات الطلاب المكتسبة والخارجية.',
+      emptyCertificatesSub: 'ستظهر هنا شهادات الدورات والورشات الوجاهية والشهادات الخارجية.',
       pointDiscountPoints: 'النقاط المستبدلة',
-      pointDiscountsEmpty: 'لا توجد عمليات استبدال',
-      pointDiscountsEmptySub: 'ستظهر هنا عمليات تحويل النقاط إلى اشتراكات دورات.',
       certificateActivate: 'إظهار الشهادة في الملف',
       certificateDeactivate: 'إخفاء الشهادة من الملف',
       emptyProjects: 'لا توجد مشاريع',
@@ -412,23 +557,67 @@
       viewSite: 'View site',
       menu: 'Menu',
       secOverview: 'Overview',
-      secUsers: 'Students',
+      secUsers: 'Online students',
+      secReferralPoints: 'Referral points',
       secTrainers: 'Trainers',
-      secCourses: 'Courses',
+      secTrainingCategories: 'Training fields',
+      trainingCategoryDrag: 'Drag to reorder this field',
+      secCourses: 'Online courses',
+      secInPersonCourses: 'In-person courses',
+      secInPersonStudents: 'In-person students',
       secLessons: 'Lessons',
       secProjects: 'Projects',
       secWorkshops: 'In-person workshops',
+      secCourseRegistrationRequests: 'In-person course applications',
       secStudentCertificates: 'Student certificates',
-      secPointDiscounts: 'Point discounts',
       secDailies: 'Journals',
       secSettings: 'Settings',
       subOverview: 'Platform performance and content at a glance',
       subUsers: 'Manage student accounts and their status',
+      subReferralPoints: 'View and reset referral point balances',
+      referralPointsEmpty: 'No students currently have a referral point balance.',
+      referralPointsBalance: 'Points balance',
+      referralPointsReset: 'Reset points',
+      referralPointsResetConfirm: 'Reset this student’s entire referral point balance?',
+      referralPointsResetSuccess: 'Referral points reset successfully.',
+      referralPointsResetFailed: 'Could not reset referral points.',
       subTrainers: 'Manage the training team and specialties',
-      subCourses: 'Manage courses and their assigned trainers',
+      subTrainingCategories: 'Manage categories used for courses, projects, and freelancers',
+      subCourses: 'Manage online courses and their assigned trainers',
+      subInPersonCourses: 'View and manage published in-person courses and drafts',
+      subInPersonStudents: 'Students accepted into in-person courses',
+      inPersonStudentsEmpty: 'There are no students registered in in-person courses yet.',
+      emptyInPersonCourses: 'There are no in-person courses yet.',
+      emptyInPersonCoursesSub: 'Add a course using the course editor.',
       subLessons: 'Manage lessons of every course and section',
       subProjects: 'Manage student projects and their status',
       subWorkshops: 'Create workshops and manage QR attendance and certificates',
+      subCourseRegistrationRequests: 'Review applicants for in-person courses and their contact details',
+      registrationRequestName: 'Applicant',
+      registrationRequestPhone: 'Phone / WhatsApp',
+      registrationRequestAddress: 'Address',
+      registrationRequestSpecialty: 'Specialty',
+      registrationRequestStudent: 'Student',
+      registrationRequestGraduate: 'Graduate',
+      registrationRequestStudentStatus: 'Student status',
+      registrationRequestStatus: 'Application status',
+      registrationRequestNew: 'New',
+      registrationRequestContacted: 'Contacted',
+      registrationRequestAccepted: 'Accepted',
+      registrationRequestRejected: 'Rejected',
+      registrationRequestDate: 'Applied on',
+      registrationRequestCourse: 'Course',
+      registrationRequestSource: 'Referral source',
+      registrationRequestDirect: 'Direct',
+      registrationRequestEmpty: 'There are no registration requests yet.',
+      registrationRequestAdd: 'Add new request',
+      registrationRequestAddTitle: 'Add registration request',
+      registrationRequestChooseCourse: 'Choose a course',
+      registrationRequestNoCourses: 'There are no published in-person courses to add a request for.',
+      registrationRequestNameInvalid: 'Enter a valid applicant name.',
+      registrationRequestPhoneInvalid: 'Enter a valid phone number starting with +.',
+      registrationRequestInvalid: 'Enter a valid address, specialty, and student status.',
+      registrationRequestCreated: 'Registration request added successfully.',
       workshopAdd: 'Add workshop',
       workshopEdit: 'Edit workshop',
       workshopTitle: 'Workshop title',
@@ -451,16 +640,32 @@
       workshopRegenerateQr: 'Regenerate QR code',
       workshopShowQr: 'Show QR code',
       workshopDownloadQr: 'Download QR code',
+      inPersonStudentAccount: 'Student account',
+      studentEdit: 'Edit student details',
+      studentUpdated: 'Student details updated.',
+      studentAccountReady: 'Account ready',
+      studentSetupLinkCreate: 'Create password setup link',
+      studentSetupLinkCopy: 'Copy password setup link',
+      studentSetupLinkShowQr: 'Show setup-link QR code',
+      studentSetupLinkCreated: 'Password setup link created.',
+      studentSetupLinkCopied: 'Password setup link copied.',
+      studentSetupLinkCopyFailed: 'This browser could not copy the link.',
+      studentSetupLinkQrTitle: 'Student account setup link',
+      studentSetupLinkExpires: 'Link expires',
+      studentSetupLinkExpired: 'This link has expired. Create a new link.',
+      studentSetupLinkOpen: 'Open link',
+      courseRegistrationStatusClick: 'Click to change to',
+      courseRegistrationStatusUpdated: 'Registration status updated.',
       workshopDelete: 'Delete workshop',
       workshopDeleteConfirm: 'Deleting this workshop permanently removes its attendance records and certificates. Continue?',
       workshopQrRotated: 'QR code regenerated and attendance closed. Open attendance manually when ready.',
       workshopQrConfirm: 'The current QR code will be revoked and attendance closed until you reopen it. Continue?',
       subStudentCertificates: 'Manage course and external certificates and public visibility',
-      subPointDiscounts: 'History of point redemptions for course enrollment',
       subDailies: 'Manage student journals and their status',
       subSettings: 'Platform info, options and backups',
       groupManage: 'Management',
       groupContent: 'Content',
+      groupOperations: 'Operations',
       groupSystem: 'System',
       searchPh: 'Search…',
       all: 'All',
@@ -496,6 +701,9 @@
       userEmailInvalid: 'Enter a valid email address.',
       userPhoneInvalid: 'Phone number must contain exactly 10 digits.',
       userPhoneTaken: 'This phone number is already in use.',
+      trainerWhatsapp: 'WhatsApp number',
+      trainerWhatsappHint: 'Optional: + followed by up to 12 digits.',
+      trainerWhatsappInvalid: 'Enter an optional + followed by 1 to 12 digits.',
       trainerPassword: 'Initial password',
       accountPassword: 'Password',
       passwordKeepHint: 'Leave blank to keep the current password.',
@@ -504,6 +712,20 @@
       created: 'Created successfully',
       updated: 'Updated successfully',
       deleted: 'Deleted successfully',
+      trainingCategoryAdd: 'Add field',
+      trainingCategoryEdit: 'Edit field',
+      trainingCategoryName: 'Training field name',
+      trainingCategoryDeleteConfirm: 'Deleting this field removes it from associated courses, projects, and freelancer specialties. Continue?',
+      trainingCategoryTrainers: 'Trainers',
+      trainingCategoryStudents: 'Students',
+      trainerActivate: 'Reactivate trainer',
+      trainerDeactivate: 'Pause trainer',
+      trainerContentAllowed: 'Publishing allowed',
+      trainerContentDenied: 'Publishing disabled',
+      trainerAllowContent: 'Allow this trainer to create and publish courses and projects',
+      trainerDenyContent: 'Disable this trainer’s ability to create and publish courses and projects',
+      studentActivate: 'Reactivate student',
+      studentSuspend: 'Suspend student',
       statusUpd: 'Status changed',
       emptyTitle: 'Nothing here yet',
       emptySub: 'Add new items to see them here.',
@@ -534,6 +756,18 @@
       colJoined: 'Joined',
       colReferralVisits: 'Referral visits',
       colReferralPoints: 'Referral points',
+      colRegisteredDevices: 'Signed-in devices',
+      manageDevices: 'Manage sessions',
+      deviceSessionsTitle: 'Login sessions',
+      noDeviceSessions: 'This student has no active sessions.',
+      deviceSessionRevoke: 'End this session',
+      deviceSessionsRevokeAll: 'End all sessions',
+      deviceSessionsConfirmAll: 'This will sign the student out of all devices. Continue?',
+      deviceSessionsLoading: 'Loading sessions...',
+      deviceSessionsRevoked: 'Session ended and the device was signed out.',
+      deviceSessionsRevokedAll: 'All sessions ended.',
+      deviceLastSeen: 'Last active',
+      deviceIp: 'IP address',
       colActions: 'Actions',
       colTitle: 'Title',
       colTrainer: 'Trainer',
@@ -633,6 +867,50 @@
       trainerRequired: 'Select a valid trainer for this course',
       courseActivate: 'Activate course',
       courseDeactivate: 'Deactivate course',
+      courseCohorts: 'Cohorts & applications',
+      courseCohortsTitle: 'Course cohorts',
+      courseCohort: 'Cohort',
+      courseCohortActive: 'Active',
+      courseCohortClosed: 'Closed',
+      courseCohortStart: 'Start date',
+      courseCohortEnd: 'End date',
+      courseCohortApplicants: 'Applications',
+      courseCohortNoApplicants: 'There are no applications in this cohort.',
+      courseCohortApplicantSearch: 'Search applicants',
+      courseCohortApplicantPlaceholder: 'Search by name or phone number',
+      courseCohortSourceSearch: 'Filter by referring student',
+      courseCohortAllSources: 'All referral sources',
+      courseCohortNoApplicantMatches: 'No applications match these filters.',
+      courseCohortNoHistory: 'This course has no cohorts yet.',
+      courseCohortBack: 'Back to in-person courses',
+      courseCohortCourseMissing: 'The requested course could not be found.',
+      courseCohortActiveRequests: 'Active cohort applications',
+      courseCohortNoActive: 'There is no active cohort for this course.',
+      courseCohortHistory: 'Previous cohorts',
+      courseCohortViewRequests: 'View applications',
+      courseCohortHideRequests: 'Hide applications',
+      courseCohortRequestDetails: 'Registration request details',
+      courseCohortApplicantInfo: 'Applicant details',
+      courseCohortApplicationInfo: 'Application details',
+      courseRequestOpenWhatsApp: 'Message on WhatsApp',
+      secInPersonCourseCohorts: 'Cohorts & applications',
+      subInPersonCourseCohorts: 'Applications and cohort history for this in-person course',
+      courseRegistrationConfirm: 'Confirm registration',
+      courseRegistrationConfirmed: 'Registration confirmed',
+      courseRegistrationConfirmFailed: 'Could not confirm registration.',
+      courseRegistrationRejectedCannotConfirm: 'A rejected application cannot be confirmed.',
+      courseRegistrationPaidAmount: 'Paid amount',
+      courseRegistrationPaymentDetails: 'Payments and remaining balance',
+      courseRegistrationAmountOfCourse: 'Course price',
+      courseRegistrationNewPayment: 'Enter payment amount',
+      courseRegistrationConfirmPayment: 'Confirm payment',
+      courseRegistrationRemaining: 'Remaining amount',
+      courseRegistrationPaymentRequired: 'Enter a payment amount.',
+      courseRegistrationPaymentFormatInvalid: 'Enter a valid amount with no more than two decimal places.',
+      courseRegistrationPaymentMustBePositive: 'The payment must be greater than zero.',
+      courseRegistrationPaymentExceedsRemaining: 'The payment cannot exceed the remaining amount.',
+      courseRegistrationPaidAmountSaved: 'Payment added',
+      courseRegistrationPaidAmountSaveFailed: 'Could not add the payment.',
       courseActive: 'Active',
       courseInactive: 'Inactive',
       projectActivate: 'Activate project',
@@ -646,6 +924,8 @@
       mLesson: 'Lesson details',
       uAdd: 'Add student',
       uName: 'Full name',
+      fullNameArabic: 'Full name in Arabic',
+      fullNameEnglish: 'Full name in English',
       uHandle: 'Handle',
       uEmail: 'Email',
       uPhone: 'Phone',
@@ -707,13 +987,25 @@
       projectDownloads: 'Downloads',
       certificateCourse: 'Course certificate',
       certificateExternal: 'External certificate',
+      certificateWorkshop: 'In-person workshop certificate',
+      certificateAdd: 'Add certificate',
+      certificateBackToList: 'Back to certificates',
+      studentCertificatesTitle: 'Certificates',
+      studentCertificatesEmpty: 'This student has no course or workshop certificates yet.',
+      studentActiveCoursesTitle: 'Active courses',
+      studentActiveCoursesEmpty: 'This student has no active courses.',
+      progress: 'Progress',
       certificateType: 'Certificate type',
       certificateStudent: 'Student',
       certificateIssuer: 'Issuer',
-      certificateCourseTitle: 'Course',
+      certificateCourseTitle: 'Course / Workshop',
       certificateReviewStatus: 'Review status',
+      certificateIssued: 'Issued',
       certificateDate: 'Issue date',
       certificateCode: 'Certificate ID',
+      workshopDuration: 'Workshop duration',
+      minutesShort: 'minutes',
+      workshopLocation: 'Workshop location',
       certificateCategory: 'Category',
       certificateDescription: 'Description',
       certificateSkills: 'Skills',
@@ -723,10 +1015,8 @@
       certificateVisible: 'Shown on profile',
       certificateHidden: 'Hidden from profile',
       emptyCertificates: 'No certificates',
-      emptyCertificatesSub: 'Earned course and external student certificates will appear here.',
+      emptyCertificatesSub: 'Course, in-person workshop, and external student certificates will appear here.',
       pointDiscountPoints: 'Points redeemed',
-      pointDiscountsEmpty: 'No redemptions yet',
-      pointDiscountsEmptySub: 'Point-to-course subscription redemptions will appear here.',
       certificateActivate: 'Show certificate on profile',
       certificateDeactivate: 'Hide certificate from profile',
       emptyProjects: 'No projects yet',
@@ -810,6 +1100,17 @@
       statViews: 'Views'
     }
   };
+  var preserveAdminDashboardEditor =
+    document.body.getAttribute('data-admin-course-editor') === 'true' ||
+    document.body.getAttribute('data-admin-project-editor') === 'true';
+  var dashboardEditorMounted = document.body.getAttribute('data-admin-dashboard-editor') === 'true';
+  var dashboardEditorRoute = dashboardEditorMounted
+    ? location.hash || (document.body.getAttribute('data-admin-course-editor') === 'true' ? '#/courses' : '#/projects')
+    : '';
+  var dashboardEditorLeaveHandler = null;
+  var handlingDashboardHashChange = false;
+  var ignoreDashboardHashChange = false;
+  var loadingDashboardEditor = '';
 
   function lang() { return I18n.getLang() === 'en' ? 'en' : 'ar'; }
   function t(k) {
@@ -822,13 +1123,18 @@
 
   var SECTIONS = [
     { id: 'overview', icon: 'layers', label: 'secOverview', sub: 'subOverview', group: null },
+    { id: 'in-person-students', icon: 'users', label: 'secInPersonStudents', sub: 'subInPersonStudents', group: 'groupManage' },
     { id: 'users', icon: 'users', label: 'secUsers', sub: 'subUsers', group: 'groupManage' },
     { id: 'trainers', icon: 'user', label: 'secTrainers', sub: 'subTrainers', group: 'groupManage' },
+    { id: 'training-categories', icon: 'layers', label: 'secTrainingCategories', sub: 'subTrainingCategories', group: 'groupContent' },
+    { id: 'workshops', icon: 'calendar', label: 'secWorkshops', sub: 'subWorkshops', group: 'groupContent' },
+    { id: 'in-person-courses', icon: 'users', label: 'secInPersonCourses', sub: 'subInPersonCourses', group: 'groupContent' },
+    { id: 'in-person-course-cohorts', icon: 'clipboard', label: 'secInPersonCourseCohorts', sub: 'subInPersonCourseCohorts', group: 'groupContent', hidden: true },
     { id: 'courses', icon: 'graduation-cap', label: 'secCourses', sub: 'subCourses', group: 'groupContent' },
     { id: 'projects', icon: 'folder', label: 'secProjects', sub: 'subProjects', group: 'groupContent' },
-    { id: 'workshops', icon: 'calendar', label: 'secWorkshops', sub: 'subWorkshops', group: 'groupContent' },
     { id: 'student-certificates', icon: 'award', label: 'secStudentCertificates', sub: 'subStudentCertificates', group: 'groupContent' },
-    { id: 'point-discounts', icon: 'award', label: 'secPointDiscounts', sub: 'subPointDiscounts', group: 'groupContent' },
+    { id: 'course-registration-requests', icon: 'clipboard', label: 'secCourseRegistrationRequests', sub: 'subCourseRegistrationRequests', group: 'groupOperations' },
+    { id: 'referral-points', icon: 'award', label: 'secReferralPoints', sub: 'subReferralPoints', group: 'groupOperations' },
     { id: 'settings', icon: 'sliders', label: 'secSettings', sub: 'subSettings', group: 'groupSystem' }
   ];
 
@@ -839,6 +1145,11 @@
   var focusKey = null;
   var focusPos = null;
   var searchTimer = null;
+  var lastScrollY = window.scrollY || 0;
+  var filterScrollDirection = 0;
+  var filterScrollDistance = 0;
+  var filterScrollLockUntil = 0;
+  var tableFiltersCollapsed = false;
 
   function register(id, def) { regs[id] = def; }
   function on(act, fn) { handlers[act] = fn; }
@@ -857,14 +1168,27 @@
     return SECTIONS.filter(function (s) { return s.id === id; })[0] || SECTIONS[0];
   }
 
+  function dashboardEditorFromHash() {
+    var match = (location.hash || '').replace(/^#\/?/, '').match(/^editor\/(course|project)\/(.+)$/);
+    if (!match) return null;
+    var id = match[2] === 'new' ? '' : match[2];
+    try { id = id ? decodeURIComponent(id) : ''; } catch (error) { /* Keep malformed route values encoded. */ }
+    return { type: match[1], id: id, hash: location.hash };
+  }
+
   function curSection() {
+    var editor = dashboardEditorFromHash();
+    if (editor) return editor.type === 'course' ? 'courses' : 'projects';
     var h = (location.hash || '').replace(/^#\/?/, '');
+    if (h === 'certificate-creator') return 'student-certificates';
+    if (h.indexOf('in-person-course-cohorts/') === 0) return 'in-person-course-cohorts';
     return regs[h] ? h : 'overview';
   }
 
   function navigate(id) {
-    if (curSection() === id) { render(); return; }
-    location.hash = '#/' + id;
+    var targetHash = '#/' + id;
+    if (location.hash === targetHash) { render(); return; }
+    location.hash = targetHash;
   }
 
   function statusChip(status) {
@@ -913,7 +1237,7 @@
       }
     }
     var total = rows.length;
-    var size = cfg.pageSize || 10;
+    var size = Math.min(cfg.pageSize || 10, 10);
     var pages = Math.max(1, Math.ceil(total / size));
     if (st.page > pages) st.page = pages;
     if (st.page < 1) st.page = 1;
@@ -943,19 +1267,38 @@
         '</select>'
       );
     });
-    parts.push('<span class="spacer" style="flex:1"></span>');
+    parts.push(
+      '<button type="button" class="tbl-filter-toggle" aria-label="' +
+      e(lang() === 'ar' ? 'فتح البحث والفلاتر' : 'Open search and filters') +
+      '" aria-expanded="true">' + UI.icon('search', 17) + '</button>'
+    );
+    parts.push('<div class="tbl-toolbar-scroll" aria-label="' + e(lang() === 'ar' ? 'تمرير الجدول أفقياً' : 'Scroll table horizontally') + '" hidden><div></div></div>');
+    return '<div class="tbl-toolbar">' + parts.join('') + '</div>';
+  }
+
+  function syncTableFilterToolbars(root) {
+    var toolbars = (root || document).querySelectorAll('.tbl-toolbar');
+    Array.prototype.forEach.call(toolbars, function (toolbar) {
+      toolbar.classList.toggle('is-collapsed', tableFiltersCollapsed);
+      var toggle = toolbar.querySelector('.tbl-filter-toggle');
+      if (toggle) toggle.setAttribute('aria-expanded', tableFiltersCollapsed ? 'false' : 'true');
+    });
+  }
+
+  function tableActionsHTML(cfg) {
+    var actions = [];
     if (cfg.exportable !== false) {
-      parts.push('<button class="btn btn-ghost btn-sm" data-act="export" data-tkey="' + cfg.key + '">' + UI.icon('download', 15) + e(t('export')) + '</button>');
+      actions.push('<button class="btn btn-ghost btn-sm" data-act="export" data-tkey="' + cfg.key + '">' + UI.icon('download', 15) + e(t('export')) + '</button>');
     }
     if (cfg.add) {
       var addCls = cfg.add.primary === false ? 'btn-soft' : 'btn-primary';
       if (cfg.add.url) {
-        parts.push('<a class="btn ' + addCls + ' btn-sm" href="' + e(cfg.add.url) + '">' + UI.icon(cfg.add.icon || 'plus', 15) + e(cfg.add.label) + '</a>');
+        actions.push('<a class="btn ' + addCls + ' btn-sm" href="' + e(cfg.add.url) + '">' + UI.icon(cfg.add.icon || 'plus', 15) + e(cfg.add.label) + '</a>');
       } else {
-        parts.push('<button class="btn ' + addCls + ' btn-sm" data-act="' + e(cfg.add.act) + '">' + UI.icon(cfg.add.icon || 'plus', 15) + e(cfg.add.label) + '</button>');
+        actions.push('<button class="btn ' + addCls + ' btn-sm" data-act="' + e(cfg.add.act) + '">' + UI.icon(cfg.add.icon || 'plus', 15) + e(cfg.add.label) + '</button>');
       }
     }
-    return '<div class="tbl-toolbar">' + parts.join('') + '</div>';
+    return actions.length ? '<div class="tbl-actions">' + actions.join('') + '</div>' : '';
   }
 
   function bulkHTML(cfg, view) {
@@ -1004,7 +1347,13 @@
   function tableHTML(cfg) {
     tblCfgs[cfg.key] = cfg;
     var st = ts(cfg.key);
+    st.sel = {};
     var view = tableView(cfg);
+    var draggableRows = !!cfg.draggableRows &&
+      !st.q &&
+      !st.sort &&
+      !Object.keys(st.filters).some(function (key) { return !!st.filters[key]; }) &&
+      view.pageRows.length > 0;
     var head = cfg.columns.map(function (c) {
       var cls = (c.sortVal ? ' sortable' : '') + (c.cls ? ' ' + c.cls : '');
       var arrow = '';
@@ -1014,34 +1363,220 @@
       return '<th class="' + cls.trim() + '"' + (c.sortVal ? ' data-tkey="' + cfg.key + '" data-tsort="' + c.k + '"' : '') + (c.width ? ' style="width:' + c.width + '"' : '') + '>' + e(c.label) + arrow + '</th>';
     });
 
-    var selectable = !!cfg.id;
-    if (selectable) {
-      head.unshift('<th class="col-check"><input type="checkbox" class="tchk" data-tselall="' + cfg.key + '" data-ids="' + e(view.pageRows.map(cfg.id).join(',')) + '" aria-label="select all"></th>');
-    }
-
     var body;
     if (!view.pageRows.length) {
       body = '<tr><td class="empty-cell" colspan="' + head.length + '">' + emptyBlock(cfg) + '</td></tr>';
     } else {
       body = view.pageRows.map(function (r) {
-        var id = selectable ? cfg.id(r) : null;
-        var selCls = selectable && st.sel[id] ? ' class="sel"' : '';
+        var id = cfg.id ? cfg.id(r) : null;
         var cells = cfg.columns.map(function (c) {
           return '<td class="' + (c.cls || '') + '">' + c.render(r) + '</td>';
         }).join('');
-        if (selectable) {
-          cells = '<td class="col-check"><input type="checkbox" class="tchk" data-tsel="' + cfg.key + '" data-id="' + e(id) + '"' + (st.sel[id] ? ' checked' : '') + '></td>' + cells;
+        var rowClasses = [];
+        if (draggableRows) rowClasses.push('draggable-row');
+        var rowAttrs = rowClasses.length ? ' class="' + rowClasses.join(' ') + '"' : '';
+        if (draggableRows) {
+          rowAttrs += ' data-row-id="' + e(id) + '" draggable="true"';
         }
-        return '<tr' + selCls + '>' + cells + '</tr>';
+        return '<tr' + rowAttrs + '>' + cells + '</tr>';
       }).join('');
     }
 
     return '<div class="tbl-card">' +
       toolbarHTML(cfg, view) +
+      tableActionsHTML(cfg) +
       bulkHTML(cfg, view) +
-      '<div class="tbl-wrap"><table class="adm-table"><thead><tr>' + head.join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
+      '<div class="tbl-wrap"><table class="adm-table" data-table-key="' + e(cfg.key) + '"><thead><tr>' + head.join('') + '</tr></thead><tbody>' + body + '</tbody></table></div>' +
       pagerHTML(cfg, view) +
       '</div>';
+  }
+
+  var adminOrderDrag = null;
+  var adminOrderSaving = false;
+
+  function adminOrderRows(tbody) {
+    return Array.prototype.slice.call(tbody.querySelectorAll('tr[data-row-id]'));
+  }
+
+  document.addEventListener('dragstart', function (event) {
+    var row = event.target.closest && event.target.closest(
+      'table[data-table-key] tbody tr[draggable="true"][data-row-id]'
+    );
+    if (!row) return;
+    var table = row.closest('table[data-table-key]');
+    var key = table && table.getAttribute('data-table-key');
+    var cfg = key && tblCfgs[key];
+    if (!cfg || !cfg.reorderKind) return;
+    if (adminOrderSaving) {
+      event.preventDefault();
+      return;
+    }
+    adminOrderDrag = {
+      row: row,
+      tbody: row.parentElement,
+      key: key,
+      originalIds: adminOrderRows(row.parentElement).map(function (item) {
+        return item.getAttribute('data-row-id');
+      })
+    };
+    row.classList.add('is-dragging');
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', row.getAttribute('data-row-id'));
+    }
+  });
+
+  document.addEventListener('dragover', function (event) {
+    if (!adminOrderDrag) return;
+    var target = event.target.closest && event.target.closest(
+      'table[data-table-key] tbody tr[draggable="true"][data-row-id]'
+    );
+    if (!target || target.parentElement !== adminOrderDrag.tbody) return;
+    event.preventDefault();
+    if (target === adminOrderDrag.row) return;
+    var bounds = target.getBoundingClientRect();
+    var after = event.clientY > bounds.top + bounds.height / 2;
+    adminOrderDrag.tbody.insertBefore(
+      adminOrderDrag.row,
+      after ? target.nextElementSibling : target
+    );
+  });
+
+  document.addEventListener('drop', function (event) {
+    if (!adminOrderDrag) return;
+    var table = event.target.closest && event.target.closest('table[data-table-key]');
+    if (!table || table.querySelector('tbody') !== adminOrderDrag.tbody) return;
+    event.preventDefault();
+    var drag = adminOrderDrag;
+    adminOrderDrag = null;
+    drag.row.classList.remove('is-dragging');
+    var pageIds = adminOrderRows(drag.tbody).map(function (row) {
+      return row.getAttribute('data-row-id');
+    });
+    if (pageIds.join(',') === drag.originalIds.join(',')) return;
+
+    var cfg = tblCfgs[drag.key];
+    var state = ts(drag.key);
+    var fullOrder = cfg.rows.map(function (item) {
+      return String(cfg.id(item));
+    });
+    var pageSize = Math.min(cfg.pageSize || 10, 10);
+    var pageStart = ((state.page || 1) - 1) * pageSize;
+    fullOrder.splice.apply(fullOrder, [pageStart, pageIds.length].concat(pageIds));
+
+    adminOrderSaving = true;
+    table.classList.add('is-saving-order');
+    fetch(SITE.u('adminDisplayOrder'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ kind: cfg.reorderKind, order: fullOrder })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+        cfg.rows.forEach(function (item) {
+          var index = fullOrder.indexOf(String(cfg.id(item)));
+          if (index >= 0) item.displayOrder = index;
+        });
+        Admin.render();
+        UI.toast(t('updated'), 'success');
+      });
+    }).catch(function (error) {
+      Admin.render();
+      UI.toast(error.message || t('saveError'), 'error');
+    }).then(function () {
+      adminOrderSaving = false;
+      var currentTable = document.querySelector(
+        'table[data-table-key="' + drag.key + '"]'
+      );
+      if (currentTable) currentTable.classList.remove('is-saving-order');
+    });
+  });
+
+  document.addEventListener('dragend', function () {
+    if (!adminOrderDrag) return;
+    adminOrderDrag.row.classList.remove('is-dragging');
+    adminOrderDrag = null;
+  });
+
+  var tableRtlScrollModel = null;
+
+  function getTableRtlScrollModel(element) {
+    if (tableRtlScrollModel !== null) return tableRtlScrollModel;
+    var previous = element.scrollLeft;
+    element.scrollLeft = 0;
+    element.scrollLeft = -1;
+    if (element.scrollLeft < 0) tableRtlScrollModel = 'negative';
+    else {
+      element.scrollLeft = 1;
+      tableRtlScrollModel = element.scrollLeft > 0 ? 'reverse' : 'default';
+    }
+    element.scrollLeft = previous;
+    return tableRtlScrollModel;
+  }
+
+  function getTableScrollPosition(element) {
+    var max = Math.max(0, element.scrollWidth - element.clientWidth);
+    var position = element.scrollLeft;
+    if (window.getComputedStyle(element).direction !== 'rtl') {
+      return Math.max(0, Math.min(max, position));
+    }
+    var model = getTableRtlScrollModel(element);
+    if (model === 'negative') position = -position;
+    else if (model === 'default') position = max - position;
+    return Math.max(0, Math.min(max, position));
+  }
+
+  function syncTableScrollbars(root) {
+    syncTableFilterToolbars(root);
+    var cards = root.querySelectorAll('.tbl-card');
+    Array.prototype.forEach.call(cards, function (card) {
+      var tableWrap = card.querySelector('.tbl-wrap');
+      var toolbarScrollbar = card.querySelector('.tbl-toolbar-scroll');
+      var scrollbarContent = toolbarScrollbar && toolbarScrollbar.firstElementChild;
+      var toolbar = card.querySelector('.tbl-toolbar');
+      if (!tableWrap || !toolbarScrollbar || !scrollbarContent) return;
+      function updateWidth() {
+        var table = tableWrap.querySelector('.adm-table');
+        var topbar = document.getElementById('admTop');
+        var width = table ? table.scrollWidth : tableWrap.scrollWidth;
+        var overflowing = width > tableWrap.clientWidth + 1;
+        toolbarScrollbar.hidden = !overflowing;
+        scrollbarContent.style.width = width + 'px';
+        if (toolbar) {
+          card.style.setProperty('--tbl-head-top', ((topbar ? topbar.offsetHeight : 0) + toolbar.offsetHeight) + 'px');
+        }
+        if (!overflowing && table) table.style.transform = '';
+        else syncHorizontalPosition();
+      }
+
+      function syncHorizontalPosition() {
+        var table = tableWrap.querySelector('.adm-table');
+        if (!table) return;
+        var rtl = window.getComputedStyle(toolbarScrollbar).direction === 'rtl';
+        var position = getTableScrollPosition(toolbarScrollbar);
+        table.style.transform = 'translateX(' + (rtl ? position : -position) + 'px)';
+      }
+
+      toolbarScrollbar.addEventListener('scroll', function () {
+        syncHorizontalPosition();
+      }, { passive: true });
+      updateWidth();
+      if (typeof ResizeObserver === 'function') {
+        var observer = new ResizeObserver(updateWidth);
+        observer.observe(tableWrap);
+        if (toolbar) observer.observe(toolbar);
+        var topbar = document.getElementById('admTop');
+        if (topbar) observer.observe(topbar);
+        var table = tableWrap.querySelector('.adm-table');
+        if (table) observer.observe(table);
+      } else {
+        window.addEventListener('resize', updateWidth, { passive: true });
+      }
+    });
   }
 
   function csvExport(name, columns, rows) {
@@ -1155,7 +1690,8 @@
       return '<div class="form-info">' + (f.html || '') + '</div>';
     }
     if (f.type === 'textarea') {
-      inner = '<textarea class="textarea" rows="' + (f.rows || 3) + '" data-fk="' + f.k + '"' + ph + '>' + e(val) + '</textarea>';
+      inner = '<textarea class="textarea" rows="' + (f.rows || 3) + '" data-fk="' + f.k + '"' + ph +
+        (f.readonly ? ' readonly' : '') + '>' + e(val) + '</textarea>';
     } else if (f.type === 'select') {
       inner = '<select class="select" data-fk="' + f.k + '">' + (f.options || []).map(function (o) {
         return '<option value="' + e(o.v) + '"' + (String(o.v) === String(val) ? ' selected' : '') + '>' + e(o.l) + '</option>';
@@ -1194,6 +1730,7 @@
         (f.inputMode ? ' inputmode="' + e(f.inputMode) + '"' : '') +
         (f.autocomplete ? ' autocomplete="' + e(f.autocomplete) + '"' : '') +
         (f.pattern ? ' pattern="' + e(f.pattern) + '"' : '') +
+        (f.readonly ? ' readonly' : '') +
         (f.required ? ' required' : '') +
         (f.numericOnly ? ' data-numeric-only="true"' : '') + '>';
     }
@@ -1520,6 +2057,15 @@
       users: s.users, trainers: s.trainers, courses: s.courses,
       lessons: s.lessons, projects: s.projects, dailies: s.dailies
     };
+    counts['in-person-courses'] = Store.collection('certificates').filter(function (course) {
+      return course.courseType === 'in_person';
+    }).length;
+    counts['in-person-students'] = AdminData.courseRegistrationRequests().filter(function (registration) {
+      return registration.status === 'accepted';
+    }).length;
+    counts['referral-points'] = Store.collection('users').filter(function (user) {
+      return user.role === 'student' && Number(user.referralPoints) > 0;
+    }).length;
     var cur = curSection();
     var html = '<a class="adm-brand" href="' + SITE.u('landing') + '">' +
       '<img src="' + SITE.assets('images/logo.svg') + '" alt="">' +
@@ -1528,6 +2074,7 @@
     var lastGroup = '__start__';
     html += '<nav class="adm-nav">';
     SECTIONS.forEach(function (sec) {
+      if (sec.hidden) return;
       if (sec.group && sec.group !== lastGroup) {
         html += '<div class="adm-sec-label">' + e(t(sec.group)) + '</div>';
       }
@@ -1553,10 +2100,12 @@
 
   function topHTML() {
     var m = meta(curSection());
+    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     return '<button class="btn-icon adm-burger" data-act="burger" aria-label="' + e(t('menu')) + '">' + UI.icon('sliders', 19) + '</button>' +
       '<div class="titles"><h1>' + UI.icon(m.icon, 19) + e(t(m.label)) + '</h1><p>' + e(t(m.sub)) + '</p></div>' +
       '<span class="spacer"></span>' +
       '<button class="btn-icon" id="account-btn" title="خيارات الحساب" aria-label="خيارات الحساب" aria-haspopup="dialog" aria-expanded="false">' + UI.icon('user', 18) + '</button>' +
+      '<button class="btn-icon" id="headerThemeBtn" title="' + (isDark ? 'تفعيل المظهر الفاتح' : 'تفعيل المظهر الداكن') + '" aria-label="' + (isDark ? 'تفعيل المظهر الفاتح' : 'تفعيل المظهر الداكن') + '">' + UI.icon(isDark ? 'sun' : 'moon', 18) + '</button>' +
       '<button class="btn-icon" data-act="lang" title="' + e(I18n.t('langToggle')) + '" aria-label="' + e(I18n.t('langToggle')) + '"><span style="font-size:12.5px;font-weight:800">' + (lang() === 'ar' ? 'EN' : 'ع') + '</span></button>' +
       '<a class="btn btn-soft btn-sm hide-sm" href="' + SITE.u('landing') + '">' + UI.icon('external-link', 15) + e(t('viewSite')) + '</a>';
   }
@@ -1590,14 +2139,122 @@
   }
 
   function renderContent() {
+    if (preserveAdminDashboardEditor) return;
+    var editorRoute = dashboardEditorFromHash();
+    if (editorRoute) {
+      renderDashboardEditor(editorRoute);
+      return;
+    }
+    if ((location.hash || '').replace(/^#\/?/, '') === 'certificate-creator') {
+      var certificateHost = document.getElementById('admContent');
+      if (!certificateHost) return;
+      certificateHost.innerHTML =
+        '<div class="adm-certificate-creator-toolbar">' +
+        '<button type="button" class="btn btn-soft btn-sm" data-act="certificate-list">' +
+        UI.icon('arrow-right', 15) + e(t('certificateBackToList')) + '</button></div>' +
+        '<iframe class="adm-certificate-creator-frame" src="' +
+        e(SITE.assets('html/certificate-creator.html')) + '" title="' +
+        e(t('certificateAdd')) + '" loading="lazy"></iframe>';
+      document.title = t('certificateAdd') + ' — ' + t('brandTitle');
+      return;
+    }
     var id = curSection();
     var def = regs[id];
     var host = document.getElementById('admContent');
     if (!def || !host) return;
     host.innerHTML = def.render();
     if (def.wire) def.wire(host);
+    syncTableScrollbars(host);
     document.title = t(meta(id).label) + ' — ' + t('brandTitle');
     restoreFocus();
+  }
+
+  function renderDashboardEditor(route) {
+    if (dashboardEditorMounted && dashboardEditorRoute === route.hash) return;
+    if (loadingDashboardEditor === route.hash) return;
+
+    var host = document.getElementById('admContent');
+    if (!host) return;
+    var urlKey = route.type === 'course'
+      ? (route.id ? 'adminCourseEditorEdit' : 'adminCourseEditorCreate')
+      : (route.id ? 'adminProjectEditorEdit' : 'adminProjectEditorCreate');
+    var url = route.id ? SITE.u(urlKey, route.id) : SITE.u(urlKey);
+    loadingDashboardEditor = route.hash;
+    host.innerHTML = '<div class="adm-loading" role="status" aria-label="' + e(I18n.t('loading')) + '"><span class="adm-loading-spinner" aria-hidden="true"></span></div>';
+
+    fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (response) {
+        if (!response.ok) throw new Error('تعذر تحميل محرر ' + (route.type === 'course' ? 'الدورة.' : 'المشروع.'));
+        return response.text();
+      })
+      .then(function (html) {
+        if (location.hash !== route.hash) return;
+        var parsed = new DOMParser().parseFromString(html, 'text/html');
+        var editorContent = parsed.body;
+        if (!editorContent || !editorContent.querySelector('#edTitle')) {
+          throw new Error('استجابة محرر لوحة التحكم غير مكتملة.');
+        }
+        host.innerHTML = editorContent.innerHTML;
+        document.body.setAttribute('data-page', route.type === 'course' ? 'edit-course' : 'edit-project');
+        document.body.setAttribute('data-admin-dashboard-editor', 'true');
+        document.body.setAttribute(route.type === 'course' ? 'data-admin-course-editor' : 'data-admin-project-editor', 'true');
+        document.title = parsed.title || document.title;
+        dashboardEditorMounted = true;
+        dashboardEditorRoute = route.hash;
+        if (!window.ContentEditor || typeof window.ContentEditor.mount !== 'function') {
+          throw new Error('محرر لوحة التحكم غير جاهز.');
+        }
+        window.ContentEditor.mount(route.type === 'course' ? 'edit-course' : 'edit-project', route.id);
+      })
+      .catch(function (error) {
+        if (location.hash !== route.hash) return;
+        host.innerHTML = '<div class="adm-empty-error" role="alert">' + e(error.message || 'تعذر تحميل المحرر.') + '</div>';
+        UI.toast(error.message || 'تعذر تحميل المحرر.', 'error');
+      })
+      .then(function () {
+        if (loadingDashboardEditor === route.hash) loadingDashboardEditor = '';
+      });
+  }
+
+  function handleDashboardHashChange() {
+    if (ignoreDashboardHashChange) {
+      ignoreDashboardHashChange = false;
+      return;
+    }
+    preserveAdminDashboardEditor = false;
+    if (handlingDashboardHashChange) return;
+
+    if (dashboardEditorMounted && dashboardEditorRoute !== location.hash) {
+      var previousHash = dashboardEditorRoute || '#/overview';
+      var nextHash = location.hash;
+      handlingDashboardHashChange = true;
+      Promise.resolve(dashboardEditorLeaveHandler ? dashboardEditorLeaveHandler(nextHash) : true)
+        .then(function (canLeave) {
+          handlingDashboardHashChange = false;
+          if (!canLeave) {
+            ignoreDashboardHashChange = true;
+            location.hash = previousHash;
+            return;
+          }
+          dashboardEditorMounted = false;
+          dashboardEditorRoute = '';
+          document.body.setAttribute('data-page', 'admin');
+          document.body.removeAttribute('data-admin-dashboard-editor');
+          document.body.removeAttribute('data-admin-course-editor');
+          document.body.removeAttribute('data-admin-project-editor');
+          document.body.classList.remove('course-editor-flow');
+          dashboardEditorLeaveHandler = null;
+          render();
+        })
+        .catch(function (error) {
+          handlingDashboardHashChange = false;
+          UI.toast(error.message || 'تعذر مغادرة المحرر.', 'error');
+          ignoreDashboardHashChange = true;
+          location.hash = previousHash;
+        });
+      return;
+    }
+    render();
   }
 
   function openSide() {
@@ -1853,12 +2510,83 @@
     return '<div class="if-row"><span class="k">' + e(k) + '</span><span class="v">' + e(String(v)) + '</span></div>';
   }
 
+  function setTableFiltersCollapsed(collapsed) {
+    if (tableFiltersCollapsed === collapsed) return;
+    tableFiltersCollapsed = collapsed;
+    filterScrollDirection = 0;
+    filterScrollDistance = 0;
+    filterScrollLockUntil = Date.now() + 320;
+    syncTableFilterToolbars(document);
+    Array.prototype.forEach.call(document.querySelectorAll('.tbl-toolbar'), function (toolbar) {
+      toolbar.classList.remove('is-open');
+    });
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        lastScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      });
+    });
+  }
+
   function bindGlobal() {
+    window.addEventListener('scroll', function () {
+      var scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      var delta = scrollY - lastScrollY;
+      lastScrollY = scrollY;
+      if (scrollY <= 120) {
+        filterScrollDirection = 0;
+        filterScrollDistance = 0;
+        if (tableFiltersCollapsed) setTableFiltersCollapsed(false);
+        return;
+      }
+      if (Date.now() < filterScrollLockUntil) {
+        filterScrollDirection = 0;
+        filterScrollDistance = 0;
+        return;
+      }
+      if (Math.abs(delta) < 1) return;
+
+      var direction = delta > 0 ? 1 : -1;
+      if (direction !== filterScrollDirection) {
+        filterScrollDirection = direction;
+        filterScrollDistance = delta;
+      } else {
+        filterScrollDistance += delta;
+      }
+
+      var scrollThreshold = window.matchMedia && window.matchMedia('(max-width: 640px)').matches ? 48 : 24;
+      if (filterScrollDistance >= scrollThreshold && !tableFiltersCollapsed) {
+        setTableFiltersCollapsed(true);
+        filterScrollDistance = 0;
+      } else if (filterScrollDistance <= -scrollThreshold && tableFiltersCollapsed) {
+        setTableFiltersCollapsed(false);
+        filterScrollDistance = 0;
+      }
+    }, { passive: true });
+
     document.addEventListener('click', function (ev) {
       var link = ev.target.closest ? ev.target.closest('.adm-link') : null;
       if (link) closeSide();
 
       if (ev.target.closest && ev.target.closest('#admScrim')) { closeSide(); return; }
+
+      var filterToggle = ev.target.closest ? ev.target.closest('.tbl-filter-toggle') : null;
+      if (filterToggle) {
+        var toolbar = filterToggle.closest('.tbl-toolbar');
+        if (!toolbar) return;
+        var opening = toolbar.classList.contains('is-collapsed');
+        filterScrollDirection = 0;
+        filterScrollDistance = 0;
+        filterScrollLockUntil = Date.now() + 320;
+        setTableFiltersCollapsed(!opening);
+        toolbar.classList.toggle('is-open', opening);
+        if (opening) {
+          var searchInput = toolbar.querySelector('[data-tq]');
+          if (searchInput) searchInput.focus();
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        return;
+      }
 
       var sortEl = ev.target.closest('[data-tsort]');
       if (sortEl) {
@@ -1920,11 +2648,6 @@
       } else if (el.matches('[data-tsel]')) {
         var k2 = el.getAttribute('data-tsel');
         ts(k2).sel[el.getAttribute('data-id')] = el.checked;
-        renderContent();
-      } else if (el.matches('[data-tselall]')) {
-        var k3 = el.getAttribute('data-tselall');
-        var ids = (el.getAttribute('data-ids') || '').split(',').filter(Boolean);
-        ids.forEach(function (id) { ts(k3).sel[id] = el.checked; });
         renderContent();
       }
     });
@@ -2011,6 +2734,8 @@
     ts(el.getAttribute('data-tkey')).sel = {};
     renderContent();
   });
+  on('certificate-add', function () { navigate('certificate-creator'); });
+  on('certificate-list', function () { navigate('student-certificates'); });
 
   on('set-save', function (button) {
     var host = document.getElementById('admContent');
@@ -2080,7 +2805,7 @@
     AdminData.ensure();
     UI.init();
     bindGlobal();
-    window.addEventListener('hashchange', render);
+    window.addEventListener('hashchange', handleDashboardHashChange);
     document.addEventListener('i18n:change', function () { render(); });
     render();
   }
@@ -2099,6 +2824,8 @@
     navigate: navigate,
     render: renderContent,
     renderAll: render,
+    setEditorLeaveHandler: function (handler) { dashboardEditorLeaveHandler = handler; },
+    isDashboardEditor: function () { return dashboardEditorMounted; },
     section: curSection,
     statusChip: statusChip,
     roleChip: roleChip,

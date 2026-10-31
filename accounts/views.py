@@ -4,7 +4,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
@@ -14,8 +14,7 @@ from courses.models import (
     CourseStatus,
     ManualCertificate,
     ManualCertificateStatus,
-    StudentPointTransaction,
-    StudentReferralLink,
+    TrainingCategory,
     WorkshopCertificate,
 )
 from courses.views import published_courses_payload
@@ -70,6 +69,9 @@ class FreelancerListView(ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['training_categories_json'] = list(
+            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+        )
         profiles = []
         display_orders = {}
         for profile in context['profiles']:
@@ -109,6 +111,8 @@ class FreelancerListView(ListView):
             )
         )
         context['profiles_json'] = profiles
+        context['freelancers_count'] = len(profiles)
+        context['freelancers_badge'] = f"{context['freelancers_count']}+ مستقل"
         user = self.request.user
         context['can_reorder_freelancers'] = bool(
             user.is_authenticated and (user.is_staff or user.is_admin_role)
@@ -179,17 +183,20 @@ class FreelancerDetailView(TemplateView):
             post_filter['status'] = PostStatus.PUBLISHED
 
         context['profile_json'] = profile.to_public_dict()
-        if is_owner and profile.user.role == UserRole.STUDENT:
-            context['profile_json']['referral_points'] = (
-                StudentPointTransaction.objects.filter(student=profile.user)
-                .aggregate(total=Sum('points'))['total']
-                or 0
+        context['profile_json']['skillsWithLevels'] = [
+            {'id': f'sk{skill.pk}', 'name': skill.skill.name, 'level': skill.level}
+            for skill in profile.profile_skills.select_related('skill')
+        ]
+        if self.request.user.is_authenticated and (
+            self.request.user.is_staff or self.request.user.is_admin_role
+        ):
+            context['profile_json']['adminTargetUserId'] = profile.user_id
+            context['profile_json']['fullNameArabic'] = profile.user.full_name_ar
+            context['profile_json']['fullNameEnglish'] = profile.user.full_name_en
+            context['profile_json']['trainerNameEnglish'] = (
+                profile.user.trainer_name_en or profile.user.full_name_en
             )
-            context['profile_json']['referral_visits'] = (
-                StudentReferralLink.objects.filter(referrer=profile.user)
-                .aggregate(total=Sum('visits'))['total']
-                or 0
-            )
+            context['profile_json']['whatsapp'] = profile.whatsapp
         profile_projects = list(
             Project.objects.filter(
                 owner=profile.user,

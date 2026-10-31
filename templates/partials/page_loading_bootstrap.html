@@ -1,0 +1,8 @@
+<script id="page-loading-bootstrap">
+  (function () {
+    var root = document.documentElement;
+    window.__pageLoadingStartedAt = performance.now();
+    root.setAttribute('data-initial-page-loading', '');
+    root.classList.add('is-page-transitioning');
+  })();
+</script>

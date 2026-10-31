@@ -1,0 +1,16 @@
+{% block content %}
+  {{ editor_training_categories_json|default:training_categories_json|json_script:"training-categories-data" }}
+  <div class="editor-bar">
+    <div class="container editor-bar-inner">
+      <a class="btn-icon" href="{% url 'dashboard:home' %}{% block back_section %}{% endblock %}" title="رجوع" id="edBack"></a>
+      <div class="editor-status" id="edStatus"><span class="dot dot-ok"></span><span></span></div>
+      <span class="spacer"></span>
+      <div class="editor-bar-actions">
+        <button class="btn btn-ghost btn-sm" id="edPreviewBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+        <button class="btn btn-soft btn-sm" id="edDraftBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+        <button class="btn btn-primary btn-sm" id="edPublishBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+      </div>
+    </div>
+  </div>
+  {% block editor_main %}{% endblock %}
+{% endblock %}

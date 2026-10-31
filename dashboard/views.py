@@ -1,9 +1,12 @@
 """Views for the admin dashboard (admin.html)."""
 import base64
 import binascii
+import hashlib
 import json
 import re
-from datetime import date, datetime, time
+import secrets
+import unicodedata
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path, PurePosixPath
@@ -15,6 +18,7 @@ from django.contrib.staticfiles.storage import staticfiles_storage
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
+from django.contrib.sessions.models import Session
 from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.core import serializers
 from django.core.exceptions import ValidationError
@@ -24,6 +28,7 @@ from django.core.validators import EmailValidator, URLValidator
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models import Count, Q, Sum
 from django.http import FileResponse, HttpResponse, JsonResponse
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.http import require_http_methods, require_POST
@@ -31,13 +36,21 @@ from django.views.generic import TemplateView
 
 from core.context_processors import BRAND_PALETTES, DEFAULT_PLATFORM_SETTINGS, get_platform_settings
 from core.models import PlatformSettings, SiteVisitDaily
-from courses.referrals import award_referral_points_for_enrollment
+from courses.referrals import (
+    award_referral_points_for_enrollment,
+    award_referral_points_for_registration_request,
+)
 from courses.models import (
     Course,
     CourseCertificate,
     CourseProgress,
+    CourseRegistrationPayment,
+    InPersonCourseCohort,
+    CourseRegistrationRequest,
+    CourseRegistrationRequestStatus,
     CourseSection,
     CourseStatus,
+    CourseType,
     InPersonWorkshop,
     Lesson,
     LessonType,
@@ -46,12 +59,26 @@ from courses.models import (
     Quiz,
     StudentPointTransaction,
     StudentReferralLink,
+    TrainingCategory,
     WorkshopAttendance,
     WorkshopCertificate,
+    close_active_inperson_cohort,
+    start_next_inperson_cohort,
 )
-from courses.views import _sync_quiz
+from courses.views import _sync_quiz, course_editor_context
 from projects.models import Project, ProjectStatus
-from users.models import Profile, SocialLink, SocialPlatform, User, UserRole
+from projects.views import project_editor_context
+from users.models import (
+    DeviceSession,
+    Profile,
+    SocialLink,
+    SocialPlatform,
+    StudentSetupLink,
+    User,
+    UserRole,
+    validate_arabic_three_part_name,
+    validate_english_three_part_name,
+)
 
 PHONE_RE = re.compile(r'^[0-9]{10}$')
 AVATAR_RE = re.compile(r'^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$')
@@ -59,12 +86,14 @@ AVATAR_TYPES = {'png': 'png', 'jpeg': 'jpg', 'webp': 'webp'}
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
 MAX_BACKUP_UPLOAD_BYTES = 300 * 1024 * 1024
 MAX_BACKUP_EXPANDED_BYTES = 750 * 1024 * 1024
+STUDENT_SETUP_LINK_TTL = timedelta(days=7)
 BACKUP_FORMAT = 'data-center-platform'
 BACKUP_EXCLUDED_MODELS = {
     'devicesession',
     'loginattempt',
     'signupverification',
     'signupratelimit',
+    'studentsetuplink',
 }
 
 
@@ -440,6 +469,922 @@ def _admin_api_user(request):
     return None
 
 
+def _inperson_cohort_payload(cohort):
+    return {
+        'id': str(cohort.pk),
+        'courseId': cohort.course.slug,
+        'number': cohort.number,
+        'name': cohort.name,
+        'startedAt': cohort.started_at.isoformat(),
+        'endedAt': cohort.ended_at.isoformat() if cohort.ended_at else '',
+        'active': cohort.is_active,
+        'requestsCount': getattr(cohort, 'request_count', None)
+        if hasattr(cohort, 'request_count')
+        else cohort.registration_requests.count(),
+    }
+
+
+def _course_registration_course_price(course):
+    raw_price = (course.price or '').strip()
+    normalized_price = raw_price.translate(
+        str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
+    ).replace(',', '.')
+    if normalized_price.casefold() in ('مجاني', 'free'):
+        return Decimal('0.00')
+    try:
+        price = Decimal(normalized_price)
+    except InvalidOperation:
+        return None
+    if not price.is_finite() or price < 0 or price >= Decimal('100000000'):
+        return None
+    return price.quantize(Decimal('0.01'))
+
+
+def _course_registration_request_payload(registration, referral_points_awarded=None):
+    course_price = _course_registration_course_price(registration.course)
+    payments = list(registration.payments.all())
+    paid_amount = sum((payment.amount for payment in payments), Decimal('0.00'))
+    payload = {
+        'id': str(registration.pk),
+        'courseId': registration.course.slug,
+        'courseTitle': registration.course.title,
+        'coursePrice': registration.course.price or '',
+        'coursePriceAmount': format(course_price, 'f') if course_price is not None else '',
+        'currency': registration.course.currency,
+        'fullName': registration.full_name,
+        'phone': registration.phone,
+        'address': registration.address,
+        'specialty': registration.specialty,
+        'studentStatus': registration.student_status,
+        'cohortId': str(registration.cohort_id or ''),
+        'cohortName': registration.cohort.name if registration.cohort_id else '',
+        'studentId': str(registration.student_id or ''),
+        'sourceStudentName': (
+            registration.referral_link.referrer.display_name
+            if registration.referral_link_id
+            else ''
+        ),
+        'status': registration.status,
+        'paidAmount': format(paid_amount, 'f'),
+        'remainingAmount': (
+            format(max(Decimal('0.00'), course_price - paid_amount), 'f')
+            if course_price is not None
+            else ''
+        ),
+        'payments': [
+            {
+                'amount': format(payment.amount, 'f'),
+                'createdAt': payment.created_at.isoformat(),
+            }
+            for payment in payments
+        ],
+        'createdAt': registration.created_at.isoformat(),
+    }
+    if registration.student_id:
+        payload['accountReady'] = registration.student.has_usable_password()
+        try:
+            setup_link = registration.student.student_setup_link
+        except StudentSetupLink.DoesNotExist:
+            setup_link = None
+        payload['setupLinkExpiresAt'] = (
+            setup_link.expires_at.isoformat() if setup_link else ''
+        )
+    else:
+        payload['accountReady'] = False
+        payload['setupLinkExpiresAt'] = ''
+    if referral_points_awarded is not None:
+        payload['referralPointsAwarded'] = referral_points_awarded
+    return payload
+
+
+def _normalized_inperson_student_phone(phone):
+    match = re.fullmatch(r'\+97(?:0|2)(59|56)\d{7}', phone or '')
+    return '0' + phone[4:] if match else None
+
+
+def _issue_student_setup_link(user):
+    token = secrets.token_urlsafe(32)
+    expires_at = timezone.now() + STUDENT_SETUP_LINK_TTL
+    StudentSetupLink.objects.update_or_create(
+        user=user,
+        defaults={
+            'token_hash': hashlib.sha256(token.encode('utf-8')).hexdigest(),
+            'expires_at': expires_at,
+            'consumed_at': None,
+        },
+    )
+    return token, expires_at
+
+
+def _student_setup_link_payload(request, user, token, expires_at):
+    import qrcode
+
+    setup_url = request.build_absolute_uri(
+        reverse('users:student-setup', kwargs={'token': token})
+    )
+    image = BytesIO()
+    qrcode.make(setup_url).save(image, format='PNG')
+    qr_image = 'data:image/png;base64,' + base64.b64encode(image.getvalue()).decode('ascii')
+    return {
+        'setupUrl': setup_url,
+        'setupQrImage': qr_image,
+        'setupLinkExpiresAt': expires_at.isoformat(),
+    }
+
+
+def _ensure_registration_student(registration, issue_missing_link=True):
+    phone = _normalized_inperson_student_phone(registration.phone)
+    if phone is None:
+        raise ValidationError(
+            'رقم الهاتف يجب أن يبدأ بـ +970 أو +972 ويتضمن جوالاً يبدأ بـ 59 أو 56.'
+        )
+
+    if registration.student_id:
+        student = User.objects.select_for_update().get(pk=registration.student_id)
+        if student.role != UserRole.STUDENT:
+            raise ValidationError('رقم الهاتف مرتبط بحساب ليس حساب طالب.')
+    else:
+        student = User.objects.select_for_update().filter(phone=phone).first()
+        if student is not None and student.role != UserRole.STUDENT:
+            raise ValidationError(
+                'رقم الهاتف مرتبط بحساب غير طالب؛ لا يمكن ربط طلب التسجيل به.'
+            )
+        if student is None:
+            student = User(
+                phone=phone,
+                full_name=registration.full_name[:150],
+                role=UserRole.STUDENT,
+            )
+            student.set_unusable_password()
+            student.save()
+        registration.student = student
+        registration.save(update_fields=['student'])
+
+    if not student.is_active:
+        raise ValidationError('حساب الطالب المرتبط برقم الهاتف غير نشط.')
+
+    profile, _ = Profile.objects.get_or_create(user=student)
+    profile_fields = []
+    if not profile.whatsapp:
+        profile.whatsapp = registration.phone
+        profile_fields.append('whatsapp')
+    if registration.student_status == 'graduate' and not profile.education_stage:
+        profile.education_stage = 'graduate'
+        profile_fields.append('education_stage')
+    if profile_fields:
+        profile_fields.append('updated_at')
+        profile.save(update_fields=profile_fields)
+
+    token = None
+    expires_at = None
+    if issue_missing_link and not student.has_usable_password():
+        try:
+            student.student_setup_link
+        except StudentSetupLink.DoesNotExist:
+            token, expires_at = _issue_student_setup_link(student)
+    return student, token, expires_at
+
+
+@require_POST
+def course_registration_request_save(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات الطلب غير صالحة.', 400)
+    if not isinstance(payload, dict) or set(payload) != {
+        'courseId', 'fullName', 'phone', 'address', 'specialty', 'studentStatus'
+    }:
+        return _admin_api_error('بيانات الطلب غير صالحة.', 400)
+
+    course_id = payload.get('courseId')
+    course = (
+        Course.objects.filter(
+            slug=course_id,
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+        ).first()
+        if isinstance(course_id, str)
+        else None
+    )
+    if course is None:
+        return _admin_api_error('الدورة الوجاهية غير موجودة أو غير منشورة.', 400)
+
+    full_name = payload.get('fullName')
+    if not isinstance(full_name, str):
+        return _admin_api_error('اسم المتقدم غير صالح.', 400)
+    full_name = ' '.join(full_name.split())
+    name_parts = full_name.split()
+    if (
+        not 3 <= len(name_parts) <= 6
+        or any(
+            not all(
+                char.isalpha() or unicodedata.category(char).startswith('M')
+                for char in part
+            )
+            for part in name_parts
+        )
+    ):
+        return _admin_api_error('اسم المتقدم غير صالح.', 400)
+
+    phone = payload.get('phone')
+    address = payload.get('address')
+    specialty = payload.get('specialty')
+    student_status = payload.get('studentStatus')
+    if not isinstance(phone, str) or not re.fullmatch(r'\+[0-9]{12}', phone):
+        return _admin_api_error('رقم الهاتف غير صالح.', 400)
+    if not isinstance(address, str) or not address.strip() or len(address.strip()) > 255:
+        return _admin_api_error('العنوان غير صالح.', 400)
+    if not isinstance(specialty, str) or not specialty.strip() or len(specialty.strip()) > 150:
+        return _admin_api_error('التخصص غير صالح.', 400)
+    if student_status not in ('student', 'graduate'):
+        return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
+
+    with transaction.atomic():
+        cohort = start_next_inperson_cohort(course)
+        registration = CourseRegistrationRequest.objects.create(
+            course=course,
+            cohort=cohort,
+            full_name=full_name,
+            phone=phone,
+            address=address.strip(),
+            specialty=specialty.strip(),
+            student_status=student_status,
+            status=CourseRegistrationRequestStatus.NEW,
+        )
+    return JsonResponse({
+        'ok': True,
+        'request': _course_registration_request_payload(registration),
+    }, status=201)
+
+
+@require_POST
+def course_registration_request_update(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات الطالب غير صالحة.', 400)
+    allowed_fields = {
+        'fullName', 'phone', 'address', 'specialty', 'studentStatus', 'status',
+    }
+    if not isinstance(payload, dict) or set(payload) not in (
+        allowed_fields,
+        allowed_fields - {'status'},
+    ):
+        return _admin_api_error('بيانات الطالب غير صالحة.', 400)
+
+    full_name = payload.get('fullName')
+    if not isinstance(full_name, str):
+        return _admin_api_error('اسم الطالب غير صالح.', 400)
+    full_name = ' '.join(full_name.split())
+    name_parts = full_name.split()
+    if (
+        not 3 <= len(name_parts) <= 6
+        or any(
+            not all(
+                char.isalpha() or unicodedata.category(char).startswith('M')
+                for char in part
+            )
+            for part in name_parts
+        )
+    ):
+        return _admin_api_error('اسم الطالب غير صالح.', 400)
+
+    phone = payload.get('phone')
+    address = payload.get('address')
+    specialty = payload.get('specialty')
+    student_status = payload.get('studentStatus')
+    request_status = payload.get('status')
+    if not isinstance(phone, str) or not re.fullmatch(r'\+[0-9]{12}', phone):
+        return _admin_api_error('رقم الهاتف غير صالح.', 400)
+    normalized_phone = _normalized_inperson_student_phone(phone)
+    if normalized_phone is None:
+        return _admin_api_error(
+            'رقم الهاتف يجب أن يبدأ بـ +970 أو +972 ويتضمن جوالاً يبدأ بـ 59 أو 56.',
+            400,
+        )
+    if not isinstance(address, str) or not address.strip() or len(address.strip()) > 255:
+        return _admin_api_error('العنوان غير صالح.', 400)
+    if not isinstance(specialty, str) or not specialty.strip() or len(specialty.strip()) > 150:
+        return _admin_api_error('التخصص غير صالح.', 400)
+    if student_status not in ('student', 'graduate'):
+        return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
+    setup_token = None
+    setup_expires_at = None
+    referral_points_awarded = False
+    try:
+        with transaction.atomic():
+            registration = (
+                CourseRegistrationRequest.objects.select_for_update()
+                .select_related('course', 'cohort', 'student', 'referral_link__referrer')
+                .filter(
+                    pk=pk,
+                    course__course_type=CourseType.IN_PERSON,
+                )
+                .first()
+            )
+            if registration is None:
+                return _admin_api_error('طلب التسجيل الوجاهي غير موجود.', 404)
+            if request_status is None:
+                request_status = registration.status
+            if request_status not in CourseRegistrationRequestStatus.values:
+                return _admin_api_error('حالة الطلب غير صالحة.', 400)
+
+            if registration.student_id and User.objects.filter(
+                phone=normalized_phone,
+            ).exclude(pk=registration.student_id).exists():
+                return _admin_api_error('رقم الهاتف مستخدم في حساب آخر.', 409)
+
+            registration.full_name = full_name
+            registration.phone = phone
+            registration.address = address.strip()
+            registration.specialty = specialty.strip()
+            registration.student_status = student_status
+            registration.status = request_status
+            registration.save(update_fields=[
+                'full_name', 'phone', 'address', 'specialty', 'student_status', 'status',
+            ])
+
+            student = None
+            if registration.student_id or (
+                request_status == CourseRegistrationRequestStatus.ACCEPTED
+            ):
+                student, issued_token, issued_expiry = _ensure_registration_student(
+                    registration,
+                    issue_missing_link=request_status == CourseRegistrationRequestStatus.ACCEPTED,
+                )
+                if request_status == CourseRegistrationRequestStatus.ACCEPTED:
+                    setup_token = issued_token
+                    setup_expires_at = issued_expiry
+
+            if student:
+                student.full_name = full_name[:150]
+                student.phone = normalized_phone
+                student.save(update_fields=['full_name', 'phone'])
+                profile = Profile.objects.get(user=student)
+                profile.whatsapp = phone
+                profile_fields = ['whatsapp', 'updated_at']
+                if student_status == 'graduate' and not profile.education_stage:
+                    profile.education_stage = 'graduate'
+                    profile_fields.append('education_stage')
+                profile.save(update_fields=profile_fields)
+            if request_status == CourseRegistrationRequestStatus.ACCEPTED:
+                referral_points_awarded = award_referral_points_for_registration_request(
+                    registration,
+                )
+    except ValidationError as exc:
+        return _admin_api_error(exc.messages[0], 400)
+    except IntegrityError:
+        return _admin_api_error('رقم الهاتف مستخدم في حساب آخر.', 409)
+
+    response_payload = _course_registration_request_payload(
+        registration,
+        referral_points_awarded=referral_points_awarded,
+    )
+    if setup_token:
+        response_payload.update(
+            _student_setup_link_payload(
+                request,
+                registration.student,
+                setup_token,
+                setup_expires_at,
+            )
+        )
+    return JsonResponse({'ok': True, 'request': response_payload})
+
+
+@require_POST
+def course_registration_request_status(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('حالة الطلب غير صالحة.', 400)
+    if not isinstance(payload, dict) or set(payload) != {'status'}:
+        return _admin_api_error('حالة الطلب غير صالحة.', 400)
+
+    status_order = [
+        CourseRegistrationRequestStatus.NEW,
+        CourseRegistrationRequestStatus.CONTACTED,
+        CourseRegistrationRequestStatus.ACCEPTED,
+        CourseRegistrationRequestStatus.REJECTED,
+    ]
+    requested_status = payload['status']
+    if requested_status not in status_order:
+        return _admin_api_error('حالة الطلب غير صالحة.', 400)
+
+    setup_token = None
+    setup_expires_at = None
+    try:
+        with transaction.atomic():
+            registration = (
+                CourseRegistrationRequest.objects.select_for_update()
+                .select_related('course', 'cohort', 'referral_link__referrer')
+                .filter(pk=pk)
+                .first()
+            )
+            if registration is None:
+                return _admin_api_error('طلب التسجيل غير موجود.', 404)
+            current_index = status_order.index(registration.status)
+            expected_status = status_order[(current_index + 1) % len(status_order)]
+            if requested_status != expected_status:
+                return _admin_api_error(
+                    'حالة الطلب تغيّرت. حدّث الصفحة وحاول مرة أخرى.',
+                    409,
+                )
+            if requested_status == CourseRegistrationRequestStatus.ACCEPTED:
+                _, setup_token, setup_expires_at = _ensure_registration_student(registration)
+            registration.status = requested_status
+            registration.save(update_fields=['status'])
+            referral_points_awarded = (
+                award_referral_points_for_registration_request(registration)
+                if requested_status == CourseRegistrationRequestStatus.ACCEPTED
+                else False
+            )
+    except ValidationError as exc:
+        return _admin_api_error(exc.messages[0], 400)
+
+    payload = _course_registration_request_payload(
+        registration,
+        referral_points_awarded=referral_points_awarded,
+    )
+    if setup_token:
+        payload.update(
+            _student_setup_link_payload(request, registration.student, setup_token, setup_expires_at)
+        )
+    return JsonResponse({'ok': True, 'request': payload})
+
+
+@require_POST
+def course_registration_request_confirm(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        with transaction.atomic():
+            registration = (
+                CourseRegistrationRequest.objects.select_for_update()
+                .select_related('course', 'cohort', 'referral_link__referrer')
+                .filter(pk=pk)
+                .first()
+            )
+            if registration is None:
+                return _admin_api_error('طلب التسجيل غير موجود.', 404)
+            if registration.status == CourseRegistrationRequestStatus.REJECTED:
+                return _admin_api_error('لا يمكن تأكيد طلب مرفوض.', 409)
+            _, setup_token, setup_expires_at = _ensure_registration_student(registration)
+            if registration.status != CourseRegistrationRequestStatus.ACCEPTED:
+                registration.status = CourseRegistrationRequestStatus.ACCEPTED
+                registration.save(update_fields=['status'])
+            referral_points_awarded = award_referral_points_for_registration_request(registration)
+    except ValidationError as exc:
+        return _admin_api_error(exc.messages[0], 400)
+
+    response_payload = _course_registration_request_payload(
+        registration,
+        referral_points_awarded=referral_points_awarded,
+    )
+    if setup_token:
+        response_payload.update(
+            _student_setup_link_payload(request, registration.student, setup_token, setup_expires_at)
+        )
+    return JsonResponse({'ok': True, 'request': response_payload})
+
+
+@require_POST
+def course_registration_request_setup_link(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        with transaction.atomic():
+            registration = (
+                CourseRegistrationRequest.objects.select_for_update()
+                .select_related('course', 'cohort', 'referral_link__referrer')
+                .filter(pk=pk)
+                .first()
+            )
+            if registration is None:
+                return _admin_api_error('طلب التسجيل غير موجود.', 404)
+            if registration.status != CourseRegistrationRequestStatus.ACCEPTED:
+                return _admin_api_error('يجب تأكيد التسجيل قبل إصدار رابط الحساب.', 409)
+            student, _, _ = _ensure_registration_student(
+                registration,
+                issue_missing_link=False,
+            )
+            if student.has_usable_password():
+                return _admin_api_error(
+                    'تم إعداد كلمة مرور هذا الحساب بالفعل ولا يحتاج إلى رابط إعداد جديد.',
+                    409,
+                )
+            token, expires_at = _issue_student_setup_link(student)
+    except ValidationError as exc:
+        return _admin_api_error(exc.messages[0], 400)
+
+    payload = _course_registration_request_payload(registration)
+    payload.update(_student_setup_link_payload(request, student, token, expires_at))
+    return JsonResponse({'ok': True, 'request': payload})
+
+
+@require_POST
+def course_registration_request_paid_amount(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات المبلغ المدفوع غير صالحة.', 400)
+    if not isinstance(payload, dict) or set(payload) != {'amount'}:
+        return _admin_api_error('بيانات المبلغ المدفوع غير صالحة.', 400)
+
+    raw_amount = payload['amount']
+    if isinstance(raw_amount, (str, int, float)) and not isinstance(raw_amount, bool):
+        try:
+            paid_amount = Decimal(str(raw_amount))
+        except InvalidOperation:
+            return _admin_api_error('أدخل مبلغاً صحيحاً.', 400)
+        if (
+            not paid_amount.is_finite()
+            or paid_amount <= 0
+            or paid_amount.as_tuple().exponent < -2
+            or paid_amount >= Decimal('100000000')
+        ):
+            return _admin_api_error('يجب أن يكون المبلغ أكبر من صفر وبحد أقصى منزلتين عشريتين.', 400)
+    else:
+        return _admin_api_error('أدخل مبلغاً صحيحاً.', 400)
+
+    with transaction.atomic():
+        registration = (
+            CourseRegistrationRequest.objects.select_for_update()
+            .select_related('course', 'cohort', 'referral_link__referrer')
+            .prefetch_related('payments')
+            .filter(pk=pk)
+            .first()
+        )
+        if registration is None:
+            return _admin_api_error('طلب التسجيل غير موجود.', 404)
+        if registration.status != CourseRegistrationRequestStatus.ACCEPTED:
+            return _admin_api_error('يمكن تحديد المبلغ للطلبات المقبولة فقط.', 409)
+
+        course_price = _course_registration_course_price(registration.course)
+        if course_price is None:
+            return _admin_api_error('حدد سعراً صالحاً للدورة قبل تسجيل الدفعات.', 409)
+
+        total_paid = registration.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        remaining_amount = course_price - total_paid
+        if paid_amount > remaining_amount:
+            return _admin_api_error('لا يمكن أن تتجاوز الدفعة المبلغ المتبقي.', 400)
+
+        CourseRegistrationPayment.objects.create(
+            registration_request=registration,
+            amount=paid_amount,
+        )
+        registration._prefetched_objects_cache.pop('payments', None)
+
+    return JsonResponse({
+        'ok': True,
+        'request': _course_registration_request_payload(registration),
+    })
+
+
+def _training_categories_payload():
+    course_counts = dict(
+        Course.objects.exclude(category='')
+        .values('category')
+        .annotate(total=Count('pk'))
+        .values_list('category', 'total')
+    )
+    project_counts = dict(
+        Project.objects.exclude(category='')
+        .values('category')
+        .annotate(total=Count('pk'))
+        .values_list('category', 'total')
+    )
+    trainer_counts = dict(
+        Profile.objects.filter(user__role=UserRole.TRAINER)
+        .exclude(specialization='')
+        .values('specialization')
+        .annotate(total=Count('pk'))
+        .values_list('specialization', 'total')
+    )
+    student_counts = dict(
+        Profile.objects.filter(user__role=UserRole.STUDENT)
+        .exclude(specialization='')
+        .values('specialization')
+        .annotate(total=Count('pk'))
+        .values_list('specialization', 'total')
+    )
+    return [
+        {
+            'id': category.pk,
+            'name': category.name,
+            'display_order': category.display_order,
+            'courses': course_counts.get(category.name, 0),
+            'projects': project_counts.get(category.name, 0),
+            'trainers': trainer_counts.get(category.name, 0),
+            'students': student_counts.get(category.name, 0),
+        }
+        for category in TrainingCategory.objects.order_by(
+            'display_order', 'name'
+        )
+    ]
+
+
+@require_http_methods(['GET', 'POST'])
+def training_categories(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    if request.method == 'GET':
+        return JsonResponse({'ok': True, 'categories': _training_categories_payload()})
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+
+    action = payload.get('action')
+    if action == 'delete':
+        try:
+            category_id = int(payload.get('id'))
+        except (TypeError, ValueError):
+            return _admin_api_error('المجال التدريبي غير موجود.', 404)
+        with transaction.atomic():
+            category = TrainingCategory.objects.select_for_update().filter(pk=category_id).first()
+            if category is None:
+                return _admin_api_error('المجال التدريبي غير موجود.', 404)
+            Course.objects.filter(category=category.name).update(category='')
+            Project.objects.filter(category=category.name).update(category='')
+            Profile.objects.filter(specialization=category.name).update(specialization='')
+            original_order = category.display_order
+            category.delete()
+            if original_order is not None:
+                TrainingCategory.objects.filter(display_order__gt=original_order).update(
+                    display_order=models.F('display_order') - 1
+                )
+        return JsonResponse({'ok': True, 'id': category_id})
+
+    if action == 'reorder':
+        order = payload.get('order')
+        if not isinstance(order, list) or not order:
+            return _admin_api_error('ترتيب المجالات غير صالح.', 400)
+        if any(not isinstance(category_id, str) for category_id in order):
+            return _admin_api_error('ترتيب المجالات غير صالح.', 400)
+        category_ids = [int(category_id) for category_id in order]
+        if len(category_ids) != len(set(category_ids)):
+            return _admin_api_error('لا يمكن تكرار المجالات في الترتيب.', 400)
+        with transaction.atomic():
+            categories = list(
+                TrainingCategory.objects.select_for_update().filter(pk__in=category_ids)
+            )
+            if len(categories) != len(category_ids):
+                return _admin_api_error('بعض المجالات غير موجودة.', 404)
+            categories_by_id = {category.pk: category for category in categories}
+            for position, category_id in enumerate(category_ids):
+                categories_by_id[category_id].display_order = position
+            TrainingCategory.objects.bulk_update(categories, ['display_order'])
+        return JsonResponse({'ok': True, 'categories': _training_categories_payload()})
+
+    if action not in ('create', 'update'):
+        return _admin_api_error('نوع العملية غير صالح.', 400)
+    name = payload.get('name')
+    name = name.strip() if isinstance(name, str) else ''
+    if not name or len(name) > 120:
+        return _admin_api_error('أدخل اسم المجال، على ألا يتجاوز 120 حرفاً.', 400)
+
+    try:
+        with transaction.atomic():
+            if action == 'create':
+                if TrainingCategory.objects.filter(name__iexact=name).exists():
+                    return _admin_api_error('هذا المجال التدريبي موجود بالفعل.', 409)
+                max_order = TrainingCategory.objects.aggregate(
+                    max_order=models.Max('display_order')
+                )['max_order'] or 0
+                category = TrainingCategory.objects.create(name=name, display_order=max_order + 1)
+            else:
+                try:
+                    category_id = int(payload.get('id'))
+                except (TypeError, ValueError):
+                    return _admin_api_error('المجال التدريبي غير موجود.', 404)
+                category = TrainingCategory.objects.select_for_update().filter(
+                    pk=category_id
+                ).first()
+                if category is None:
+                    return _admin_api_error('المجال التدريبي غير موجود.', 404)
+                if TrainingCategory.objects.filter(name__iexact=name).exclude(
+                    pk=category.pk
+                ).exists():
+                    return _admin_api_error('هذا المجال التدريبي موجود بالفعل.', 409)
+                old_name = category.name
+                if old_name != name:
+                    Course.objects.filter(category=old_name).update(category=name)
+                    Project.objects.filter(category=old_name).update(category=name)
+                    Profile.objects.filter(specialization=old_name).update(
+                        specialization=name
+                    )
+                    category.name = name
+                    category.save(update_fields=['name'])
+    except IntegrityError:
+        return _admin_api_error('هذا المجال التدريبي موجود بالفعل.', 409)
+
+    category_data = next(
+        item for item in _training_categories_payload() if item['id'] == category.pk
+    )
+    return JsonResponse({'ok': True, 'category': category_data})
+
+
+@require_POST
+def admin_display_order(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات الترتيب غير صالحة.', 400)
+    if not isinstance(payload, dict):
+        return _admin_api_error('بيانات الترتيب غير صالحة.', 400)
+
+    kind = payload.get('kind')
+    order = payload.get('order')
+    if kind not in ('courses', 'projects', 'trainers', 'students'):
+        return _admin_api_error('نوع الترتيب غير صالح.', 400)
+    if not isinstance(order, list) or any(
+        not isinstance(item, str) or not item for item in order
+    ):
+        return _admin_api_error('قائمة الترتيب غير صالحة.', 400)
+    if len(order) != len(set(order)):
+        return _admin_api_error('لا يمكن تكرار العناصر في الترتيب.', 400)
+
+    with transaction.atomic():
+        if kind == 'courses':
+            objects = list(Course.objects.select_for_update().order_by('pk'))
+            id_for = lambda item: str(item.pk)
+        elif kind == 'projects':
+            objects = list(Project.objects.select_for_update().order_by('pk'))
+            id_for = lambda item: str(item.pk)
+        else:
+            role = UserRole.TRAINER if kind == 'trainers' else UserRole.STUDENT
+            users = list(
+                User.objects.select_for_update()
+                .filter(role=role)
+                .order_by('pk')
+            )
+            user_ids = [user.pk for user in users]
+            profiles_by_user = {
+                profile.user_id: profile
+                for profile in Profile.objects.select_for_update()
+                .filter(user_id__in=user_ids)
+            }
+            missing_users = [
+                user for user in users if user.pk not in profiles_by_user
+            ]
+            if missing_users:
+                Profile.objects.bulk_create(
+                    [Profile(user=user) for user in missing_users]
+                )
+                profiles_by_user.update({
+                    profile.user_id: profile
+                    for profile in Profile.objects.filter(
+                        user_id__in=[user.pk for user in missing_users]
+                    )
+                })
+            objects = [profiles_by_user[user.pk] for user in users]
+            id_for = lambda item: str(item.user_id)
+
+        by_id = {id_for(item): item for item in objects}
+        if len(order) != len(objects) or set(order) != set(by_id):
+            return _admin_api_error(
+                'تغيّرت قائمة العناصر. حدّث الصفحة ثم حاول مجدداً.', 409
+            )
+
+        ordered = [by_id[item_id] for item_id in order]
+        for position, item in enumerate(ordered):
+            item.display_order = position
+        if kind in ('courses', 'projects'):
+            model = Course if kind == 'courses' else Project
+            model.objects.bulk_update(ordered, ['display_order'])
+        else:
+            Profile.objects.bulk_update(ordered, ['display_order'])
+            other_role = UserRole.STUDENT if kind == 'trainers' else UserRole.TRAINER
+            other_profiles = list(
+                Profile.objects.select_for_update()
+                .filter(user__role=other_role)
+                .order_by(
+                    models.F('display_order').asc(nulls_last=True),
+                    'user__date_joined',
+                    'user_id',
+                )
+            )
+            trainers = ordered if kind == 'trainers' else other_profiles
+            students = other_profiles if kind == 'trainers' else ordered
+            combined = trainers + students
+            for position, profile in enumerate(combined):
+                profile.display_order = position
+            Profile.objects.bulk_update(combined, ['display_order'])
+
+    return JsonResponse({'ok': True, 'kind': kind, 'order': order})
+
+
+def _active_device_counts(user_ids):
+    device_rows = list(
+        DeviceSession.objects.filter(user_id__in=user_ids)
+        .exclude(session_key='')
+        .values_list('user_id', 'session_key')
+    )
+    if not device_rows:
+        return {}
+    live_keys = set(
+        Session.objects.filter(
+            session_key__in=[session_key for _, session_key in device_rows],
+            expire_date__gt=timezone.now(),
+        ).values_list('session_key', flat=True)
+    )
+    counts = {}
+    for user_id, session_key in device_rows:
+        if session_key in live_keys:
+            counts[user_id] = counts.get(user_id, 0) + 1
+    return counts
+
+
+@require_http_methods(['GET', 'POST'])
+def student_sessions(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    student = User.objects.filter(pk=pk, role=UserRole.STUDENT).first()
+    if student is None:
+        return _admin_api_error('الطالب غير موجود.', 404)
+
+    if request.method == 'GET':
+        rows = list(
+            DeviceSession.objects.filter(user=student)
+            .exclude(session_key='')
+            .order_by('-last_seen')
+        )
+        live_keys = set(
+            Session.objects.filter(
+                session_key__in=[row.session_key for row in rows],
+                expire_date__gt=timezone.now(),
+            ).values_list('session_key', flat=True)
+        )
+        active_rows = [row for row in rows if row.session_key in live_keys]
+        return JsonResponse({
+            'ok': True,
+            'activeDevices': len(active_rows),
+            'sessions': [
+                {
+                    'id': row.pk,
+                    'userAgent': row.user_agent,
+                    'ip': row.ip or '',
+                    'createdAt': row.created_at.isoformat(),
+                    'lastSeen': row.last_seen.isoformat(),
+                }
+                for row in active_rows
+            ],
+        })
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict) or set(payload) - {'deviceSessionId', 'all'}:
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+
+    with transaction.atomic():
+        devices = DeviceSession.objects.select_for_update().filter(user=student)
+        if payload.get('all') is True:
+            selected = list(devices)
+        else:
+            device_session_id = payload.get('deviceSessionId')
+            if not isinstance(device_session_id, int) or isinstance(device_session_id, bool):
+                return _admin_api_error('جلسة الجهاز غير صالحة.', 400)
+            selected = list(devices.filter(pk=device_session_id))
+            if not selected:
+                return _admin_api_error('جلسة الجهاز غير موجودة.', 404)
+        session_keys = [row.session_key for row in selected if row.session_key]
+        Session.objects.filter(session_key__in=session_keys).delete()
+        devices.filter(pk__in=[row.pk for row in selected]).delete()
+
+    return JsonResponse({
+        'ok': True,
+        'activeDevices': _active_device_counts([student.pk]).get(student.pk, 0),
+    })
+
+
 def _workshop_data(workshop):
     import qrcode
 
@@ -757,6 +1702,37 @@ def _trainer_avatar_data(value, profile):
     return ContentFile(data, name=f'trainer-{uuid4().hex}.{AVATAR_TYPES[match.group(1)]}')
 
 
+def _admin_legal_name_values(payload, user, errors):
+    full_name_ar = str(
+        payload.get('fullNameArabic', user.full_name_ar) or ''
+    ).strip()
+    full_name_en = str(
+        payload.get('fullNameEnglish', user.full_name_en) or ''
+    ).strip()
+    if bool(full_name_ar) != bool(full_name_en):
+        message = 'يجب إدخال الاسم العربي والإنجليزي معاً.'
+        errors['fullNameArabic'] = message
+        errors['fullNameEnglish'] = message
+    elif full_name_ar:
+        for key, value, validator in (
+            ('fullNameArabic', full_name_ar, validate_arabic_three_part_name),
+            ('fullNameEnglish', full_name_en, validate_english_three_part_name),
+        ):
+            try:
+                validator(value)
+            except ValidationError as exc:
+                errors[key] = ' '.join(exc.messages)
+
+    if user.pk:
+        for key, original, value in (
+            ('fullNameArabic', user.full_name_ar, full_name_ar),
+            ('fullNameEnglish', user.full_name_en, full_name_en),
+        ):
+            if original and original != value:
+                errors[key] = 'لا يمكن تعديل الاسم بعد حفظه.'
+    return full_name_ar, full_name_en
+
+
 @require_POST
 def trainer_save(request):
     denied = _admin_api_user(request)
@@ -782,23 +1758,31 @@ def trainer_save(request):
         is_new = True
 
     name = str(payload.get('name') or '').strip()
-    handle = str(payload.get('handle') or '').strip()
+    handle = (
+        str(payload.get('handle') or '').strip()
+        if 'handle' in payload
+        else (trainer.handle if not is_new else '')
+    )
     phone = str(payload.get('phone') or '').strip()
+    whatsapp = str(payload.get('whatsapp') or '').strip()
     email = str(payload.get('email') or '').strip()
     specialty = str(payload.get('specialty') or '').strip()
-    bio = str(payload.get('bio') or '').strip()
+    bio = str(payload.get('bio') or '').strip() if 'bio' in payload else None
     errors = {}
+    full_name_ar, full_name_en = _admin_legal_name_values(payload, trainer, errors)
 
     if not name or len(name) > 150:
         errors['name'] = 'أدخل الاسم، على ألا يتجاوز 150 حرفاً.'
-    if not handle or len(handle) > 40:
-        errors['handle'] = 'أدخل المعرّف، على ألا يتجاوز 40 حرفاً.'
-    elif User.objects.filter(handle=handle).exclude(pk=trainer.pk).exists():
+    if len(handle) > 40:
+        errors['handle'] = 'يجب ألا يتجاوز المعرّف 40 حرفاً.'
+    elif handle and User.objects.filter(handle=handle).exclude(pk=trainer.pk).exists():
         errors['handle'] = 'هذا المعرّف مستخدم بالفعل.'
     if not PHONE_RE.fullmatch(phone):
         errors['phone'] = 'رقم الجوال يجب أن يتكوّن من 10 أرقام.'
     elif User.objects.filter(phone=phone).exclude(pk=trainer.pk).exists():
         errors['phone'] = 'رقم الجوال مستخدم بالفعل.'
+    if 'whatsapp' in payload and whatsapp and not re.fullmatch(r'\+?[0-9]{1,12}', whatsapp):
+        errors['whatsapp'] = 'أدخل + اختيارياً ثم من 1 إلى 12 رقماً.'
     if len(specialty) > 150 or not specialty:
         errors['specialty'] = 'أدخل التخصص، على ألا يتجاوز 150 حرفاً.'
     if len(email) > 254:
@@ -809,16 +1793,24 @@ def trainer_save(request):
         except ValidationError:
             errors['email'] = 'أدخل بريداً إلكترونياً صحيحاً.'
 
-    try:
-        rating = Decimal(str(payload.get('rating') or '0'))
-        if not rating.is_finite() or rating < 0 or rating > 5 or rating.as_tuple().exponent < -1:
-            raise InvalidOperation
-    except (InvalidOperation, TypeError, ValueError):
-        errors['rating'] = 'يجب أن يكون التقييم بين 0 و5 وبحد أقصى منزلة عشرية واحدة.'
+    profile = Profile() if is_new else (_trainer_profile(trainer) or Profile())
+    if 'rating' in payload:
+        try:
+            rating = Decimal(str(payload.get('rating') or '0'))
+            if not rating.is_finite() or rating < 0 or rating > 5 or rating.as_tuple().exponent < -1:
+                raise InvalidOperation
+        except (InvalidOperation, TypeError, ValueError):
+            errors['rating'] = 'يجب أن يكون التقييم بين 0 و5 وبحد أقصى منزلة عشرية واحدة.'
+    else:
+        rating = profile.trainer_rating
 
     links = {
-        SocialPlatform.LINKEDIN: str(payload.get('linkedin') or '').strip(),
-        SocialPlatform.GITHUB: str(payload.get('github') or '').strip(),
+        platform: str(payload.get(key) or '').strip()
+        for key, platform in (
+            ('linkedin', SocialPlatform.LINKEDIN),
+            ('github', SocialPlatform.GITHUB),
+        )
+        if key in payload
     }
     for platform, url in links.items():
         if url:
@@ -841,7 +1833,6 @@ def trainer_save(request):
             errors['password'] = ' '.join(exc.messages)
 
     avatar_file = None
-    profile = Profile() if is_new else (_trainer_profile(trainer) or Profile())
     try:
         avatar_file = _trainer_avatar_data(str(payload.get('avatar') or ''), profile)
     except ValueError as exc:
@@ -868,6 +1859,8 @@ def trainer_save(request):
     try:
         with transaction.atomic():
             trainer.full_name = name
+            trainer.full_name_ar = full_name_ar
+            trainer.full_name_en = full_name_en
             trainer.handle = handle
             trainer.phone = phone
             trainer.email = email
@@ -882,8 +1875,11 @@ def trainer_save(request):
 
             profile, _ = Profile.objects.get_or_create(user=trainer)
             profile.specialization = specialty
-            profile.bio = bio
+            if bio is not None:
+                profile.bio = bio
             profile.trainer_rating = rating
+            if 'whatsapp' in payload:
+                profile.whatsapp = whatsapp
             if avatar_file:
                 profile.avatar.save(avatar_file.name, avatar_file, save=False)
             elif not payload.get('avatar') and profile.avatar:
@@ -935,18 +1931,23 @@ def student_save(request):
         is_new = True
 
     name = str(payload.get('name') or '').strip()
-    handle = str(payload.get('handle') or '').strip()
+    handle = (
+        str(payload.get('handle') or '').strip()
+        if 'handle' in payload
+        else (student.handle if not is_new else '')
+    )
     phone = str(payload.get('phone') or '').strip()
     email = str(payload.get('email') or '').strip()
-    bio = str(payload.get('bio') or '').strip()
+    bio = str(payload.get('bio') or '').strip() if 'bio' in payload else None
     password = str(payload.get('password') or '')
     errors = {}
+    full_name_ar, full_name_en = _admin_legal_name_values(payload, student, errors)
 
     if not name or len(name) > 150:
         errors['name'] = 'أدخل الاسم، على ألا يتجاوز 150 حرفاً.'
-    if not handle or len(handle) > 40:
-        errors['handle'] = 'أدخل المعرّف، على ألا يتجاوز 40 حرفاً.'
-    elif User.objects.filter(handle=handle).exclude(pk=student.pk).exists():
+    if len(handle) > 40:
+        errors['handle'] = 'يجب ألا يتجاوز المعرّف 40 حرفاً.'
+    elif handle and User.objects.filter(handle=handle).exclude(pk=student.pk).exists():
         errors['handle'] = 'هذا المعرّف مستخدم بالفعل.'
     if not PHONE_RE.fullmatch(phone):
         errors['phone'] = 'رقم الجوال يجب أن يتكوّن من 10 أرقام.'
@@ -990,7 +1991,10 @@ def student_save(request):
     try:
         with transaction.atomic():
             student.full_name = name
-            student.handle = handle
+            student.full_name_ar = full_name_ar
+            student.full_name_en = full_name_en
+            if handle:
+                student.handle = handle
             student.phone = phone
             student.email = email
             student.role = UserRole.STUDENT
@@ -1001,7 +2005,8 @@ def student_save(request):
             student.save()
 
             profile, _ = Profile.objects.get_or_create(user=student)
-            profile.bio = bio
+            if bio is not None:
+                profile.bio = bio
             if avatar_file:
                 profile.avatar.save(avatar_file.name, avatar_file, save=False)
             elif not payload.get('avatar') and profile.avatar:
@@ -1017,6 +2022,10 @@ def student_save(request):
             'id': f'db-user-{student.pk}',
             'databaseId': str(student.pk),
             'name': student.display_name,
+            'fullNameArabic': student.full_name_ar,
+            'fullNameEnglish': student.full_name_en,
+            'fullNameArabic': student.full_name_ar,
+            'fullNameEnglish': student.full_name_en,
             'handle': student.handle,
             'email': student.email,
             'phone': student.phone,
@@ -1049,6 +2058,26 @@ def trainer_set_active(request, pk):
     trainer.is_active = payload['active']
     trainer.save(update_fields=['is_active'])
     return JsonResponse({'ok': True, 'active': trainer.is_active})
+
+
+@require_POST
+def trainer_set_content_permission(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict) or not isinstance(payload.get('allowed'), bool):
+        return _admin_api_error('حالة صلاحية النشر غير صالحة.', 400)
+    try:
+        trainer = User.objects.get(pk=pk, role=UserRole.TRAINER)
+    except (User.DoesNotExist, ValueError, TypeError):
+        return _admin_api_error('المدرب غير موجود.', 404)
+    trainer.can_publish_content = payload['allowed']
+    trainer.save(update_fields=['can_publish_content'])
+    return JsonResponse({'ok': True, 'canPublishContent': trainer.can_publish_content})
 
 
 @require_POST
@@ -1100,6 +2129,7 @@ def student_reset_referral_points(request, pk):
                     course=last_transaction.course,
                     points=-balance,
                     kind=StudentPointTransaction.Kind.RESET,
+                    reset_by=request.user,
                 )
     except (User.DoesNotExist, ValueError, TypeError):
         return _admin_api_error('الطالب غير موجود.', 404)
@@ -1317,9 +2347,20 @@ def course_set_active(request, pk):
                 return _admin_api_error('لا يمكن تفعيل دورة دون عنوان.', 400)
             course.status = CourseStatus.PUBLISHED if payload['active'] else CourseStatus.DRAFT
             course.save(update_fields=['status', 'updated_at'])
+            cohort = None
+            if course.course_type == CourseType.IN_PERSON:
+                cohort = (
+                    start_next_inperson_cohort(course)
+                    if payload['active']
+                    else close_active_inperson_cohort(course)
+                )
     except (Course.DoesNotExist, ValueError, TypeError):
         return _admin_api_error('الدورة غير موجودة.', 404)
-    return JsonResponse({'ok': True, 'active': course.status == CourseStatus.PUBLISHED})
+    return JsonResponse({
+        'ok': True,
+        'active': course.status == CourseStatus.PUBLISHED,
+        'cohort': _inperson_cohort_payload(cohort) if cohort else None,
+    })
 
 
 @require_POST
@@ -1529,6 +2570,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['training_categories_json'] = _training_categories_payload()
         context['platform_settings'] = get_platform_settings()
         context['settings_summary'] = {
             'users': User.objects.filter(role=UserRole.STUDENT).count(),
@@ -1553,6 +2595,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         for course in courses:
             data = course.to_public_dict(include_answers=True)
             data['enrollmentCount'] = course.enrollment_count
+            data['displayOrder'] = course.display_order
             context['courses_json'].append(data)
         context['point_redemption_courses_json'] = [
             {'id': course.slug, 'title': course.title, 'price': course.price}
@@ -1567,6 +2610,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['admin_projects_json'] = []
         for project in admin_projects:
             data = project.to_public_dict()
+            data['displayOrder'] = project.display_order
             data['ownerId'] = str(project.owner_id)
             data['ownerRole'] = project.owner.role
             data['sourceLessonId'] = project.source_lesson_id
@@ -1583,8 +2627,17 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
             .order_by('-created_at', 'pk')
         )
         manual_certificates = (
-            ManualCertificate.objects.filter(student__role=UserRole.STUDENT)
+            ManualCertificate.objects.filter(
+                student__role__in=(UserRole.STUDENT, UserRole.TRAINER)
+            )
             .select_related('student')
+            .order_by('-created_at', 'pk')
+        )
+        workshop_certificates = (
+            WorkshopCertificate.objects.filter(
+                attendance__student__role=UserRole.STUDENT
+            )
+            .select_related('attendance__student', 'attendance__workshop')
             .order_by('-created_at', 'pk')
         )
         context['admin_student_certificates_json'] = [
@@ -1600,6 +2653,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'skills': list(certificate.course.skills or []),
                 'verifyUrl': certificate.course.verify_url,
                 'image': certificate.course.cover.url if certificate.course.cover else '',
+                'studentId': str(certificate.student_id),
                 'studentName': certificate.student.display_name,
                 'studentHandle': certificate.student.handle,
                 'date': certificate.created_at.date().isoformat(),
@@ -1615,6 +2669,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'title': certificate.title,
                 'issuer': certificate.issuer,
                 'courseTitle': '',
+                'studentId': str(certificate.student_id),
                 'studentName': certificate.student.display_name,
                 'studentHandle': certificate.student.handle,
                 'date': certificate.date.isoformat() if certificate.date else '',
@@ -1629,12 +2684,48 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'skills': list(certificate.skills or []),
             }
             for certificate in manual_certificates
+        ] + [
+            {
+                'id': f'workshop-{certificate.pk}',
+                'pk': certificate.pk,
+                'type': 'workshop',
+                'title': certificate.workshop_title,
+                'issuer': certificate.trainer_name,
+                'courseTitle': '',
+                'studentId': str(certificate.attendance.student_id),
+                'studentName': certificate.student_name,
+                'studentHandle': certificate.attendance.student.handle,
+                'date': certificate.attended_on.isoformat(),
+                'code': certificate.code,
+                'active': True,
+                'workshopDuration': certificate.duration_minutes,
+                'workshopLocation': certificate.attendance.workshop.location,
+            }
+            for certificate in workshop_certificates
         ]
         context['admin_workshops_json'] = [
             _workshop_data(workshop)
             for workshop in InPersonWorkshop.objects.annotate(
                 attendees_count=Count('attendances', distinct=True)
             )
+        ]
+        context['admin_inperson_cohorts_json'] = [
+            _inperson_cohort_payload(cohort)
+            for cohort in InPersonCourseCohort.objects.filter(
+                course__course_type=CourseType.IN_PERSON,
+            )
+            .select_related('course')
+            .annotate(request_count=Count('registration_requests'))
+            .order_by('course_id', '-number')
+        ]
+        context['course_registration_requests_json'] = [
+            _course_registration_request_payload(registration)
+            for registration in CourseRegistrationRequest.objects.filter(
+                course__course_type=CourseType.IN_PERSON,
+            ).select_related(
+                'course', 'cohort', 'student__student_setup_link',
+                'referral_link__referrer'
+            ).prefetch_related('payments')
         ]
         course_progress = (
             CourseProgress.objects.select_related('student', 'student__profile', 'course')
@@ -1695,6 +2786,8 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
             .select_related('profile')
             .order_by('-date_joined', 'pk')
         )
+        student_rows = list(students)
+        active_devices = _active_device_counts([student.pk for student in student_rows])
         student_points = {
             item['student_id']: item['total'] or 0
             for item in StudentPointTransaction.objects.values('student_id').annotate(
@@ -1712,6 +2805,8 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'id': f'db-user-{student.pk}',
                 'databaseId': str(student.pk),
                 'name': student.display_name,
+                'fullNameArabic': student.full_name_ar,
+                'fullNameEnglish': student.full_name_en,
                 'handle': student.handle,
                 'email': student.email,
                 'phone': student.phone,
@@ -1726,8 +2821,12 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 else '',
                 'referralPoints': student_points.get(student.pk, 0),
                 'referralVisits': student_referral_visits.get(student.pk, 0),
+                'activeDevices': active_devices.get(student.pk, 0),
+                'displayOrder': student.profile.display_order
+                if _trainer_profile(student)
+                else None,
             }
-            for student in students
+            for student in student_rows
         ]
         return context
 
@@ -1740,17 +2839,82 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         return {
             'id': str(trainer.pk),
             'name': trainer.display_name,
+            'fullNameArabic': trainer.full_name_ar,
+            'fullNameEnglish': trainer.full_name_en,
+            'fullNameArabic': trainer.full_name_ar,
+            'fullNameEnglish': trainer.full_name_en,
             'handle': trainer.handle,
             'specialty': profile.specialization if profile else '',
             'rating': float(profile.trainer_rating) if profile else 0,
             'email': trainer.email,
             'phone': trainer.phone,
+            'whatsapp': profile.whatsapp if profile else '',
             'avatar': profile.avatar.url if profile and profile.avatar else '',
             'bio': profile.bio if profile else '',
             'status': 'active' if trainer.is_active else 'paused',
+            'canPublishContent': trainer.can_publish_content,
             'verified': trainer.is_verified,
             'joined': trainer.date_joined.isoformat(),
             'coursesCount': trainer.courses_count,
             'linkedin': social_links.get(SocialPlatform.LINKEDIN, ''),
             'github': social_links.get(SocialPlatform.GITHUB, ''),
+            'displayOrder': profile.display_order if profile else None,
         }
+
+
+class DashboardEditorView(PanelView):
+    """Shared access control and context for editors embedded in the admin panel."""
+
+    def get_editor_base_context(self, **kwargs):
+        if self.request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return TemplateView.get_context_data(self, **kwargs)
+        return super().get_context_data(**kwargs)
+
+    def editor_base_template(self, full_template):
+        if self.request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return 'dashboard/editor_fragment_base.html'
+        return full_template
+
+
+class PanelCourseEditorView(DashboardEditorView):
+    """Course editor rendered inside the admin dashboard shell."""
+
+    template_name = 'dashboard/course_editor.html'
+
+    def get_context_data(self, **kwargs):
+        context = self.get_editor_base_context(**kwargs)
+        admin_courses = context.get('courses_json')
+        admin_categories = context.get('training_categories_json')
+        editor_context = course_editor_context(self.request, kwargs.get('pk'))
+        context.update(editor_context)
+        if admin_courses is not None:
+            context['courses_json'] = admin_courses
+        if admin_categories is not None:
+            context['training_categories_json'] = admin_categories
+        context['editor_course_json'] = editor_context['courses_json']
+        context['editor_training_categories_json'] = editor_context['training_categories_json']
+        context['admin_dashboard_editor'] = True
+        context['editor_base_template'] = self.editor_base_template(
+            'dashboard/course_editor_base.html'
+        )
+        return context
+
+
+class PanelProjectEditorView(DashboardEditorView):
+    """Project editor rendered inside the admin dashboard shell."""
+
+    template_name = 'dashboard/project_editor.html'
+
+    def get_context_data(self, **kwargs):
+        context = self.get_editor_base_context(**kwargs)
+        admin_categories = context.get('training_categories_json')
+        editor_context = project_editor_context(self.request, kwargs.get('pk'))
+        context.update(editor_context)
+        if admin_categories is not None:
+            context['training_categories_json'] = admin_categories
+        context['editor_training_categories_json'] = editor_context['training_categories_json']
+        context['admin_dashboard_project_editor'] = True
+        context['editor_base_template'] = self.editor_base_template(
+            'dashboard/project_editor_base.html'
+        )
+        return context

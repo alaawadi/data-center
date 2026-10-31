@@ -1,3 +1,4 @@
+import hashlib
 import json
 import base64
 from decimal import Decimal
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from zipfile import ZipFile
 
 from django.contrib.auth import authenticate
+from django.contrib.sessions.models import Session
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
@@ -22,8 +24,13 @@ from courses.models import (
     Course,
     CourseCertificate,
     CourseProgress,
+    CourseRegistrationPayment,
+    CourseRegistrationRequest,
+    CourseRegistrationRequestStatus,
     CourseSection,
     CourseStatus,
+    CourseType,
+    InPersonCourseCohort,
     InPersonWorkshop,
     Lesson,
     LessonType,
@@ -35,12 +42,876 @@ from courses.models import (
     StudentPointTransaction,
     StudentReferral,
     StudentReferralLink,
+    TrainingCategory,
     WorkshopAttendance,
     WorkshopCertificate,
 )
 from projects.models import Project, ProjectStatus
 from posts.models import Post, PostTag
-from users.models import Profile, SocialLink, SocialPlatform, User, UserRole
+from users.models import (
+    DeviceSession,
+    Profile,
+    SocialLink,
+    SocialPlatform,
+    StudentSetupLink,
+    User,
+    UserRole,
+)
+
+
+class AdminCourseRegistrationRequestTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000091',
+            password='admin-password',
+            full_name='مدير طلبات التسجيل',
+            role=UserRole.ADMIN,
+        )
+        self.trainer = User.objects.create_user(
+            phone='0591000092',
+            password='trainer-password',
+            full_name='مدرب الدورة',
+            role=UserRole.TRAINER,
+        )
+        self.course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية للتصميم',
+            course_type=CourseType.IN_PERSON,
+            status=CourseStatus.PUBLISHED,
+        )
+        self.registration = CourseRegistrationRequest.objects.create(
+            course=self.course,
+            full_name='محمد أحمد علي حسن',
+            phone='+970594567891',
+            address='غزة - الرمال',
+            specialty='التصميم الجرافيكي',
+            student_status='graduate',
+            status=CourseRegistrationRequestStatus.NEW,
+        )
+        self.project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع تجريبي',
+        )
+
+    def test_admin_panel_lists_inperson_course_registration_requests(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context['course_registration_requests_json'],
+            [{
+                'id': str(self.registration.pk),
+                'courseId': self.course.slug,
+                'courseTitle': self.course.title,
+                'coursePrice': '',
+                'currency': self.course.currency,
+                'fullName': self.registration.full_name,
+                'phone': self.registration.phone,
+                'address': self.registration.address,
+                'specialty': self.registration.specialty,
+                'studentStatus': self.registration.student_status,
+                'cohortId': '',
+                'cohortName': '',
+                'studentId': '',
+                'accountReady': False,
+                'sourceStudentName': '',
+                'status': self.registration.status,
+                'paidAmount': '0.00',
+                'coursePriceAmount': '',
+                'remainingAmount': '',
+                'payments': [],
+                'createdAt': self.registration.created_at.isoformat(),
+                'setupLinkExpiresAt': '',
+            }],
+        )
+        self.assertContains(response, 'admin-course-registration-requests-data')
+
+    def test_admin_panel_inperson_students_payload_includes_confirmed_student_payments(self):
+        self.course.price = '100.00'
+        self.course.save(update_fields=['price'])
+        self.registration.status = CourseRegistrationRequestStatus.ACCEPTED
+        self.registration.save(update_fields=['status'])
+        CourseRegistrationPayment.objects.create(
+            registration_request=self.registration,
+            amount='30.00',
+        )
+        online_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة أونلاين',
+            course_type=CourseType.ONLINE,
+            status=CourseStatus.PUBLISHED,
+        )
+        CourseRegistrationRequest.objects.create(
+            course=online_course,
+            full_name='طالب أونلاين',
+            phone='+970564567890',
+            address='غزة',
+            specialty='التصميم',
+            student_status='student',
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        requests = response.context['course_registration_requests_json']
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]['status'], CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertEqual(requests[0]['paidAmount'], '30.00')
+        self.assertEqual(requests[0]['remainingAmount'], '70.00')
+        self.assertEqual(len(requests[0]['payments']), 1)
+
+    def test_admin_panel_shows_referring_student_for_course_registration(self):
+        student = User.objects.create_user(
+            phone='0591000093',
+            password='student-password',
+            full_name='طالب مُحيل',
+            role=UserRole.STUDENT,
+        )
+        referral_link = StudentReferralLink.objects.create(
+            referrer=student,
+            course=self.course,
+        )
+        self.registration.referral_link = referral_link
+        self.registration.save(update_fields=['referral_link'])
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context['course_registration_requests_json'][0]['sourceStudentName'],
+            student.display_name,
+        )
+
+    def test_course_editor_from_dashboard_uses_admin_layout_for_create_and_edit(self):
+        self.client.force_login(self.admin)
+
+        create_response = self.client.get(reverse('dashboard:course-editor-create'))
+
+        self.assertEqual(create_response.status_code, 200)
+        self.assertTemplateUsed(create_response, 'dashboard/course_editor.html')
+        self.assertContains(create_response, 'id="admSide"')
+        self.assertContains(create_response, 'id="edTitle"')
+        self.assertContains(create_response, 'data-admin-course-editor="true"')
+        self.assertContains(create_response, 'id="editor-object-data"')
+        self.assertNotContains(create_response, 'class="header"')
+        self.assertNotContains(create_response, 'id="siteFooter"')
+        self.assertEqual(len(create_response.context['courses_json']), 1)
+        self.assertEqual(create_response.context['editor_course_json'], [])
+        self.assertContains(create_response, 'admin-courses-data')
+
+        edit_response = self.client.get(
+            reverse('dashboard:course-editor-edit', kwargs={'pk': self.course.slug})
+        )
+
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertTemplateUsed(edit_response, 'dashboard/course_editor.html')
+        self.assertEqual(edit_response.context['courses_json'][0]['id'], self.course.slug)
+        self.assertEqual(edit_response.context['editor_course_json'][0]['id'], self.course.slug)
+        self.assertContains(edit_response, 'admin-courses-data')
+        self.assertContains(edit_response, 'id="editor-object-data"')
+        self.assertContains(edit_response, f'href="{reverse("dashboard:home")}#courses"')
+
+    def test_dashboard_course_editor_is_restricted_to_admins(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.get(reverse('dashboard:course-editor-create'))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_project_editor_from_dashboard_uses_admin_layout_for_create_and_edit(self):
+        self.client.force_login(self.admin)
+
+        create_response = self.client.get(reverse('dashboard:project-editor-create'))
+
+        self.assertEqual(create_response.status_code, 200)
+        self.assertTemplateUsed(create_response, 'dashboard/project_editor.html')
+        self.assertContains(create_response, 'id="admSide"')
+        self.assertContains(create_response, 'id="edTitle"')
+        self.assertContains(create_response, 'data-admin-project-editor="true"')
+        self.assertContains(create_response, 'id="editor-object-data"')
+        self.assertNotContains(create_response, 'class="header"')
+        self.assertNotContains(create_response, 'id="siteFooter"')
+        self.assertEqual(create_response.context['projects_json'], [])
+
+        edit_response = self.client.get(
+            reverse('dashboard:project-editor-edit', kwargs={'pk': self.project.slug})
+        )
+
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertTemplateUsed(edit_response, 'dashboard/project_editor.html')
+        self.assertEqual(edit_response.context['projects_json'][0]['id'], self.project.slug)
+        self.assertContains(edit_response, 'id="editor-object-data"')
+        self.assertEqual(
+            edit_response.context['admin_project_owner_id'],
+            str(self.trainer.pk),
+        )
+        self.assertContains(edit_response, f'href="{reverse("dashboard:home")}#projects"')
+        self.assertContains(edit_response, 'admin-courses-data')
+
+    def test_dashboard_project_editor_is_restricted_to_admins(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.get(reverse('dashboard:project-editor-create'))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_dashboard_editor_ajax_returns_only_editor_fragment(self):
+        self.client.force_login(self.admin)
+        routes = (
+            ('dashboard:course-editor-create', {}),
+            ('dashboard:course-editor-edit', {'pk': self.course.slug}),
+            ('dashboard:project-editor-create', {}),
+            ('dashboard:project-editor-edit', {'pk': self.project.slug}),
+        )
+
+        for route_name, kwargs in routes:
+            with self.subTest(route=route_name, kwargs=kwargs):
+                response = self.client.get(
+                    reverse(route_name, kwargs=kwargs),
+                    HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertTemplateUsed(response, 'dashboard/editor_fragment_base.html')
+                self.assertContains(response, 'id="edTitle"')
+                self.assertContains(response, 'id="editor-object-data"')
+                self.assertContains(response, 'id="edBack"')
+                self.assertContains(response, 'id="edStatus"')
+                self.assertContains(response, 'id="edPreviewBtn"')
+                self.assertContains(response, 'id="edDraftBtn"')
+                self.assertContains(response, 'id="edPublishBtn"')
+                self.assertContains(response, 'training-categories-data')
+                self.assertNotContains(response, 'id="admSide"')
+                self.assertNotContains(response, 'admin-projects-data')
+                self.assertNotContains(response, 'admin-course-progress-data')
+                full_page_response = self.client.get(reverse(route_name, kwargs=kwargs))
+                self.assertLess(len(response.content), len(full_page_response.content))
+
+    def test_dashboard_courses_context_includes_all_courses_after_refresh(self):
+        for index in range(12):
+            Course.objects.create(
+                owner=self.trainer,
+                title=f'دورة اختبار إضافية {index}',
+                course_type=CourseType.ONLINE,
+            )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context['courses_json']), 13)
+        self.assertContains(response, 'admin-courses-data')
+
+    def test_admin_can_add_registration_request_for_published_inperson_course(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('dashboard:course-registration-request-save'),
+            data=json.dumps({
+                'courseId': self.course.slug,
+                'fullName': '  محمد   أحمد علي  ',
+                'phone': '+970123456789',
+                'address': 'غزة',
+                'specialty': 'التصميم',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        request = CourseRegistrationRequest.objects.get(pk=response.json()['request']['id'])
+        self.assertEqual(request.course, self.course)
+        self.assertEqual(request.cohort.number, 1)
+        self.assertEqual(request.full_name, 'محمد أحمد علي')
+        self.assertEqual(request.status, CourseRegistrationRequestStatus.NEW)
+
+    def test_inperson_course_activation_closes_and_starts_numbered_cohorts(self):
+        self.client.force_login(self.admin)
+        status_url = reverse('dashboard:course-status', kwargs={'pk': self.course.pk})
+
+        first_response = self.client.post(
+            status_url,
+            data=json.dumps({'active': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        first_cohort = InPersonCourseCohort.objects.get(course=self.course)
+        self.assertEqual(first_cohort.number, 1)
+        self.assertIsNone(first_cohort.ended_at)
+        self.assertEqual(first_response.json()['cohort']['name'], '001')
+
+        close_response = self.client.post(
+            status_url,
+            data=json.dumps({'active': False}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(close_response.status_code, 200)
+        first_cohort.refresh_from_db()
+        self.assertIsNotNone(first_cohort.ended_at)
+
+        second_response = self.client.post(
+            status_url,
+            data=json.dumps({'active': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+        second_cohort = InPersonCourseCohort.objects.get(course=self.course, number=2)
+        self.assertIsNone(second_cohort.ended_at)
+        self.assertEqual(second_response.json()['cohort']['name'], '002')
+
+    def test_admin_can_confirm_registration_request(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-confirm',
+                kwargs={'pk': self.registration.pk},
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['request']['status'], CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertEqual(response.json()['request']['courseId'], self.course.slug)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertFalse(
+            StudentPointTransaction.objects.filter(
+                registration_request=self.registration,
+            ).exists(),
+        )
+
+    def test_registration_status_cycles_in_order_and_acceptance_creates_student(self):
+        self.client.force_login(self.admin)
+        status_url = reverse(
+            'dashboard:course-registration-request-status',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        for expected_status in (
+            CourseRegistrationRequestStatus.CONTACTED,
+            CourseRegistrationRequestStatus.ACCEPTED,
+            CourseRegistrationRequestStatus.REJECTED,
+            CourseRegistrationRequestStatus.NEW,
+        ):
+            response = self.client.post(
+                status_url,
+                data=json.dumps({'status': expected_status}),
+                content_type='application/json',
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(response.json()['request']['status'], expected_status)
+
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.NEW)
+        self.assertEqual(self.registration.student.phone, '0594567891')
+        self.assertTrue(Profile.objects.filter(user=self.registration.student).exists())
+        self.assertTrue(StudentSetupLink.objects.filter(user=self.registration.student).exists())
+
+    def test_registration_status_endpoint_only_accepts_the_next_cycle_status(self):
+        self.client.force_login(self.admin)
+        status_url = reverse(
+            'dashboard:course-registration-request-status',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(
+            status_url,
+            data=json.dumps({'status': CourseRegistrationRequestStatus.ACCEPTED}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.NEW)
+        self.assertFalse(User.objects.filter(phone='0594567891').exists())
+
+    def test_confirming_registration_creates_student_profile_and_private_setup_link(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-confirm',
+                kwargs={'pk': self.registration.pk},
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        student = User.objects.get(phone='0594567891')
+        self.assertEqual(student.role, UserRole.STUDENT)
+        self.assertFalse(student.has_usable_password())
+        self.assertTrue(Profile.objects.filter(user=student).exists())
+        self.assertEqual(student.profile.whatsapp, self.registration.phone)
+        self.assertEqual(student.profile.education_stage, 'graduate')
+        setup_link = StudentSetupLink.objects.get(user=student)
+        returned = response.json()['request']
+        self.assertIn('setupUrl', returned)
+        self.assertTrue(returned['setupQrImage'].startswith('data:image/png;base64,'))
+        self.assertEqual(
+            setup_link.token_hash,
+            hashlib.sha256(returned['setupUrl'].rstrip('/').split('/')[-1].encode()).hexdigest(),
+        )
+        self.assertNotIn('token_hash', returned)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.student, student)
+
+    def test_confirming_registration_accepts_plus_972_phone_prefix(self):
+        self.registration.phone = '+972594567891'
+        self.registration.save(update_fields=['phone'])
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-confirm',
+                kwargs={'pk': self.registration.pk},
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        student = User.objects.get(phone='0594567891')
+        self.assertTrue(Profile.objects.filter(user=student).exists())
+        self.assertEqual(student.profile.whatsapp, '+972594567891')
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.student, student)
+
+    def test_reconfirming_registration_does_not_duplicate_student_or_reveal_existing_token(self):
+        self.client.force_login(self.admin)
+        confirm_url = reverse(
+            'dashboard:course-registration-request-confirm',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        first_response = self.client.post(confirm_url)
+        token_hash = StudentSetupLink.objects.get().token_hash
+        second_response = self.client.post(confirm_url)
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertNotIn('setupUrl', second_response.json()['request'])
+        self.assertEqual(User.objects.filter(phone='0594567891').count(), 1)
+        self.assertEqual(StudentSetupLink.objects.get().token_hash, token_hash)
+
+    def test_registrations_with_the_same_phone_reuse_the_student_account(self):
+        self.client.force_login(self.admin)
+        confirm_url = reverse(
+            'dashboard:course-registration-request-confirm',
+            kwargs={'pk': self.registration.pk},
+        )
+        self.client.post(confirm_url)
+        student = User.objects.get(phone='0594567891')
+        another_registration = CourseRegistrationRequest.objects.create(
+            course=self.course,
+            full_name='محمد أحمد علي حسن',
+            phone=self.registration.phone,
+            address=self.registration.address,
+            specialty=self.registration.specialty,
+            student_status='student',
+        )
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-confirm',
+                kwargs={'pk': another_registration.pk},
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        another_registration.refresh_from_db()
+        self.assertEqual(another_registration.student, student)
+        self.assertEqual(User.objects.filter(phone='0594567891').count(), 1)
+        self.assertNotIn('setupUrl', response.json()['request'])
+
+    def test_confirmation_rejects_a_phone_outside_the_login_format(self):
+        self.registration.phone = '+970123456789'
+        self.registration.save(update_fields=['phone'])
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-confirm',
+                kwargs={'pk': self.registration.pk},
+            ),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(User.objects.filter(phone='0123456789').exists())
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.NEW)
+
+    def test_setup_link_can_be_reissued_and_invalidates_the_previous_link(self):
+        self.client.force_login(self.admin)
+        confirm_url = reverse(
+            'dashboard:course-registration-request-confirm',
+            kwargs={'pk': self.registration.pk},
+        )
+        initial = self.client.post(confirm_url).json()['request']
+        old_token = initial['setupUrl'].rstrip('/').split('/')[-1]
+        issue_url = reverse(
+            'dashboard:course-registration-request-setup-link',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        reissued = self.client.post(issue_url)
+
+        self.assertEqual(reissued.status_code, 200, reissued.content)
+        new_payload = reissued.json()['request']
+        new_token = new_payload['setupUrl'].rstrip('/').split('/')[-1]
+        self.assertNotEqual(new_token, old_token)
+        self.assertEqual(
+            StudentSetupLink.objects.get().token_hash,
+            hashlib.sha256(new_token.encode()).hexdigest(),
+        )
+        self.assertEqual(
+            self.client.get(reverse('users:student-setup', kwargs={'token': old_token})).status_code,
+            410,
+        )
+        self.assertEqual(
+            self.client.get(reverse('users:student-setup', kwargs={'token': new_token})).status_code,
+            200,
+        )
+
+    def test_confirmation_does_not_claim_a_phone_owned_by_a_non_student(self):
+        User.objects.create_user(
+            phone='0594567891',
+            password='trainer-password',
+            full_name='مدرب آخر',
+            role=UserRole.TRAINER,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-confirm',
+                kwargs={'pk': self.registration.pk},
+            ),
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.NEW)
+        self.assertIsNone(self.registration.student_id)
+
+    def test_admin_can_edit_inperson_student_and_linked_account_details(self):
+        self.client.force_login(self.admin)
+        confirm_url = reverse(
+            'dashboard:course-registration-request-confirm',
+            kwargs={'pk': self.registration.pk},
+        )
+        self.client.post(confirm_url)
+        student = User.objects.get(phone='0594567891')
+        update_url = reverse(
+            'dashboard:course-registration-request-update',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(
+            update_url,
+            data=json.dumps({
+                'fullName': 'أحمد محمد علي حسن',
+                'phone': '+972564567890',
+                'address': 'غزة - النصر',
+                'specialty': 'تطوير الويب',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.registration.refresh_from_db()
+        student.refresh_from_db()
+        student.profile.refresh_from_db()
+        self.assertEqual(self.registration.full_name, 'أحمد محمد علي حسن')
+        self.assertEqual(self.registration.phone, '+972564567890')
+        self.assertEqual(self.registration.address, 'غزة - النصر')
+        self.assertEqual(self.registration.specialty, 'تطوير الويب')
+        self.assertEqual(student.full_name, 'أحمد محمد علي حسن')
+        self.assertEqual(student.phone, '0564567890')
+        self.assertEqual(student.profile.whatsapp, '+972564567890')
+        self.assertEqual(response.json()['request']['fullName'], 'أحمد محمد علي حسن')
+
+    def test_admin_can_edit_unaccepted_registration_request_details(self):
+        self.client.force_login(self.admin)
+        update_url = reverse(
+            'dashboard:course-registration-request-update',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(
+            update_url,
+            data=json.dumps({
+                'fullName': 'أحمد محمد علي حسن',
+                'phone': '+972564567890',
+                'address': 'غزة - النصر',
+                'specialty': 'تطوير الويب',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.NEW)
+        self.assertIsNone(self.registration.student_id)
+        self.assertEqual(self.registration.full_name, 'أحمد محمد علي حسن')
+        self.assertEqual(self.registration.phone, '+972564567890')
+        self.assertEqual(self.registration.address, 'غزة - النصر')
+        self.assertEqual(self.registration.specialty, 'تطوير الويب')
+        self.assertEqual(self.registration.student_status, 'student')
+
+    def test_editing_registration_as_accepted_creates_student_and_setup_link(self):
+        self.client.force_login(self.admin)
+        update_url = reverse(
+            'dashboard:course-registration-request-update',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(
+            update_url,
+            data=json.dumps({
+                'fullName': self.registration.full_name,
+                'phone': self.registration.phone,
+                'address': self.registration.address,
+                'specialty': self.registration.specialty,
+                'studentStatus': self.registration.student_status,
+                'status': CourseRegistrationRequestStatus.ACCEPTED,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.status, CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertIsNotNone(self.registration.student_id)
+        self.assertTrue(Profile.objects.filter(user=self.registration.student).exists())
+        self.assertTrue(StudentSetupLink.objects.filter(user=self.registration.student).exists())
+        self.assertEqual(response.json()['request']['status'], CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertIn('setupUrl', response.json()['request'])
+
+    def test_editing_inperson_student_rejects_phone_already_used_by_another_account(self):
+        self.client.force_login(self.admin)
+        self.client.post(reverse(
+            'dashboard:course-registration-request-confirm',
+            kwargs={'pk': self.registration.pk},
+        ))
+        User.objects.create_user(
+            phone='0564567890',
+            password='other-password',
+            full_name='طالب آخر',
+            role=UserRole.STUDENT,
+        )
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-update',
+                kwargs={'pk': self.registration.pk},
+            ),
+            data=json.dumps({
+                'fullName': self.registration.full_name,
+                'phone': '+972564567890',
+                'address': self.registration.address,
+                'specialty': self.registration.specialty,
+                'studentStatus': self.registration.student_status,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.registration.refresh_from_db()
+        self.assertEqual(self.registration.phone, '+970594567891')
+
+    def test_admin_can_add_multiple_payments_and_cannot_exceed_remaining_amount(self):
+        self.course.price = '120.00'
+        self.course.save(update_fields=['price'])
+        self.registration.status = CourseRegistrationRequestStatus.ACCEPTED
+        self.registration.save(update_fields=['status'])
+        self.client.force_login(self.admin)
+        paid_amount_url = reverse(
+            'dashboard:course-registration-request-paid-amount',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(
+            paid_amount_url,
+            data=json.dumps({'amount': '45.50'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['request']['paidAmount'], '45.50')
+        self.assertEqual(response.json()['request']['remainingAmount'], '74.50')
+        self.assertEqual(len(response.json()['request']['payments']), 1)
+
+        second_response = self.client.post(
+            paid_amount_url,
+            data=json.dumps({'amount': '24.50'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.json()['request']['paidAmount'], '70.00')
+        self.assertEqual(second_response.json()['request']['remainingAmount'], '50.00')
+        self.assertEqual(len(second_response.json()['request']['payments']), 2)
+
+        overpayment_response = self.client.post(
+            paid_amount_url,
+            data=json.dumps({'amount': '50.01'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(overpayment_response.status_code, 400)
+        self.assertEqual(
+            overpayment_response.json()['message'],
+            'لا يمكن أن تتجاوز الدفعة المبلغ المتبقي.',
+        )
+        self.registration.refresh_from_db()
+        self.assertEqual(
+            CourseRegistrationPayment.objects.filter(
+                registration_request=self.registration,
+            ).count(),
+            2,
+        )
+
+    def test_paid_amount_requires_positive_value_with_at_most_two_decimal_places(self):
+        self.course.price = '120.00'
+        self.course.save(update_fields=['price'])
+        self.registration.status = CourseRegistrationRequestStatus.ACCEPTED
+        self.registration.save(update_fields=['status'])
+        self.client.force_login(self.admin)
+        paid_amount_url = reverse(
+            'dashboard:course-registration-request-paid-amount',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        for invalid_amount in ('0', '-1', '1.001', 'not-a-number'):
+            with self.subTest(amount=invalid_amount):
+                response = self.client.post(
+                    paid_amount_url,
+                    data=json.dumps({'amount': invalid_amount}),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            CourseRegistrationPayment.objects.filter(
+                registration_request=self.registration,
+            ).exists(),
+        )
+
+    def test_payment_requires_a_valid_course_price(self):
+        self.registration.status = CourseRegistrationRequestStatus.ACCEPTED
+        self.registration.save(update_fields=['status'])
+        self.client.force_login(self.admin)
+        paid_amount_url = reverse(
+            'dashboard:course-registration-request-paid-amount',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(
+            paid_amount_url,
+            data=json.dumps({'amount': '1'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 409)
+
+    def test_payment_can_only_be_added_to_accepted_requests(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse(
+                'dashboard:course-registration-request-paid-amount',
+                kwargs={'pk': self.registration.pk},
+            ),
+            data=json.dumps({'amount': '10'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertFalse(
+            CourseRegistrationPayment.objects.filter(
+                registration_request=self.registration,
+            ).exists(),
+        )
+
+    def test_confirming_referred_registration_awards_ten_points_once(self):
+        referrer = User.objects.create_user(
+            phone='0591000094',
+            password='referrer-password',
+            full_name='طالب مُحيل',
+            role=UserRole.STUDENT,
+        )
+        referral_link = StudentReferralLink.objects.create(
+            referrer=referrer,
+            course=self.course,
+        )
+        self.registration.referral_link = referral_link
+        self.registration.save(update_fields=['referral_link'])
+        self.client.force_login(self.admin)
+        confirm_url = reverse(
+            'dashboard:course-registration-request-confirm',
+            kwargs={'pk': self.registration.pk},
+        )
+
+        response = self.client.post(confirm_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['request']['referralPointsAwarded'])
+        reward = StudentPointTransaction.objects.get(
+            registration_request=self.registration,
+        )
+        self.assertEqual(reward.student, referrer)
+        self.assertEqual(reward.course, self.course)
+        self.assertEqual(reward.points, 10)
+        self.assertEqual(reward.kind, StudentPointTransaction.Kind.REFERRAL)
+
+        duplicate_response = self.client.post(confirm_url)
+
+        self.assertEqual(duplicate_response.status_code, 200)
+        self.assertFalse(duplicate_response.json()['request']['referralPointsAwarded'])
+        self.assertEqual(
+            StudentPointTransaction.objects.filter(
+                registration_request=self.registration,
+            ).count(),
+            1,
+        )
+
+    def test_registration_request_creation_rejects_invalid_data_and_non_admins(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            reverse('dashboard:course-registration-request-save'),
+            data=json.dumps({
+                'courseId': self.course.slug,
+                'fullName': 'محمد أحمد',
+                'phone': '+970123456789',
+                'address': 'غزة',
+                'specialty': 'التصميم',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(CourseRegistrationRequest.objects.count(), 1)
+
+        self.client.force_login(self.trainer)
+        response = self.client.post(
+            reverse('dashboard:course-registration-request-save'),
+            data=json.dumps({
+                'courseId': self.course.slug,
+                'fullName': 'محمد أحمد علي',
+                'phone': '+970123456789',
+                'address': 'غزة',
+                'specialty': 'التصميم',
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(CourseRegistrationRequest.objects.count(), 1)
 
 
 class AdminTrainerListTests(TestCase):
@@ -79,23 +950,170 @@ class AdminTrainerListTests(TestCase):
                 {
                     'id': str(trainer.pk),
                     'name': trainer.display_name,
+                    'fullNameArabic': trainer.full_name_ar,
+                    'fullNameEnglish': trainer.full_name_en,
                     'handle': trainer.handle,
                     'specialty': '',
                     'rating': 0,
                     'email': trainer.email,
                     'phone': trainer.phone,
+                    'whatsapp': '',
                     'avatar': '',
                     'bio': '',
                     'status': 'active' if trainer.is_active else 'paused',
+                    'canPublishContent': True,
                     'verified': trainer.is_verified,
                     'joined': trainer.date_joined.isoformat(),
                     'coursesCount': 0,
                     'linkedin': '',
                     'github': '',
+                    'displayOrder': None,
                 }
                 for trainer in reversed(trainers)
             ],
         )
+
+    def test_admin_can_toggle_trainer_content_permission(self):
+        trainer = User.objects.create_user(
+            phone='3333333333',
+            password='trainer-password',
+            full_name='مدرب النشر',
+            role=UserRole.TRAINER,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('dashboard:trainer-content-permission', args=[trainer.pk]),
+            data=json.dumps({'allowed': False}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['canPublishContent'])
+        trainer.refresh_from_db()
+        self.assertFalse(trainer.can_publish_content)
+
+    def test_non_admin_cannot_toggle_trainer_content_permission(self):
+        trainer = User.objects.create_user(
+            phone='3333333334',
+            password='trainer-password',
+            full_name='مدرب النشر',
+            role=UserRole.TRAINER,
+        )
+        self.client.force_login(trainer)
+
+        response = self.client.post(
+            reverse('dashboard:trainer-content-permission', args=[trainer.pk]),
+            data=json.dumps({'allowed': False}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        trainer.refresh_from_db()
+        self.assertTrue(trainer.can_publish_content)
+
+
+class StudentSessionManagementTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000031',
+            password='admin-password',
+            full_name='مدير الجلسات',
+            role=UserRole.ADMIN,
+        )
+        self.student = User.objects.create_user(
+            phone='0591000032',
+            password='student-password',
+            full_name='طالب الجلسات',
+            role=UserRole.STUDENT,
+        )
+        self.admin_client = self.client
+        self.admin_client.force_login(self.admin)
+
+    def _create_device_session(self, index):
+        client = self.client_class()
+        client.force_login(self.student)
+        session_key = client.session.session_key
+        device = DeviceSession.objects.create(
+            user=self.student,
+            device_id=f'student-device-{index}',
+            session_key=session_key,
+            user_agent=f'Test browser {index}',
+        )
+        return client, device
+
+    def test_student_table_shows_active_device_count(self):
+        self._create_device_session(1)
+        self._create_device_session(2)
+
+        response = self.admin_client.get(reverse('dashboard:home'))
+
+        student_row = next(
+            row for row in response.context['students_json']
+            if row['databaseId'] == str(self.student.pk)
+        )
+        self.assertEqual(student_row['activeDevices'], 2)
+
+    def test_admin_can_revoke_one_session_and_force_logout_that_device(self):
+        student_client, device = self._create_device_session(1)
+        _, remaining_device = self._create_device_session(2)
+        url = reverse('dashboard:student-sessions', args=[self.student.pk])
+
+        listing = self.admin_client.get(url)
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(listing.json()['activeDevices'], 2)
+        self.assertEqual(len(listing.json()['sessions']), 2)
+
+        response = self.admin_client.post(
+            url,
+            data=json.dumps({'deviceSessionId': device.pk}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['activeDevices'], 1)
+        self.assertFalse(Session.objects.filter(session_key=device.session_key).exists())
+        self.assertTrue(
+            DeviceSession.objects.filter(pk=remaining_device.pk).exists()
+        )
+        logout_check = student_client.get(reverse('portfolio:home'))
+        self.assertFalse(logout_check.wsgi_request.user.is_authenticated)
+
+    def test_admin_can_revoke_all_student_sessions(self):
+        _, first = self._create_device_session(1)
+        _, second = self._create_device_session(2)
+        url = reverse('dashboard:student-sessions', args=[self.student.pk])
+
+        response = self.admin_client.post(
+            url,
+            data=json.dumps({'all': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['activeDevices'], 0)
+        self.assertFalse(
+            Session.objects.filter(
+                session_key__in=[first.session_key, second.session_key]
+            ).exists()
+        )
+        self.assertFalse(DeviceSession.objects.filter(user=self.student).exists())
+
+    def test_non_admin_cannot_read_or_revoke_student_sessions(self):
+        _, device = self._create_device_session(1)
+        self.admin_client.force_login(self.student)
+        url = reverse('dashboard:student-sessions', args=[self.student.pk])
+
+        get_response = self.admin_client.get(url)
+        post_response = self.admin_client.post(
+            url,
+            data=json.dumps({'deviceSessionId': device.pk}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(get_response.status_code, 403)
+        self.assertEqual(post_response.status_code, 403)
+        self.assertTrue(DeviceSession.objects.filter(pk=device.pk).exists())
 
     def test_panel_overview_receives_total_site_visits(self):
         SiteVisitDaily.objects.create(visit_date='2026-10-23', visits=7)
@@ -539,10 +1557,12 @@ class AdminReferralPointsResetTests(TestCase):
         self.assertEqual(sum(transactions.values_list('points', flat=True)), 0)
         reset = transactions.get(kind=StudentPointTransaction.Kind.RESET)
         self.assertEqual(reset.points, -20)
+        self.assertEqual(reset.reset_by, self.admin)
         self.assertEqual(transactions.count(), 3)
 
         repeated = self.client.post(self.url)
         self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json(), {'ok': True, 'points': 0})
         self.assertEqual(transactions.count(), 3)
 
     def test_reset_rejects_non_admin_and_non_student_targets(self):
@@ -692,6 +1712,8 @@ class StudentPersistenceTests(TestCase):
     def payload(self, **overrides):
         data = {
             'name': 'طالب لوحة الإدارة',
+            'fullNameArabic': 'محمد أحمد علي',
+            'fullNameEnglish': 'Mohammad Ahmad Ali',
             'handle': 'panel-student',
             'phone': '0591011003',
             'email': 'student@example.com',
@@ -713,10 +1735,48 @@ class StudentPersistenceTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         student = User.objects.get(phone='0591011003')
         self.assertEqual(student.role, UserRole.STUDENT)
+        self.assertEqual(student.full_name_ar, 'محمد أحمد علي')
+        self.assertEqual(student.full_name_en, 'Mohammad Ahmad Ali')
+        self.assertEqual(response.json()['student']['fullNameArabic'], 'محمد أحمد علي')
+        self.assertEqual(response.json()['student']['fullNameEnglish'], 'Mohammad Ahmad Ali')
         self.assertTrue(authenticate(phone=student.phone, password='Strong#Student2026'))
         self.assertEqual(Profile.objects.get(user=student).bio, 'نبذة الطالب')
         self.assertEqual(response.json()['student']['id'], f'db-user-{student.pk}')
         self.assertEqual(response.json()['student']['databaseId'], str(student.pk))
+
+    def test_student_form_fields_are_optional_and_handle_is_generated_on_create(self):
+        payload = self.payload(
+            name='Automatic Student',
+            phone='0591011004',
+        )
+        for field in ('handle', 'bio'):
+            payload.pop(field)
+
+        response = self.post_json(payload)
+
+        self.assertEqual(response.status_code, 201, response.content)
+        student = User.objects.get(phone='0591011004')
+        profile = Profile.objects.get(user=student)
+        self.assertEqual(student.handle, 'automatic-student')
+        self.assertEqual(student.date_joined.date(), timezone.localdate())
+        self.assertEqual(profile.bio, '')
+
+        profile.bio = 'نبذة محفوظة'
+        profile.save(update_fields=['bio'])
+        original_handle = student.handle
+        original_joined = student.date_joined
+        update = dict(payload)
+        update.update({'id': str(student.pk), 'name': 'Automatic Student Updated'})
+        update.pop('password')
+
+        response = self.post_json(update)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        student.refresh_from_db()
+        profile.refresh_from_db()
+        self.assertEqual(student.handle, original_handle)
+        self.assertEqual(student.date_joined, original_joined)
+        self.assertEqual(profile.bio, 'نبذة محفوظة')
 
     def test_admin_can_change_student_password_and_blank_keeps_it(self):
         payload = self.payload(
@@ -1153,11 +2213,52 @@ class AdminStudentCertificateTests(TestCase):
         certificates = response.context['admin_student_certificates_json']
         self.assertEqual({item['type'] for item in certificates}, {'course', 'manual'})
         self.assertEqual(len(certificates), 2)
+        course_certificate = next(item for item in certificates if item['type'] == 'course')
+        self.assertEqual(course_certificate['studentId'], str(self.student.pk))
         manual_certificate = next(item for item in certificates if item['type'] == 'manual')
+        self.assertEqual(manual_certificate['studentId'], str(self.student.pk))
         self.assertEqual(manual_certificate['category'], 'تطوير')
         self.assertEqual(manual_certificate['description'], 'وصف الشهادة')
         self.assertEqual(manual_certificate['skills'], ['Python', 'Django'])
         self.assertEqual(manual_certificate['verifyUrl'], 'https://example.com/verify')
+
+    def test_admin_panel_lists_in_person_workshop_certificates(self):
+        workshop = InPersonWorkshop.objects.create(
+            title='ورشة التصوير الاحترافي',
+            trainer_name='مدرب التصوير',
+            starts_at=timezone.now(),
+            duration_minutes=120,
+            location='غزة',
+        )
+        attendance = WorkshopAttendance.objects.create(
+            workshop=workshop,
+            student=self.student,
+        )
+        issued_certificate = WorkshopCertificate.objects.create(
+            attendance=attendance,
+            workshop_title=workshop.title,
+            trainer_name=workshop.trainer_name,
+            student_name=self.student.display_name,
+            attended_on=timezone.localdate(),
+            duration_minutes=workshop.duration_minutes,
+        )
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        certificates = response.context['admin_student_certificates_json']
+        workshop_certificate = next(
+            certificate
+            for certificate in certificates
+            if certificate['type'] == 'workshop'
+        )
+        self.assertEqual(workshop_certificate['id'], f'workshop-{issued_certificate.pk}')
+        self.assertEqual(workshop_certificate['title'], workshop.title)
+        self.assertEqual(workshop_certificate['issuer'], workshop.trainer_name)
+        self.assertEqual(workshop_certificate['studentName'], self.student.display_name)
+        self.assertEqual(workshop_certificate['studentId'], str(self.student.pk))
+        self.assertEqual(workshop_certificate['workshopDuration'], 120)
+        self.assertEqual(workshop_certificate['workshopLocation'], 'غزة')
+        self.assertTrue(workshop_certificate['active'])
 
     def test_admin_can_hide_and_restore_course_and_manual_certificates(self):
         for kind, certificate in (
@@ -1373,12 +2474,15 @@ class TrainerPersistenceTests(TestCase):
     def trainer_payload(self, **overrides):
         payload = {
             'name': 'مدرب قاعدة البيانات',
+            'fullNameArabic': 'محمد أحمد علي',
+            'fullNameEnglish': 'Mohammad Ahmad Ali',
             'handle': 'database-trainer',
             'specialty': 'تطوير البرمجيات',
             'password': 'Secure#Trainer2026',
             'rating': 4.8,
             'email': 'trainer@example.com',
             'phone': '1234567890',
+            'whatsapp': '+970599999999',
             'status': 'active',
             'bio': 'نبذة المدرب',
             'linkedin': 'https://linkedin.com/in/database-trainer',
@@ -1401,9 +2505,15 @@ class TrainerPersistenceTests(TestCase):
         profile = Profile.objects.get(user=trainer)
         self.assertEqual(trainer.role, UserRole.TRAINER)
         self.assertEqual(trainer.handle, 'database-trainer')
+        self.assertEqual(trainer.full_name_ar, 'محمد أحمد علي')
+        self.assertEqual(trainer.full_name_en, 'Mohammad Ahmad Ali')
+        self.assertEqual(response.json()['trainer']['fullNameArabic'], 'محمد أحمد علي')
+        self.assertEqual(response.json()['trainer']['fullNameEnglish'], 'Mohammad Ahmad Ali')
         self.assertTrue(authenticate(phone='1234567890', password='Secure#Trainer2026'))
         self.assertEqual(profile.specialization, 'تطوير البرمجيات')
         self.assertEqual(profile.bio, 'نبذة المدرب')
+        self.assertEqual(profile.whatsapp, '+970599999999')
+        self.assertEqual(response.json()['trainer']['whatsapp'], '+970599999999')
         self.assertEqual(profile.trainer_rating, Decimal('4.8'))
         self.assertEqual(
             profile.social_links.get(platform=SocialPlatform.LINKEDIN).url,
@@ -1419,6 +2529,7 @@ class TrainerPersistenceTests(TestCase):
             name='اسم محدث',
             handle='updated-trainer',
             phone='0987654321',
+            whatsapp='+123456789012',
             specialty='تحليل البيانات',
             rating=4.2,
             linkedin='',
@@ -1433,12 +2544,58 @@ class TrainerPersistenceTests(TestCase):
         self.assertEqual(trainer.phone, '0987654321')
         self.assertEqual(profile.specialization, 'تحليل البيانات')
         self.assertEqual(profile.trainer_rating, Decimal('4.2'))
+        self.assertEqual(profile.whatsapp, '+123456789012')
         self.assertFalse(profile.social_links.filter(platform=SocialPlatform.LINKEDIN).exists())
         update['password'] = 'Changed#Trainer2026'
         response = self.post_json(self.save_url, update)
         self.assertEqual(response.status_code, 200, response.content)
         self.assertIsNone(authenticate(phone=trainer.phone, password='Secure#Trainer2026'))
         self.assertTrue(authenticate(phone=trainer.phone, password='Changed#Trainer2026'))
+
+    def test_trainer_form_fields_are_optional_and_handle_is_generated_on_create(self):
+        payload = self.trainer_payload(
+            name='Automatic Trainer',
+            phone='1234567891',
+        )
+        for field in ('handle', 'rating', 'bio', 'linkedin', 'github', 'joined'):
+            payload.pop(field)
+
+        response = self.post_json(self.save_url, payload)
+
+        self.assertEqual(response.status_code, 201, response.content)
+        trainer = User.objects.get(phone='1234567891')
+        profile = Profile.objects.get(user=trainer)
+        self.assertEqual(trainer.handle, 'automatic-trainer')
+        self.assertEqual(trainer.date_joined.date(), timezone.localdate())
+        self.assertEqual(profile.bio, '')
+        self.assertEqual(profile.trainer_rating, Decimal('0'))
+
+        profile.bio = 'نبذة محفوظة'
+        profile.trainer_rating = Decimal('4.5')
+        profile.save(update_fields=['bio', 'trainer_rating'])
+        SocialLink.objects.create(
+            profile=profile,
+            platform=SocialPlatform.LINKEDIN,
+            url='https://linkedin.com/in/automatic-trainer',
+        )
+        original_handle = trainer.handle
+        original_joined = trainer.date_joined
+        update = dict(payload)
+        update.update({'id': str(trainer.pk), 'name': 'Automatic Trainer Updated'})
+        update.pop('password')
+
+        response = self.post_json(self.save_url, update)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        trainer.refresh_from_db()
+        profile.refresh_from_db()
+        self.assertEqual(trainer.handle, original_handle)
+        self.assertEqual(trainer.date_joined, original_joined)
+        self.assertEqual(profile.bio, 'نبذة محفوظة')
+        self.assertEqual(profile.trainer_rating, Decimal('4.5'))
+        self.assertTrue(
+            profile.social_links.filter(platform=SocialPlatform.LINKEDIN).exists()
+        )
 
     def test_deactivating_trainer_keeps_account_and_owned_courses(self):
         trainer = User.objects.create_user(
@@ -1508,6 +2665,17 @@ class TrainerPersistenceTests(TestCase):
         self.assertIn('phone', response.json()['fields'])
         self.assertIn('handle', response.json()['fields'])
         self.assertFalse(User.objects.filter(phone='1234567890').exists())
+
+    def test_invalid_trainer_whatsapp_is_rejected(self):
+        for whatsapp in ('1234567890123', '12+345', '+'):
+            with self.subTest(whatsapp=whatsapp):
+                response = self.post_json(
+                    self.save_url,
+                    self.trainer_payload(whatsapp=whatsapp),
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn('whatsapp', response.json()['fields'])
+                self.assertFalse(User.objects.filter(phone='1234567890').exists())
 
     def test_trainer_mutations_require_admin_access(self):
         trainer = User.objects.create_user(
@@ -2025,3 +3193,249 @@ class InPersonWorkshopTests(TestCase):
         self.assertFalse(InPersonWorkshop.objects.filter(pk=workshop.pk).exists())
         self.assertFalse(WorkshopAttendance.objects.filter(workshop=workshop).exists())
         self.assertFalse(WorkshopCertificate.objects.filter(attendance__workshop=workshop).exists())
+
+
+class TrainingCategoryManagementTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591999001',
+            password='admin-password',
+            full_name='مدير المجالات',
+            role=UserRole.ADMIN,
+        )
+        self.client.force_login(self.admin)
+        self.url = reverse('dashboard:training-categories')
+
+    def post_json(self, payload):
+        return self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def test_category_management_requires_an_admin(self):
+        self.client.logout()
+        anonymous_response = self.client.get(self.url)
+        self.assertEqual(anonymous_response.status_code, 401)
+
+        student = User.objects.create_user(
+            phone='0591999003',
+            password='student-password',
+            full_name='مستخدم عادي',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(student)
+        student_response = self.client.post(
+            self.url,
+            data=json.dumps({'action': 'create', 'name': 'البرمجة'}),
+            content_type='application/json',
+        )
+        self.assertEqual(student_response.status_code, 403)
+        self.assertFalse(TrainingCategory.objects.exists())
+
+    def test_category_crud_keeps_courses_projects_and_profiles_in_sync(self):
+        created = self.post_json({'action': 'create', 'name': 'البرمجة'})
+        self.assertEqual(created.status_code, 200, created.content)
+        category = TrainingCategory.objects.get(name='البرمجة')
+
+        course = Course.objects.create(
+            owner=self.admin,
+            title='دورة برمجة',
+            category=category.name,
+        )
+        project = Project.objects.create(
+            owner=self.admin,
+            title='مشروع برمجة',
+            category=category.name,
+        )
+        freelancer = User.objects.create_user(
+            phone='0591999002',
+            password='student-password',
+            full_name='مستقل برمجة',
+            role=UserRole.STUDENT,
+        )
+        profile = freelancer.profile
+        profile.specialization = category.name
+        profile.save(update_fields=['specialization'])
+        trainer = User.objects.create_user(
+            phone='0591999004',
+            password='trainer-password',
+            full_name='مدرب برمجة',
+            role=UserRole.TRAINER,
+        )
+        trainer.profile.specialization = category.name
+        trainer.profile.save(update_fields=['specialization'])
+
+        updated = self.post_json({
+            'action': 'update',
+            'id': category.pk,
+            'name': 'تطوير البرمجيات',
+        })
+        self.assertEqual(updated.status_code, 200, updated.content)
+        course.refresh_from_db()
+        project.refresh_from_db()
+        profile.refresh_from_db()
+        self.assertEqual(course.category, 'تطوير البرمجيات')
+        self.assertEqual(project.category, 'تطوير البرمجيات')
+        self.assertEqual(profile.specialization, 'تطوير البرمجيات')
+
+        listed = self.client.get(self.url)
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()['categories'][0]['courses'], 1)
+        self.assertEqual(listed.json()['categories'][0]['projects'], 1)
+        self.assertEqual(listed.json()['categories'][0]['students'], 1)
+        self.assertEqual(listed.json()['categories'][0]['trainers'], 1)
+
+        deleted = self.post_json({'action': 'delete', 'id': category.pk})
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        course.refresh_from_db()
+        project.refresh_from_db()
+        profile.refresh_from_db()
+        self.assertEqual(course.category, '')
+        self.assertEqual(project.category, '')
+        self.assertEqual(profile.specialization, '')
+        self.assertFalse(TrainingCategory.objects.filter(pk=category.pk).exists())
+
+    def test_categories_are_exposed_to_all_public_listing_filters(self):
+        TrainingCategory.objects.create(name='تحليل البيانات')
+
+        for route in ('courses:list', 'projects:list', 'accounts:list'):
+            with self.subTest(route=route):
+                response = self.client.get(reverse(route))
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.context['training_categories_json'],
+                    ['تحليل البيانات'],
+                )
+
+
+class AdminDisplayOrderTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000031',
+            password='admin-password',
+            full_name='مدير الترتيب',
+            role=UserRole.ADMIN,
+        )
+        self.trainers = [
+            User.objects.create_user(
+                phone=f'059100003{number}',
+                password='trainer-password',
+                full_name=f'مدرب {number}',
+                role=UserRole.TRAINER,
+            )
+            for number in (2, 3)
+        ]
+        self.students = [
+            User.objects.create_user(
+                phone=f'059100004{number}',
+                password='student-password',
+                full_name=f'طالب {number}',
+                role=UserRole.STUDENT,
+            )
+            for number in (1, 2)
+        ]
+        for user in self.trainers + self.students:
+            Profile.objects.get_or_create(user=user)
+        self.courses = [
+            Course.objects.create(
+                owner=self.trainers[0],
+                title=f'دورة {number}',
+                status=CourseStatus.PUBLISHED,
+            )
+            for number in (1, 2)
+        ]
+        self.projects = [
+            Project.objects.create(
+                owner=self.trainers[0],
+                title=f'مشروع {number}',
+                status=ProjectStatus.PUBLISHED,
+            )
+            for number in (1, 2)
+        ]
+        self.url = reverse('dashboard:display-order')
+        self.client.force_login(self.admin)
+
+    def post_order(self, kind, order):
+        return self.client.post(
+            self.url,
+            json.dumps({'kind': kind, 'order': [str(item) for item in order]}),
+            content_type='application/json',
+        )
+
+    def test_admin_can_save_order_for_courses_projects_trainers_and_students(self):
+        for kind, objects in (
+            ('courses', self.courses),
+            ('projects', self.projects),
+        ):
+            order = [item.pk for item in reversed(objects)]
+            response = self.post_order(kind, order)
+            self.assertEqual(response.status_code, 200, response.content)
+            self.assertEqual(
+                list(
+                    (Course if kind == 'courses' else Project)
+                    .objects.filter(pk__in=[item.pk for item in objects])
+                    .order_by('display_order')
+                    .values_list('pk', flat=True)
+                ),
+                order,
+            )
+            route = 'courses:list' if kind == 'courses' else 'projects:list'
+            listing = self.client.get(reverse(route))
+            self.assertEqual(listing.status_code, 200)
+            expected_slugs = [
+                (Course if kind == 'courses' else Project).objects.get(pk=pk).slug
+                for pk in order
+            ]
+            listing_key = 'courses_json' if kind == 'courses' else 'projects_json'
+            self.assertEqual(
+                [item['slug'] for item in listing.context[listing_key]],
+                expected_slugs,
+            )
+
+        trainer_order = [user.pk for user in reversed(self.trainers)]
+        response = self.post_order('trainers', trainer_order)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(
+                Profile.objects.filter(user__role=UserRole.TRAINER)
+                .order_by('display_order')
+                .values_list('user_id', flat=True)
+            ),
+            trainer_order,
+        )
+        self.assertEqual(
+            list(
+                Profile.objects.filter(user__role=UserRole.STUDENT)
+                .order_by('display_order')
+                .values_list('user_id', flat=True)
+            ),
+            [user.pk for user in self.students],
+        )
+
+        student_order = [user.pk for user in reversed(self.students)]
+        response = self.post_order('students', student_order)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(
+                Profile.objects.filter(
+                    user__role__in=(UserRole.TRAINER, UserRole.STUDENT)
+                ).order_by('display_order')
+                .values_list('user_id', flat=True)
+            ),
+            trainer_order + student_order,
+        )
+
+    def test_order_rejects_duplicate_and_stale_lists(self):
+        duplicate = self.post_order('courses', [self.courses[0].pk, self.courses[0].pk])
+        self.assertEqual(duplicate.status_code, 400)
+
+        stale = self.post_order('courses', [self.courses[0].pk])
+        self.assertEqual(stale.status_code, 409)
+
+    def test_non_admin_cannot_reorder(self):
+        self.client.force_login(self.students[0])
+
+        response = self.post_order('courses', [item.pk for item in self.courses])
+
+        self.assertEqual(response.status_code, 403)

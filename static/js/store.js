@@ -437,7 +437,18 @@
 
   /* الدورات القادمة من السيرفر (Django) تحل مكان بيانات العرض التوضيحي */
   var SERVER_COURSES = (function () {
-    var el = document.getElementById('courses-data');
+    var el = document.getElementById('admin-courses-data') ||
+      document.getElementById('courses-data');
+    if (!el) return null;
+    try {
+      var data = JSON.parse(el.textContent);
+      return Array.isArray(data) ? data : null;
+    } catch (err) { return null; }
+  })();
+
+  /* الدورات المنشورة التي ما زال الطالب مسجلاً فيها */
+  var SERVER_ACTIVE_COURSES = (function () {
+    var el = document.getElementById('active-courses-data');
     if (!el) return null;
     try {
       var data = JSON.parse(el.textContent);
@@ -545,6 +556,7 @@
     profileCerts: function () { return SERVER_PROFILE_CERTS; },
     /* دورات المدرب صاحب الحساب (منشورة + مسودّات) — null لغير المدرب */
     myCourses: function () { return SERVER_MY_COURSES; },
+    activeCourses: function () { return SERVER_ACTIVE_COURSES || []; },
     /* قائمة الدورات مع استبدال الدورات المكتملة بشهاداتها المكتسبة (نفس الاسم والتفاصيل) */
     certificatesWithEarned: function () {
       var all = this.collection('certificates');

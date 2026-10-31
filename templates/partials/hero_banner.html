@@ -22,8 +22,15 @@
         <span>{{ hero_crumb }}</span>
       </nav>
     {% endif %}
-    {% if hero_badge %}<span class="cd-badge">{{ hero_badge }}</span>{% endif %}
-    <h1 class="cd-title">{{ hero_title }}</h1>
+    {% if hero_badge_inline %}
+      <div class="cd-title-badge-row">
+        <h1 class="cd-title">{{ hero_title }}</h1>
+        {% if hero_badge %}<span class="cd-badge">{{ hero_badge }}</span>{% endif %}
+      </div>
+    {% else %}
+      {% if hero_badge %}<span class="cd-badge">{{ hero_badge }}</span>{% endif %}
+      <h1 class="cd-title">{{ hero_title }}</h1>
+    {% endif %}
     {% if hero_sub %}<p class="cd-sub">{{ hero_sub }}</p>{% endif %}
     {% if hero_cta_template %}
       <div class="cd-hero-actions">{% include hero_cta_template %}</div>

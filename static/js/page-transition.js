@@ -6,21 +6,52 @@
   var settlingClass = 'is-page-transition-settling';
   var pendingAttribute = 'data-page-transition-pending';
   var fadeDuration = 100;
+  var minimumVisibleDuration = 500;
+  var finishTimer = null;
+  var minimumVisibleElapsed = false;
+  var pageLoaded = document.readyState === 'complete';
+  var revealScheduled = false;
+
+  function revealWhenLayoutIsReady() {
+    if (!minimumVisibleElapsed || !pageLoaded || revealScheduled) return;
+    revealScheduled = true;
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        root.removeAttribute(pendingAttribute);
+        root.removeAttribute('data-initial-page-loading');
+        root.classList.add(settlingClass);
+        window.setTimeout(clearTransition, fadeDuration);
+      });
+    });
+  }
 
   function clearTransition() {
     root.classList.remove(transitionClass);
     root.classList.remove(settlingClass);
     root.removeAttribute(pendingAttribute);
+    root.removeAttribute('data-initial-page-loading');
+    window.__pageLoadingStartedAt = null;
+    finishTimer = null;
   }
 
   function finishTransition() {
-    root.removeAttribute(pendingAttribute);
     if (!root.classList.contains(transitionClass)) return;
-    root.classList.add(settlingClass);
-    window.setTimeout(clearTransition, fadeDuration);
+    if (finishTimer !== null) return;
+    var startedAt = window.__pageLoadingStartedAt;
+    var elapsed = typeof startedAt === 'number' ? performance.now() - startedAt : minimumVisibleDuration;
+    var remaining = Math.max(0, minimumVisibleDuration - elapsed);
+    finishTimer = window.setTimeout(function () {
+      minimumVisibleElapsed = true;
+      revealWhenLayoutIsReady();
+    }, remaining);
   }
 
-  if (root.hasAttribute(pendingAttribute)) {
+  window.addEventListener('load', function () {
+    pageLoaded = true;
+    revealWhenLayoutIsReady();
+  }, { once: true });
+
+  if (root.classList.contains(transitionClass)) {
     window.setTimeout(function () {
       if (root.hasAttribute(pendingAttribute) || root.classList.contains(transitionClass)) {
         clearTransition();

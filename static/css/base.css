@@ -201,6 +201,8 @@ ul, ol { margin: 0; padding-inline-start: 1.3em; }
 
 .btn-primary { background: var(--brand); color: #fff; box-shadow: 0 6px 16px -8px rgba(37, 99, 235, .8); }
 .btn-primary:hover { background: var(--brand-2); box-shadow: var(--shadow-pop); transform: translateY(-1px); }
+.btn-success { background: #4ade80; color: #fff; }
+.btn-success:hover { background: #22c55e; transform: translateY(-1px); }
 .btn-grad { background: var(--grad); color: #fff; }
 .btn-grad:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: var(--shadow-pop); }
 

@@ -1,14 +1,17 @@
-{% extends "editor_base.html" %}
+{% extends editor_base_template|default:"editor_base.html" %}
 
-{% block title %}محرر الدورة — بورتفوليو{% endblock %}
-{% block body_attrs %}data-page="edit-course"{% endblock %}
-{% block back_section %}#certificates{% endblock %}
+{% block title %}محرر الدورة — مركز داتا{% endblock %}
+{% block body_attrs %}data-page="edit-course"{% if admin_dashboard_editor %} data-admin-course-editor="true" data-admin-dashboard-editor="true"{% endif %}{% endblock %}
+{% block back_section %}{% if admin_dashboard_editor %}#courses{% else %}#certificates{% endif %}{% endblock %}
 
 {% block editor_main %}
+    {% if admin_dashboard_editor %}{{ editor_course_json|json_script:"editor-object-data" }}{% endif %}
     <div class="editor-grid">
       <div class="editor-main">
         <div>
-          <input class="title-input" id="edTitle" autocomplete="off">
+          <input class="title-input" id="edTitle" maxlength="200" autocomplete="off"
+                 aria-describedby="edTitleValidation">
+          <span class="hint error title-validation" id="edTitleValidation" role="alert" hidden></span>
           <input class="title-input" id="edTitleEnglish" dir="ltr" maxlength="200" autocomplete="off" placeholder="Course title in English" value="{{ course_title_en|default:'' }}">
         </div>
 
@@ -18,16 +21,7 @@
           <div class="tpl-list" data-editor-templates></div>
         </div>
 
-        <div class="editor-content-toggle">
-          <button class="editor-content-toggle-btn" type="button" id="edContentToggle"
-            aria-expanded="false" aria-controls="edContentPanel">
-            <span id="edContentToggleLabel">المحتوى</span>
-            <span class="editor-content-toggle-state" id="edContentToggleState">فتح</span>
-            <span class="editor-content-toggle-icon" id="edContentToggleIcon" aria-hidden="true"></span>
-          </button>
-        </div>
-
-        <div id="edContentPanel" hidden>
+        <div id="edContentPanel">
           <div class="rich-editor">
             <div class="editor-toolbar" id="edToolbar"></div>
             <div class="editable" id="edContent" contenteditable="true" spellcheck="false"></div>
@@ -87,12 +81,78 @@
           <div class="tpl-list" data-editor-templates></div>
         </div>
 
+        <div class="side-card-box" id="edCourseMetaBox">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
+          {% if can_select_course_type %}
+            <div class="field">
+              <label class="label" for="edCourseType">نوع الدورة</label>
+              <div class="course-type-options" role="radiogroup" aria-label="نوع الدورة">
+                <label class="course-type-option">
+                  <input type="radio" name="courseTypeChoice" value="online" checked>
+                  <span class="course-type-option-card">
+                    <span class="course-type-option-check" aria-hidden="true"></span>
+                    <strong>أونلاين</strong>
+                    <small>تعلم عن بُعد</small>
+                  </span>
+                </label>
+                <label class="course-type-option">
+                  <input type="radio" name="courseTypeChoice" value="in_person">
+                  <span class="course-type-option-card">
+                    <span class="course-type-option-check" aria-hidden="true"></span>
+                    <strong>وجاهي</strong>
+                    <small>حضور في الموقع</small>
+                  </span>
+                </label>
+              </div>
+              <input type="hidden" id="edCourseType" value="online">
+            </div>
+          {% endif %}
+          <div class="field">
+            <label class="label" id="lblCategory" for="edCategorySearch"></label>
+            <div class="training-category-picker">
+              <input class="input" type="search" id="edCategorySearch" role="combobox"
+                     aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false"
+                     aria-controls="edCategoryOptions" autocomplete="off">
+              <div class="training-category-options" id="edCategoryOptions" role="listbox" hidden></div>
+              <span class="hint error training-category-validation" id="edCategoryValidation"
+                    role="alert" hidden></span>
+              <input type="hidden" id="edCategory">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label class="label" id="lblPrice"></label>
+              <div class="price-input-wrap">
+                <select class="select price-currency-select" id="edCurrency" aria-label="عملة السعر">
+                  <option value="ILS">₪ شيكل</option>
+                  <option value="USD">$ دولار</option>
+                </select>
+                <input class="input" id="edPrice" type="number" min="0" step="1" dir="ltr">
+              </div>
+            </div>
+            <div class="field">
+              <label class="label" id="lblDuration"></label>
+              <div class="duration-input-wrap">
+                <span>ساعة</span>
+                <input class="input" id="edDuration" type="number" min="0" step="1" dir="ltr">
+              </div>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label class="label" id="lblPeriod"></label>
+              <div class="period-input-wrap">
+                <input class="input" id="edPeriod" type="number" min="1" step="1" dir="ltr">
+                <span id="lblPeriodUnit">لقاءات</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="side-card-box">
           <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2"></textarea></div>
-          <div class="field-row">
-            <div class="field"><label class="label" id="lblCategory"></label><input class="input" id="edCategory"></div>
-            {% if is_admin_editor %}
+          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2" maxlength="320"></textarea></div>
+          {% if is_admin_editor %}
             <div class="field">
               <label class="label" id="lblRole"></label>
               <select class="select" id="edRole" required>
@@ -102,34 +162,9 @@
                 {% endfor %}
               </select>
             </div>
-            {% endif %}
-          </div>
+          {% endif %}
           <div class="field"><label class="label" id="lblDate"></label><input type="date" class="input" id="edDate"></div>
-          <div class="field"><label class="label">GitHub</label><input class="input" id="edGithub" dir="ltr" placeholder="https://github.com/..."></div>
           <div class="field"><label class="label" id="lblDemo"></label><input class="input" id="edDemo" dir="ltr" placeholder="https://..."></div>
-        </div>
-
-        <div class="side-card-box" id="edCourseMetaBox">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="field-row">
-            <div class="field">
-              <label class="label" id="lblPrice"></label>
-              <div class="price-input-wrap">
-                <span aria-hidden="true">₪</span>
-                <input class="input" id="edPrice" type="number" min="0" step="0.01" dir="ltr" placeholder="180">
-              </div>
-            </div>
-            <div class="field"><label class="label" id="lblDuration"></label><input class="input" id="edDuration" type="number" min="0" step="0.5" dir="ltr" placeholder="36"></div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label class="label" id="lblPeriod"></label>
-              <div class="period-input-wrap">
-                <input class="input" id="edPeriod" type="number" min="1" step="1" dir="ltr" placeholder="12">
-                <span id="lblPeriodUnit">لقاءات</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div class="side-card-box">

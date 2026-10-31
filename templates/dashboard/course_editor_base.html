@@ -1,0 +1,31 @@
+{% extends "base_admin.html" %}
+{% load static_v %}
+
+{% block content %}
+  <div class="adm">
+    <aside class="adm-side" id="admSide" aria-label="قائمة الأقسام"></aside>
+    <div class="adm-scrim" id="admScrim" hidden></div>
+    <div class="adm-main">
+      <header class="adm-top" id="admTop"></header>
+      <main class="adm-body" id="admContent" tabindex="-1">
+        <div class="editor-bar">
+          <div class="container editor-bar-inner">
+            <a class="btn-icon" href="{% url 'dashboard:home' %}{% block back_section %}{% endblock %}" title="رجوع" id="edBack"></a>
+            <div class="editor-status" id="edStatus"><span class="dot dot-ok"></span><span></span></div>
+            <span class="spacer"></span>
+            <div class="editor-bar-actions">
+              <button class="btn btn-ghost btn-sm" id="edPreviewBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+              <button class="btn btn-soft btn-sm" id="edDraftBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+              <button class="btn btn-primary btn-sm" id="edPublishBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+            </div>
+          </div>
+        </div>
+        <main class="container editor-page">
+          {{ editor_training_categories_json|json_script:"training-categories-data" }}
+          {{ trainer_projects_json|json_script:"trainer-projects-data" }}
+          {% block editor_main %}{% endblock %}
+        </main>
+      </main>
+    </div>
+  </div>
+{% endblock %}

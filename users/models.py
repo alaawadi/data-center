@@ -155,6 +155,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     )
     is_verified = models.BooleanField('حساب موثّق', default=False)
     is_active = models.BooleanField('نشط', default=True)
+    can_publish_content = models.BooleanField('السماح بنشر الدورات والمشاريع', default=True)
     is_staff = models.BooleanField('يستطيع الدخول إلى لوحة تحكم Django', default=False)
     date_joined = models.DateTimeField('تاريخ الانضمام', default=timezone.now)
 
@@ -401,6 +402,7 @@ class Profile(models.Model):
             'location': self.location,
             'website': self.website,
             'email': self.user.email,
+            'whatsapp': self.whatsapp if self.user.is_trainer else '',
             'joined': self.user.date_joined.isoformat(),
             'role': self.user.get_role_display(),
             'roleKey': self.user.role,
@@ -534,6 +536,28 @@ class SignupVerification(models.Model):
 
     def __str__(self):
         return f'{self.phone} → {self.email}'
+
+
+class StudentSetupLink(models.Model):
+    """Single-use password setup link for an in-person student account."""
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='student_setup_link',
+        verbose_name='الطالب',
+    )
+    token_hash = models.CharField('بصمة الرمز', max_length=64)
+    expires_at = models.DateTimeField('ينتهي في')
+    consumed_at = models.DateTimeField('استُخدم في', null=True, blank=True)
+    created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'رابط إعداد حساب طالب'
+        verbose_name_plural = 'روابط إعداد حسابات الطلاب'
+
+    def __str__(self):
+        return f'{self.user.phone} — {self.expires_at:%Y-%m-%d}'
 
 
 class SignupRateLimit(models.Model):

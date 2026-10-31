@@ -63,14 +63,18 @@
     launcherEl.hidden = true;
   }
 
-  function handleAppInstalled() {
-    deferredInstallPrompt = null;
+  function persistInstalledState() {
     try {
       window.localStorage.setItem('pwa-installed', '1');
     } catch (error) {
       console.warn('Could not persist installed app state:', error);
     }
     hideIfInstalled();
+  }
+
+  function handleAppInstalled() {
+    deferredInstallPrompt = null;
+    persistInstalledState();
   }
 
   function mount() {
@@ -114,8 +118,7 @@
       }).then(function (choice) {
         deferredInstallPrompt = null;
         if (choice && choice.outcome === 'accepted') {
-          promptEl.hidden = true;
-          launcherEl.hidden = true;
+          persistInstalledState();
         } else {
           renderInstructions();
         }
@@ -131,6 +134,9 @@
       renderInstructions();
     });
     window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('storage', function (event) {
+      if (event.key === 'pwa-installed' && event.newValue === '1') hideIfInstalled();
+    });
     if (window.matchMedia) {
       var standaloneQuery = window.matchMedia('(display-mode: standalone)');
       if (standaloneQuery.addEventListener) standaloneQuery.addEventListener('change', hideIfInstalled);

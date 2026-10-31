@@ -5,6 +5,18 @@
   var menu;
   var trigger;
 
+  document.addEventListener('error', function (event) {
+    var image = event.target;
+    if (!image || !image.matches || !image.matches('#account-btn .account-av')) return;
+    var button = image.closest('#account-btn');
+    if (!button || !button.dataset.accountInitial) return;
+    var initial = document.createElement('span');
+    initial.className = 'account-initial';
+    initial.setAttribute('aria-hidden', 'true');
+    initial.textContent = button.dataset.accountInitial;
+    image.replaceWith(initial);
+  }, true);
+
   function icon(name) {
     var paths = {
       logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
@@ -36,6 +48,17 @@
     if (label) {
       label.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? 'داكن' : 'فاتح';
     }
+  }
+
+  function syncHeaderThemeButton() {
+    var button = document.getElementById('headerThemeBtn');
+    if (!button) return;
+    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    button.innerHTML = isDark
+      ? '<svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41-1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>'
+      : '<svg class="ic" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+    button.title = isDark ? 'تفعيل المظهر الفاتح' : 'تفعيل المظهر الداكن';
+    button.setAttribute('aria-label', button.title);
   }
 
   function positionMenu() {
@@ -93,8 +116,14 @@
       var next = current === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       try { localStorage.setItem('dc-theme', next); } catch (err) { /* Theme remains applied for this page. */ }
+      if (window.Store) {
+        Store.state.ui = Store.state.ui || {};
+        Store.state.ui.theme = next;
+        Store.save();
+      }
     }
     syncThemeLabel();
+    syncHeaderThemeButton();
   }
 
   function isProfilePage() {
@@ -103,9 +132,20 @@
   }
 
   document.addEventListener('click', function (event) {
+    var themeButton = event.target.closest('#headerThemeBtn');
+    if (themeButton) {
+      event.preventDefault();
+      toggleTheme();
+      return;
+    }
+
     var accountButton = event.target.closest('#account-btn');
     if (accountButton) {
       event.preventDefault();
+      if (urls.admin) {
+        window.location.href = urls.panel;
+        return;
+      }
       if (!isProfilePage()) {
         window.location.href = urls.authenticated ? urls.portfolio : urls.login;
         return;
@@ -124,6 +164,14 @@
       closeMenu(false);
     }
   });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      setTimeout(syncHeaderThemeButton, 0);
+    });
+  } else {
+    syncHeaderThemeButton();
+  }
 
   document.addEventListener('keydown', function (event) {
     if (!menu || !menu.classList.contains('is-open')) return;

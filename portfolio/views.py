@@ -1,10 +1,14 @@
 """Views for the personal portfolio hub (index.html)."""
+from django.http import JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.decorators.http import require_GET
 from django.views.generic import TemplateView
 
 from courses.models import (
     Course,
     CourseCertificate,
+    CourseProgress,
+    CourseStatus,
     ManualCertificate,
     ManualCertificateStatus,
     WorkshopCertificate,
@@ -12,6 +16,45 @@ from courses.models import (
 from courses.views import published_courses_payload
 from posts.models import Post
 from projects.models import Project, ProjectInteraction
+from users.models import UserRole
+
+
+@require_GET
+def trainer_course_students(request, course_slug):
+    user = request.user
+    if not user.is_authenticated or not user.is_trainer:
+        return JsonResponse({'ok': False, 'message': 'غير مصرح لك بعرض الطلاب.'}, status=403)
+
+    course = Course.objects.filter(slug=course_slug, owner=user).first()
+    if course is None:
+        return JsonResponse({'ok': False, 'message': 'الدورة غير موجودة.'}, status=404)
+
+    total_lessons = course.lessons_count
+    progress_rows = (
+        CourseProgress.objects.filter(course=course)
+        .select_related('student', 'student__profile')
+        .order_by('created_at', 'pk')
+    )
+    students = []
+    for progress in progress_rows:
+        completed_count = progress.done_count
+        profile = getattr(progress.student, 'profile', None)
+        students.append({
+            'id': str(progress.student_id),
+            'name': progress.student.display_name,
+            'handle': progress.student.handle,
+            'avatar': profile.avatar.url if profile and profile.avatar else '',
+            'completed': progress.completed,
+            'completedLessons': completed_count,
+            'totalLessons': total_lessons,
+            'progress': round(completed_count * 100 / total_lessons) if total_lessons else 0,
+        })
+
+    return JsonResponse({
+        'ok': True,
+        'course': {'id': course.slug, 'title': course.title},
+        'students': students,
+    })
 
 
 class HomeView(LoginRequiredMixin, TemplateView):
@@ -80,6 +123,22 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 + [c.to_public_dict() for c in manual_certs]
                 + [c.to_public_dict() for c in workshop_certs]
             )
+            if user.role == UserRole.STUDENT:
+                active_progress = (
+                    CourseProgress.objects.filter(
+                        student=user,
+                        completed=False,
+                        course__status=CourseStatus.PUBLISHED,
+                    )
+                    .select_related('course', 'course__owner', 'course__owner__profile')
+                )
+                context['active_courses_json'] = [
+                    progress.course.to_public_dict(
+                        include_syllabus=False,
+                        include_content=False,
+                    )
+                    for progress in active_progress
+                ]
             # الدورات المنشورة تُدمج مع الشهادات المكتسبة في لائحة الشهادات
             context['courses_json'] = published_courses_payload()
             # للمدرب: دوراته هو (منشورة + مسودّات) تُعرض في قسم «الدورات التدريبية»

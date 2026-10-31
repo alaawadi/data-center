@@ -2,7 +2,8 @@
 import uuid
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -11,11 +12,37 @@ class CourseStatus(models.TextChoices):
     PUBLISHED = 'published', 'منشور'
 
 
+class CourseType(models.TextChoices):
+    ONLINE = 'online', 'أونلاين'
+    IN_PERSON = 'in_person', 'وجاهي'
+
+
+class CourseCurrency(models.TextChoices):
+    ILS = 'ILS', 'شيكل'
+    USD = 'USD', 'دولار'
+
+
 class LessonType(models.TextChoices):
     VIDEO = 'video', 'فيديو'
     ARTICLE = 'article', 'مقال'
     QUIZ = 'quiz', 'اختبار'
     PROJECT = 'project', 'مشروع'
+
+
+class TrainingCategory(models.Model):
+    """A shared training field used to categorize courses, projects, and profiles."""
+
+    name = models.CharField('المجال التدريبي', max_length=120, unique=True)
+    display_order = models.PositiveIntegerField('ترتيب العرض', null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'مجال تدريبي'
+        verbose_name_plural = 'المجالات التدريبية'
+        ordering = ['display_order', 'name']
+
+    def __str__(self):
+        return self.name
 
 
 class Course(models.Model):
@@ -36,6 +63,9 @@ class Course(models.Model):
     content = models.TextField('الوصف التفصيلي', blank=True)
 
     price = models.CharField('السعر', max_length=40, blank=True)
+    currency = models.CharField(
+        'العملة', max_length=3, choices=CourseCurrency.choices, default=CourseCurrency.ILS
+    )
     duration = models.CharField('المدة', max_length=40, blank=True)
     duration_en = models.CharField('المدة بالإنجليزية', max_length=40, blank=True)
     period = models.CharField('الفترة', max_length=40, blank=True)
@@ -48,6 +78,9 @@ class Course(models.Model):
 
     status = models.CharField(
         'الحالة', max_length=16, choices=CourseStatus.choices, default=CourseStatus.DRAFT
+    )
+    course_type = models.CharField(
+        'نوع الدورة', max_length=16, choices=CourseType.choices, default=CourseType.ONLINE
     )
     display_order = models.PositiveIntegerField(
         'ترتيب العرض', null=True, blank=True, db_index=True
@@ -118,7 +151,7 @@ class Course(models.Model):
         """
         owner = self.owner
         cover = self.cover.url if self.cover else ''
-        price_amount = str(self.price or '').strip().replace('₪', '').strip()
+        price_amount = str(self.price or '').strip().replace('₪', '').replace('$', '').strip()
         syllabus = [
             {
                 'id': section.pk,
@@ -153,7 +186,8 @@ class Course(models.Model):
             'description': self.summary,
             'summary': self.summary,
             'content': self.content if include_content else '',
-            'price': f'₪{price_amount}' if price_amount else '',
+            'price': f'{"$" if self.currency == CourseCurrency.USD else "₪"}{price_amount}' if price_amount else '',
+            'currency': self.currency,
             'duration': self.duration,
             'durationEnglish': self.duration_en,
             'period': self.period,
@@ -167,6 +201,7 @@ class Course(models.Model):
             'credentialId': self.credential_id,
             'verifyUrl': self.verify_url,
             'status': self.status,
+            'courseType': self.course_type,
             'comingSoon': self.is_coming_soon,
             'handle': owner.handle if owner else '',
             'trainerId': str(owner.pk) if owner else '',
@@ -191,6 +226,166 @@ class Course(models.Model):
         snapshot = self.to_public_dict(include_answers=True)
         snapshot['coverStorageName'] = self.cover.name if self.cover else ''
         return snapshot
+
+
+class CourseRegistrationRequestStatus(models.TextChoices):
+    NEW = 'new', 'جديد'
+    CONTACTED = 'contacted', 'تم التواصل'
+    ACCEPTED = 'accepted', 'مقبول'
+    REJECTED = 'rejected', 'مرفوض'
+
+
+class InPersonCourseCohort(models.Model):
+    """A numbered, automatically timed cohort for an in-person course."""
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='inperson_cohorts',
+        verbose_name='الدورة',
+    )
+    number = models.PositiveIntegerField('رقم الشعبة')
+    started_at = models.DateTimeField('تاريخ البداية', default=timezone.now)
+    ended_at = models.DateTimeField('تاريخ النهاية', null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'شعبة دورة وجاهية'
+        verbose_name_plural = 'شُعب الدورات الوجاهية'
+        ordering = ['number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['course', 'number'],
+                name='unique_inperson_cohort_number',
+            ),
+            models.UniqueConstraint(
+                fields=['course'],
+                condition=models.Q(ended_at__isnull=True),
+                name='unique_active_inperson_cohort',
+            ),
+        ]
+
+    @property
+    def name(self):
+        return f'{self.number:03d}'
+
+    @property
+    def is_active(self):
+        return self.ended_at is None
+
+    def __str__(self):
+        return f'{self.course.title} — {self.name}'
+
+
+def start_next_inperson_cohort(course, at=None):
+    """Start the next cohort, reusing an existing active cohort when present."""
+    with transaction.atomic():
+        Course.objects.select_for_update().get(pk=course.pk)
+        active = InPersonCourseCohort.objects.filter(
+            course_id=course.pk,
+            ended_at__isnull=True,
+        ).first()
+        if active is not None:
+            return active
+        last_number = InPersonCourseCohort.objects.filter(
+            course_id=course.pk
+        ).aggregate(number=models.Max('number'))['number'] or 0
+        return InPersonCourseCohort.objects.create(
+            course_id=course.pk,
+            number=last_number + 1,
+            started_at=at or timezone.now(),
+        )
+
+
+def close_active_inperson_cohort(course, at=None):
+    """Close the active cohort, preserving its original start timestamp."""
+    with transaction.atomic():
+        Course.objects.select_for_update().get(pk=course.pk)
+        active = InPersonCourseCohort.objects.filter(
+            course_id=course.pk,
+            ended_at__isnull=True,
+        ).first()
+        if active is not None:
+            active.ended_at = at or timezone.now()
+            active.save(update_fields=['ended_at'])
+        return active
+
+
+class CourseRegistrationRequest(models.Model):
+    """Public application submitted for an in-person course."""
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='registration_requests',
+        verbose_name='الدورة',
+    )
+    referral_link = models.ForeignKey(
+        'StudentReferralLink',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='registration_requests',
+        verbose_name='رابط الإحالة',
+    )
+    cohort = models.ForeignKey(
+        InPersonCourseCohort,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='registration_requests',
+        verbose_name='الشعبة',
+    )
+    student = models.ForeignKey(
+        'users.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='inperson_course_registration_requests',
+        verbose_name='حساب الطالب',
+    )
+    full_name = models.CharField('الاسم الثلاثي', max_length=200)
+    phone = models.CharField('الهاتف / واتساب', max_length=13)
+    address = models.CharField('العنوان', max_length=255)
+    specialty = models.CharField('التخصص', max_length=150)
+    student_status = models.CharField(
+        'الحالة الدراسية',
+        max_length=16,
+        choices=[('student', 'طالب'), ('graduate', 'خريج')],
+    )
+    status = models.CharField(
+        'حالة الطلب',
+        max_length=16,
+        choices=CourseRegistrationRequestStatus.choices,
+        default=CourseRegistrationRequestStatus.NEW,
+    )
+    created_at = models.DateTimeField('تاريخ تقديم الطلب', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'طلب تسجيل دورة'
+        verbose_name_plural = 'طلبات تسجيل الدورات'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.full_name} — {self.course.title}'
+
+
+class CourseRegistrationPayment(models.Model):
+    registration_request = models.ForeignKey(
+        CourseRegistrationRequest,
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name='طلب التسجيل',
+    )
+    amount = models.DecimalField('المبلغ', max_digits=10, decimal_places=2)
+    created_at = models.DateTimeField('تاريخ الدفعة', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'دفعة تسجيل دورة'
+        verbose_name_plural = 'دفعات تسجيل الدورات'
+        ordering = ['created_at', 'pk']
+
+    def __str__(self):
+        return f'{self.registration_request.full_name} — {self.amount}'
 
 
 class CourseVersion(models.Model):
@@ -592,6 +787,22 @@ class StudentPointTransaction(models.Model):
         blank=True,
         verbose_name='الإحالة',
     )
+    registration_request = models.ForeignKey(
+        CourseRegistrationRequest,
+        on_delete=models.CASCADE,
+        related_name='point_transactions',
+        null=True,
+        blank=True,
+        verbose_name='طلب التسجيل',
+    )
+    reset_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='student_point_resets',
+        null=True,
+        blank=True,
+        verbose_name='صفّر النقاط بواسطة',
+    )
     created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
 
     class Meta:
@@ -602,6 +813,11 @@ class StudentPointTransaction(models.Model):
             models.UniqueConstraint(
                 fields=['referral', 'course'],
                 name='unique_referral_course_point_reward',
+            ),
+            models.UniqueConstraint(
+                fields=['registration_request'],
+                condition=models.Q(registration_request__isnull=False),
+                name='unique_registration_request_point_reward',
             ),
         ]
 

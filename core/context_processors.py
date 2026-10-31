@@ -67,6 +67,7 @@ def get_platform_settings():
 # Maps the current URL to the navigation tab that must be highlighted
 # (mirrors the TAB_OF map that used to live in site-chrome.js).
 _TAB_PREFIXES = (
+    ('/portfolio', 'home'),
     ('/courses', 'courses'),
     ('/posts', 'courses'),
     ('/projects', 'projects'),
@@ -79,16 +80,31 @@ def site_chrome(request):
     """Expose the active navigation tab and site-wide chrome flags."""
     path = request.path_info
     active_tab = ''
+    if request.resolver_match and request.resolver_match.view_name == 'landing:home':
+        active_tab = 'home'
     for prefix, tab in _TAB_PREFIXES:
+        if active_tab:
+            break
         if path.startswith(prefix):
             active_tab = tab
             break
+    editor_views = {
+        'dashboard:course-editor-create',
+        'dashboard:course-editor-edit',
+        'dashboard:project-editor-create',
+        'dashboard:project-editor-edit',
+    }
+    is_editor_fragment = (
+        request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        and request.resolver_match
+        and request.resolver_match.view_name in editor_views
+    )
     return {
         'active_tab': active_tab,
         'is_landing': request.resolver_match.view_name == 'landing:home'
         if request.resolver_match else False,
         'site_settings': get_platform_settings(),
-        'courses_sheet_json': [
+        'courses_sheet_json': [] if is_editor_fragment else [
             {
                 'id': course.slug or str(course.pk),
                 'title': course.title,
@@ -115,15 +131,20 @@ def server_profile(request):
     if profile is None:
         return {}
     data = profile.to_public_dict()
+    data['whatsapp'] = profile.whatsapp
     data['fullNameArabic'] = user.full_name_ar
     data['fullNameEnglish'] = user.full_name_en
     data['trainerNameEnglish'] = user.trainer_name_en or user.full_name_en
+    if user.role == UserRole.TRAINER:
+        data['canPublishContent'] = user.can_publish_content
     data['skills'] = [
         {'id': f'sk{link.pk}', 'name': link.skill.name, 'level': link.level}
         for link in profile.profile_skills.select_related('skill')
     ]
     if user.role == UserRole.STUDENT:
         data['canScanWorkshops'] = True
+    resolver_match = getattr(request, 'resolver_match', None)
+    if resolver_match and resolver_match.view_name == 'portfolio:home':
         data['referral_points'] = (
             StudentPointTransaction.objects.filter(student=user)
             .aggregate(total=Sum('points'))['total']

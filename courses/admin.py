@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from .models import (
     Course,
+    CourseRegistrationRequest,
     ManualCertificate,
     ManualCertificateStatus,
     CourseSection,
@@ -108,8 +109,8 @@ class CourseSectionInline(admin.TabularInline):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'owner', 'category', 'status', 'sections_count', 'created_at')
-    list_filter = ('status', 'category', 'created_at')
+    list_display = ('title', 'owner', 'course_type', 'category', 'status', 'sections_count', 'created_at')
+    list_filter = ('course_type', 'status', 'category', 'created_at')
     search_fields = ('title', 'summary', 'owner__full_name', 'owner__handle')
     autocomplete_fields = ('owner',)
     readonly_fields = ('created_at', 'updated_at')
@@ -119,7 +120,7 @@ class CourseAdmin(admin.ModelAdmin):
     inlines = [CourseSectionInline]
 
     fieldsets = (
-        ('الدورة', {'fields': ('owner', 'title', 'slug', 'status')}),
+        ('الدورة', {'fields': ('owner', 'title', 'slug', 'course_type', 'status')}),
         ('المحتوى', {'fields': ('category', 'summary', 'content', 'skills')}),
         ('التفاصيل', {'fields': ('price', 'duration', 'period', 'cover', 'credential_id', 'verify_url')}),
         ('التواريخ', {'fields': ('created_at', 'updated_at')}),
@@ -128,6 +129,18 @@ class CourseAdmin(admin.ModelAdmin):
     @admin.display(description='الأقسام')
     def sections_count(self, obj):
         return obj.sections.count()
+
+
+@admin.register(CourseRegistrationRequest)
+class CourseRegistrationRequestAdmin(admin.ModelAdmin):
+    list_display = ('full_name', 'course', 'phone', 'specialty', 'student_status', 'status', 'created_at')
+    list_filter = ('status', 'student_status', 'created_at')
+    search_fields = ('full_name', 'phone', 'specialty', 'course__title')
+    readonly_fields = ('course', 'full_name', 'phone', 'address', 'specialty', 'student_status', 'created_at')
+    fields = (
+        'course', 'full_name', 'phone', 'address', 'specialty',
+        'student_status', 'status', 'created_at',
+    )
 
 
 @admin.register(CourseSection)

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% load static_v %}
 
-{% block title %}تفاصيل الدورة — بورتفوليو{% endblock %}
+{% block title %}تفاصيل الدورة — مركز داتا{% endblock %}
 {% block body_attrs %}data-page="course"{% endblock %}
 
 {% block css %}
@@ -17,6 +17,7 @@
 {% block content %}
   {{ is_course_enrolled|json_script:"course-enrollment-data" }}
   {{ is_course_trainer_owner|json_script:"course-trainer-owner-data" }}
+  {{ is_course_admin|json_script:"course-admin-data" }}
   {{ course_rewards_json|json_script:"course-rewards-data" }}
   <main class="container detail-page" id="detailHost"></main>
 {% endblock %}

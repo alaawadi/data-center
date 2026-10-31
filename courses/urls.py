@@ -11,6 +11,11 @@ urlpatterns = [
     path('courses/edit/<str:pk>/', views.CourseEditorView.as_view(), name='edit'),
     path('courses/save/', views.course_save, name='save'),
     path('courses/reorder/', views.course_reorder, name='reorder'),
+    path(
+        'courses/<str:pk>/registration-requests/',
+        views.course_registration_request,
+        name='registration-request',
+    ),
     path('courses/<str:pk>/coming-soon/', views.course_set_coming_soon, name='coming-soon'),
     path('courses/delete/', views.course_delete, name='delete'),
     path('courses/<str:pk>/versions/', views.course_versions, name='versions'),

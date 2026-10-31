@@ -17,8 +17,8 @@
       {% csrf_token %}
 
       <div class="pf-head">
-        <h1>تعديل البروفايل</h1>
-        <p class="muted small">حدّث بياناتك — تظهر مباشرة في ملفك الشخصي وفي صفحة المستقلين.</p>
+        <h1>{% if profile_editing_other %}تعديل بروفايل {{ profile_target_name }}{% else %}تعديل البروفايل{% endif %}</h1>
+        <p class="muted small">{% if profile_editing_other %}تعديل بيانات الملف الشخصي للمستخدم المستهدف.{% else %}حدّث بياناتك — تظهر مباشرة في ملفك الشخصي وفي صفحة المستقلين.{% endif %}</p>
       </div>
 
       {% if form.non_field_errors %}
@@ -27,7 +27,7 @@
 
       <section class="pf-section">
         <h2>الهوية والصورة</h2>
-        {% if request.user.is_trainer %}
+        {% if object.user.is_trainer %}
           {% include "users/_field.html" with field=form.trainer_name_en %}
         {% else %}
           <div class="pf-grid">
@@ -117,7 +117,7 @@
 
       <div class="pf-actions">
         <button class="btn btn-primary" type="submit">حفظ التعديلات</button>
-        <a class="btn btn-ghost" href="{% url 'portfolio:home' %}">إلغاء</a>
+        <a class="btn btn-ghost" href="{{ profile_cancel_url }}">إلغاء</a>
       </div>
     </form>
   </main>

@@ -108,6 +108,8 @@ def device_login_allowed(user, device_id):
     """Allow the same device always; block new devices past the limit."""
     if not user or not device_id:
         return False
+    if user.role != 'student':
+        return True
     if DeviceSession.objects.filter(user=user, device_id=device_id).exists():
         return True
     return active_device_count(user) < _cfg('AUTH_MAX_DEVICES_PER_USER', 2)

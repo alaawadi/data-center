@@ -136,6 +136,9 @@
   var adminPointRedemptions = [];
   var adminPointRedemptionCourses = [];
   var adminWorkshops = [];
+  var inpersonCohorts = [];
+  var courseRegistrationRequests = [];
+  var trainingCategories = [];
   var platformSettings = null;
   var platformSummary = {};
 
@@ -160,6 +163,14 @@
     adminPointRedemptionCourses = pointRedemptionCoursesEl ? JSON.parse(pointRedemptionCoursesEl.textContent) : [];
     var workshopsEl = document.getElementById('admin-workshops-data');
     adminWorkshops = workshopsEl ? JSON.parse(workshopsEl.textContent) : [];
+    var inpersonCohortsEl = document.getElementById('admin-inperson-cohorts-data');
+    inpersonCohorts = inpersonCohortsEl ? JSON.parse(inpersonCohortsEl.textContent) : [];
+    var registrationRequestsEl = document.getElementById('admin-course-registration-requests-data');
+    courseRegistrationRequests = registrationRequestsEl
+      ? JSON.parse(registrationRequestsEl.textContent)
+      : [];
+    var trainingCategoriesEl = document.getElementById('admin-training-categories-data');
+    trainingCategories = trainingCategoriesEl ? JSON.parse(trainingCategoriesEl.textContent) : [];
     var platformSettingsEl = document.getElementById('admin-platform-settings');
     platformSettings = platformSettingsEl ? JSON.parse(platformSettingsEl.textContent) : defaultSettings();
     var platformSummaryEl = document.getElementById('admin-settings-summary');
@@ -192,6 +203,7 @@
           userId: 'db-user-' + progress.userId,
           joinedAt: progress.joinedAt,
           progress: progress.progress,
+          completed: !!progress.completed,
           status: 'active'
         };
       });
@@ -576,6 +588,43 @@
     },
     workshops: function () {
       return Array.isArray(adminWorkshops) ? adminWorkshops.slice() : [];
+    },
+    inPersonCohorts: function () {
+      return Array.isArray(inpersonCohorts) ? inpersonCohorts.slice() : [];
+    },
+    updateInPersonCohort: function (cohort) {
+      if (!cohort) return;
+      if (!Array.isArray(inpersonCohorts)) inpersonCohorts = [];
+      var index = inpersonCohorts.findIndex(function (item) {
+        return String(item.id) === String(cohort.id);
+      });
+      if (index === -1) inpersonCohorts.push(cohort);
+      else inpersonCohorts[index] = cohort;
+    },
+    courseRegistrationRequests: function () {
+      return Array.isArray(courseRegistrationRequests) ? courseRegistrationRequests.slice() : [];
+    },
+    addCourseRegistrationRequest: function (request) {
+      if (!Array.isArray(courseRegistrationRequests)) courseRegistrationRequests = [];
+      courseRegistrationRequests.unshift(request);
+    },
+    updateCourseRegistrationRequest: function (request) {
+      if (!Array.isArray(courseRegistrationRequests)) courseRegistrationRequests = [];
+      var index = courseRegistrationRequests.findIndex(function (item) {
+        return String(item.id) === String(request.id);
+      });
+      if (index === -1) courseRegistrationRequests.unshift(request);
+      else courseRegistrationRequests[index] = Object.assign(
+        {},
+        courseRegistrationRequests[index],
+        request
+      );
+    },
+    trainingCategories: function () {
+      return Array.isArray(trainingCategories) ? trainingCategories.slice() : [];
+    },
+    setTrainingCategories: function (categories) {
+      trainingCategories = Array.isArray(categories) ? categories.slice() : [];
     },
     updateWorkshop: function (workshop) {
       if (!Array.isArray(adminWorkshops)) adminWorkshops = [];

@@ -42,8 +42,8 @@ class SiteVisitMiddlewareTests(TestCase):
         referrer = User.objects.create_user(
             phone='0591112201',
             password='pass1234',
-            full_name='الطالب المُحيل',
-            role=UserRole.STUDENT,
+            full_name='المستخدم المُحيل',
+            role=UserRole.TRAINER,
         )
         trainer = User.objects.create_user(
             phone='0591112202',

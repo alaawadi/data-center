@@ -7,7 +7,7 @@
   /* ----------------------------------------------------------
      ثوابت عامة
      ---------------------------------------------------------- */
-  var WHATSAPP = '972594810786';
+  var DEFAULT_WHATSAPP = '972594810786';
   var INSTAGRAM = 'https://www.instagram.com/data_center.ps';
   var EMAIL = 'datacenteracademy1@gmail.com';
   var THEME_KEY = 'dc-theme';
@@ -88,7 +88,13 @@
   }
 
   function waLink(msg) {
-    return 'https://wa.me/' + WHATSAPP + '?text=' + encodeURIComponent(msg);
+    var settingsEl = $('#site-settings-data');
+    var settings = {};
+    if (settingsEl) {
+      try { settings = JSON.parse(settingsEl.textContent) || {}; } catch (err) { settings = {}; }
+    }
+    var phone = String(settings.whatsapp || DEFAULT_WHATSAPP).replace(/\D/g, '');
+    return 'https://wa.me/' + phone + '?text=' + encodeURIComponent(msg);
   }
 
   /* ----------------------------------------------------------
@@ -202,6 +208,94 @@
           '</div>' +
         '</div>';
     }).join('');
+  }
+
+  function readJsonScript(id, fallback) {
+    var node = document.getElementById(id);
+    if (!node) return fallback;
+    try {
+      var value = JSON.parse(node.textContent);
+      return Array.isArray(value) ? value : fallback;
+    } catch (error) {
+      console.error('Could not read landing page data:', id, error);
+      return fallback;
+    }
+  }
+
+  function renderLatestCourses() {
+    var online = $('#online-courses-container');
+    var inperson = $('#inperson-courses-container');
+    var workshops = $('#inperson-workshops-container');
+    if (!online || !inperson || !workshops) return;
+
+    var courseItems = readJsonScript('landing-courses-data', []);
+    var inpersonCourseItems = readJsonScript('landing-inperson-courses-data', []);
+    var workshopItems = readJsonScript('landing-workshops-data', []);
+
+    function renderCourseCard(course) {
+      var image = course.image || course.cover || course.courseImage;
+      return '<a class="box" href="' + SITE.u('course', esc(course.id)) + '">' +
+        (image ? '<img src="' + esc(image) + '" alt="' + esc(course.title) + '" loading="lazy" decoding="async">' : '<div class="workshop-art">' + icon('book-open', 40) + '</div>') +
+        (course.price ? '<span class="price">' + esc(course.price) + '</span>' : '') +
+        '<div class="content"><h3 class="title">' + esc(course.title) + '</h3>' +
+        '<div class="info">' +
+        (course.duration ? '<h3>' + icon('clock', 13) + esc(course.duration) + '</h3>' : '') +
+        (course.period ? '<h3>' + icon('calendar', 13) + esc(course.period) + '</h3>' : '') +
+        '</div></div></a>';
+    }
+
+    var onlineLimit = 6;
+    var visibleCourses = courseItems.slice(0, onlineLimit);
+    online.innerHTML = visibleCourses.length
+      ? visibleCourses.map(renderCourseCard).join('')
+      : '<p class="course-tab-empty">لا توجد دورات أونلاين حالياً.</p>';
+    inperson.innerHTML = inpersonCourseItems.length
+      ? inpersonCourseItems.map(renderCourseCard).join('')
+      : '<p class="course-tab-empty">لا توجد دورات وجاهية حالياً.</p>';
+    var count = $('#online-courses-count');
+    var moreLink = $('#online-courses-more');
+    if (count) count.textContent = courseItems.length + ' دورة أونلاين';
+    if (moreLink) moreLink.setAttribute('aria-label', 'عرض جميع الدورات الأونلاين، العدد ' + courseItems.length);
+
+    workshops.innerHTML = workshopItems.length ? workshopItems.map(function (workshop) {
+      var date = workshop.startsAt ? new Date(workshop.startsAt) : null;
+      var dateLabel = date && !isNaN(date.getTime())
+        ? new Intl.DateTimeFormat('ar', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+        : '';
+      var duration = Number(workshop.durationMinutes);
+      var durationLabel = duration >= 60
+        ? Math.floor(duration / 60) + ' ساعة' + (duration % 60 ? ' و' + duration % 60 + ' دقيقة' : '')
+        : duration + ' دقيقة';
+      return '<article class="box workshop-card">' +
+        '<div class="workshop-art">' + icon('users', 40) + '</div>' +
+        '<div class="content"><h3 class="title">' + esc(workshop.title) + '</h3>' +
+        (workshop.description ? '<p>' + esc(workshop.description) + '</p>' : '') +
+        '<div class="info">' +
+        (dateLabel ? '<h3>' + icon('calendar', 13) + esc(dateLabel) + '</h3>' : '') +
+        (duration > 0 ? '<h3>' + icon('clock', 13) + esc(durationLabel) + '</h3>' : '') +
+        (workshop.location ? '<h3>' + icon('map-pin', 13) + esc(workshop.location) + '</h3>' : '') +
+        '</div></div></article>';
+    }).join('') : '<p class="course-tab-empty">لا توجد ورشات وجاهية حالياً.</p>';
+  }
+
+  function initCourseTabs() {
+    var tabs = $$('[data-course-tab]');
+    var panels = $$('[data-course-panel]');
+    if (!tabs.length || !panels.length) return;
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var selected = tab.getAttribute('data-course-tab');
+        tabs.forEach(function (item) {
+          var active = item === tab;
+          item.classList.toggle('is-active', active);
+          item.setAttribute('aria-selected', active ? 'true' : 'false');
+          item.tabIndex = active ? 0 : -1;
+        });
+        panels.forEach(function (panel) {
+          panel.hidden = panel.getAttribute('data-course-panel') !== selected;
+        });
+      });
+    });
   }
 
   /* ----------------------------------------------------------
@@ -414,6 +508,75 @@
       '<div class="bm-set">' + html + '</div>';
   }
 
+  function initServicesCarousel() {
+    var carousel = $('.svc-carousel');
+    var track = $('#servicesTrack', carousel);
+    if (!carousel || !track) return;
+    var duplicate = track.cloneNode(true);
+    duplicate.removeAttribute('id');
+    duplicate.setAttribute('aria-hidden', 'true');
+    duplicate.classList.add('svc-duplicate');
+    var marquee = document.createElement('div');
+    marquee.className = 'svc-marquee';
+    track.parentNode.insertBefore(marquee, track);
+    marquee.appendChild(duplicate);
+    marquee.appendChild(track);
+
+    var index = 0;
+    var timer = null;
+    var interval = 3200;
+    var mobile = window.matchMedia('(max-width: 768px)');
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    function stop() {
+      if (timer !== null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    }
+
+    function resetPosition() {
+      marquee.style.transition = 'none';
+      marquee.style.transform = 'translateX(' + (-track.offsetWidth) + 'px)';
+      void marquee.offsetWidth;
+      marquee.style.transition = '';
+    }
+
+    function advance() {
+      var firstCard = track.querySelector('.svc-card');
+      if (!firstCard) return;
+      var step = firstCard.getBoundingClientRect().width + parseFloat(getComputedStyle(track).columnGap || '0');
+      var count = track.querySelectorAll('.svc-card').length;
+      index += 1;
+      marquee.style.transform = 'translateX(' + (-track.offsetWidth + index * step) + 'px)';
+      if (index >= count) {
+        window.setTimeout(function () {
+          index = 0;
+          resetPosition();
+        }, 500);
+      }
+    }
+
+    function updateMode() {
+      stop();
+      index = 0;
+      marquee.style.transform = '';
+      if (!mobile.matches) return;
+      resetPosition();
+      if (reducedMotion.matches) return;
+      timer = window.setInterval(advance, interval);
+    }
+
+    carousel.addEventListener('mouseenter', stop);
+    carousel.addEventListener('mouseleave', updateMode);
+    carousel.addEventListener('focusin', stop);
+    carousel.addEventListener('focusout', updateMode);
+    mobile.addEventListener('change', updateMode);
+    reducedMotion.addEventListener('change', updateMode);
+    window.addEventListener('resize', updateMode);
+    updateMode();
+  }
+
   /* ----------------------------------------------------------
      نموذج التسجيل
      ---------------------------------------------------------- */
@@ -464,15 +627,15 @@
      ---------------------------------------------------------- */
   function storedTheme() {
     try {
+      var savedTheme = localStorage.getItem(THEME_KEY);
+      if (savedTheme === 'dark' || savedTheme === 'light') return savedTheme;
       var raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         var st = JSON.parse(raw);
-        if (st && st.ui && st.ui.theme) return st.ui.theme === 'dark' ? 'dark' : 'light';
+        if (st && st.ui && (st.ui.theme === 'dark' || st.ui.theme === 'light')) return st.ui.theme;
       }
     } catch (e) { /* ignore */ }
-    try {
-      return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light';
-    } catch (e) { return 'light'; }
+    return 'light';
   }
 
   /* ----------------------------------------------------------
@@ -482,10 +645,29 @@
     var msg = 'مرحبا اريد معلومات عن';
     var waTab = $('#waTabBtn');
     if (waTab) {
-      var go = function () { window.open(waLink(msg), '_blank'); };
-      waTab.addEventListener('click', go);
-      waTab.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      function syncWhatsappVisibility() {
+        waTab.classList.toggle('is-visible', window.scrollY > 80);
+      }
+      syncWhatsappVisibility();
+      window.addEventListener('scroll', syncWhatsappVisibility, { passive: true });
+
+      waTab.href = waLink(msg);
+      waTab.addEventListener('click', function (event) {
+        event.preventDefault();
+        openModal(
+          '<div class="m-emblem wa">' + icon('whatsapp', 34) + '</div>' +
+          '<h3 class="m-title" id="waConfirmTitle">التواصل عبر واتساب؟</h3>' +
+          '<p class="m-sub" id="waConfirmDescription">سيتم فتح واتساب في نافذة جديدة للتواصل مع فريق مركز داتا.</p>' +
+          '<div class="m-actions">' +
+            '<a class="m-btn m-btn-wa wa-confirm-continue" href="' + esc(waTab.href) + '" target="_blank" rel="noopener noreferrer">' +
+              icon('whatsapp', 18) + ' متابعة إلى واتساب</a>' +
+            '<button class="m-btn m-btn-cancel" type="button" data-close>إلغاء</button>' +
+          '</div>'
+        );
+        var dialog = $('.modal', modalWrap);
+        dialog.setAttribute('aria-labelledby', 'waConfirmTitle');
+        dialog.setAttribute('aria-describedby', 'waConfirmDescription');
+        $('.wa-confirm-continue', dialog).addEventListener('click', closeModal);
       });
     }
   }
@@ -511,10 +693,13 @@
     document.documentElement.setAttribute('data-theme', storedTheme());
 
     renderCourses();
+    renderLatestCourses();
+    initCourseTabs();
     initCourseCards();
     initSheet();
     initReviews();
     initBrands();
+    initServicesCarousel();
     initNav();
     initWhatsapp();
     initLoader();

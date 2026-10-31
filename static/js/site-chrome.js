@@ -45,6 +45,8 @@
   };
 
   function currentTabKey() {
+    var page = document.body.getAttribute('data-page');
+    if (page === 'home' || page === 'landing') return 'home';
     var f = (location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html?$/, '');
     return TAB_OF[f] || '';
   }
@@ -72,7 +74,7 @@
       '<span class="logo-text">' + esc(siteSettings().name || 'مركز داتا للتدريب والتطوير') + '</span>' +
       '</h1></a>' +
       '<nav class="navbar">' +
-      '<a href="' + SITE.u('landing') + '">الرئيسية</a>' +
+      '<a href="' + SITE.u('landing') + '"' + act(active, 'home') + '>الرئيسية</a>' +
       '<a href="' + SITE.u('courses') + '"' + act(active, 'courses') + '>الدورات</a>' +
       '<a href="' + SITE.u('projects') + '"' + act(active, 'projects') + '>المشاريع</a>' +
       '<a href="' + SITE.u('users') + '"' + act(active, 'users') + '>المستقلين</a>' +
@@ -106,6 +108,20 @@
       '</div>' +
       '<div id="coursesSheetList"></div>' +
       '</div></div>';
+  }
+
+  function syncActiveNavigation() {
+    var active = currentTabKey();
+    var links = document.querySelectorAll('.header .navbar a, .bottom-navbar a');
+    links.forEach(function (link) {
+      var key = '';
+      var href = link.getAttribute('href');
+      if (href === SITE.u('landing')) key = 'home';
+      else if (href === SITE.u('courses')) key = 'courses';
+      else if (href === SITE.u('projects')) key = 'projects';
+      else if (href === SITE.u('users')) key = 'users';
+      link.classList.toggle('active', !!key && active === key);
+    });
   }
 
   function footerHTML() {
@@ -291,6 +307,7 @@
     if (!document.getElementById('coursesSheetOverlay')) {
       document.body.insertAdjacentHTML('beforeend', sheetHTML());
     }
+    syncActiveNavigation();
     document.body.classList.add('has-tabbar');
 
     initSheet();

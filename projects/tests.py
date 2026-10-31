@@ -7,13 +7,21 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from users.models import User, UserRole
-from courses.models import Course, CourseProgress, CourseSection, CourseStatus, Lesson
+from courses.models import (
+    Course,
+    CourseProgress,
+    CourseSection,
+    CourseStatus,
+    Lesson,
+    TrainingCategory,
+)
 
 from .models import Project, ProjectImage, ProjectInteraction, ProjectStatus, ProjectVisibility
 
 
 class ProjectVisibilityTests(TestCase):
     def setUp(self):
+        TrainingCategory.objects.create(name='تقنية')
         self.trainer = User.objects.create_user(
             phone='059700001', password='pass1234', full_name='مدرب الظهور', role=UserRole.TRAINER
         )
@@ -46,6 +54,41 @@ class ProjectVisibilityTests(TestCase):
         )
         return res.json(), Project.objects.get(owner=user, title=payload['title'])
 
+    def test_project_save_rejects_categories_not_in_training_fields(self):
+        self.client.force_login(self.trainer)
+        for category in ('', 'فئة غير مسجلة'):
+            with self.subTest(category=category):
+                response = self.client.post(
+                    reverse('projects:save'),
+                    data=json.dumps({
+                        'id': '',
+                        'title': 'مشروع بدون فئة معتمدة',
+                        'category': category,
+                        'status': 'draft',
+                    }),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'invalid_category')
+        self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
+
+    def test_project_save_rejects_draft_without_title(self):
+        self.client.force_login(self.trainer)
+        for title in ('', '   '):
+            with self.subTest(title=title):
+                response = self.client.post(
+                    reverse('projects:save'),
+                    data=json.dumps({
+                        'id': '',
+                        'title': title,
+                        'status': 'draft',
+                    }),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'title_required')
+        self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
+
     def _publish_payload(self, **overrides):
         payload = {
             'id': '',
@@ -61,6 +104,32 @@ class ProjectVisibilityTests(TestCase):
         }
         payload.update(overrides)
         return payload
+
+    def test_trainer_without_content_permission_cannot_create_or_publish_projects(self):
+        self.trainer.can_publish_content = False
+        self.trainer.save(update_fields=['can_publish_content'])
+        self.client.force_login(self.trainer)
+
+        create_response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps(self._publish_payload()),
+            content_type='application/json',
+        )
+        self.assertEqual(create_response.status_code, 403)
+        self.assertEqual(create_response.json()['error'], 'content_creation_disabled')
+        self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
+        self.assertEqual(self.client.get(reverse('projects:create')).status_code, 403)
+
+        draft = Project.objects.create(owner=self.trainer, title='مسودة قائمة')
+        publish_response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps(self._publish_payload(id=draft.slug)),
+            content_type='application/json',
+        )
+        self.assertEqual(publish_response.status_code, 403)
+        self.assertEqual(publish_response.json()['error'], 'content_creation_disabled')
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, ProjectStatus.DRAFT)
 
     def test_publishing_rejects_missing_required_project_fields(self):
         self.client.force_login(self.trainer)
@@ -91,6 +160,41 @@ class ProjectVisibilityTests(TestCase):
             self.assertEqual(project.status, ProjectStatus.PUBLISHED)
             self.assertEqual(project.tags.count(), 3)
             self.assertTrue(project.cover)
+
+    def test_project_save_rejects_non_http_urls_for_github_and_demo(self):
+        self.client.force_login(self.trainer)
+        for field in ('github', 'demo'):
+            with self.subTest(field=field):
+                response = self.client.post(
+                    reverse('projects:save'),
+                    data=json.dumps({
+                        'title': 'مشروع روابط',
+                        'status': 'draft',
+                        field: 'javascript:alert(1)',
+                    }),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'invalid_project_url')
+                self.assertEqual(response.json()['field'], field)
+        self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
+
+    def test_project_save_accepts_http_and_https_urls(self):
+        self.client.force_login(self.trainer)
+        response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps({
+                'title': 'مشروع روابط',
+                'status': 'draft',
+                'github': 'https://github.com/example/project',
+                'demo': 'http://example.com/demo',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        project = Project.objects.get(slug=response.json()['id'])
+        self.assertEqual(project.github_url, 'https://github.com/example/project')
+        self.assertEqual(project.demo_url, 'http://example.com/demo')
 
     def test_publishing_requires_three_distinct_tags(self):
         project = Project.objects.create(
@@ -152,7 +256,13 @@ class ProjectVisibilityTests(TestCase):
     def test_projects_list_has_search_and_load_more_controls(self):
         response = self.client.get(reverse('projects:list'))
         self.assertContains(response, 'id="projectsSearch"')
+        self.assertContains(response, 'id="projectsCategoryTags"')
+        self.assertContains(response, 'id="projectsCategoryReset"')
+        self.assertNotContains(response, 'id="projectsCategoryFilter"')
         self.assertContains(response, 'id="projectsMore"')
+        self.assertEqual(response.context['projects_count'], len(response.context['projects_json']))
+        self.assertContains(response, '0+ مشروع')
+        self.assertContains(response, 'class="cd-title-badge-row"')
 
     def test_freelancer_profile_hides_courses_projects(self):
         Project.objects.create(
@@ -273,13 +383,21 @@ class ProjectVisibilityTests(TestCase):
         self.assertContains(response, 'id="edOwnerSearch"')
 
     def test_project_editor_has_project_details_and_responsive_templates_only(self):
+        category = TrainingCategory.objects.create(name='تصميم المنتجات')
         self.client.force_login(self.trainer)
 
         response = self.client.get(reverse('projects:create'))
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn(category.name, response.context['training_categories_json'])
+        self.assertContains(response, 'id="edCategorySearch"')
+        self.assertContains(response, 'id="edCategoryOptions"')
+        self.assertContains(response, 'id="edCategoryValidation"')
         content = response.content.decode()
         self.assertLess(content.index('id="edChecklist"'), content.index('editor-templates-desktop'))
+        self.assertIn('id="edChecklist" data-checklist-list', content)
+        self.assertIn('id="edProgressBar" data-checklist-bar', content)
+        self.assertIn('id="edProgressPct" data-checklist-pct', content)
         self.assertLess(content.index('editor-templates-desktop'), content.index('id="lblSummary"'))
         self.assertLess(content.index('id="edCoverHost"'), content.index('editor-templates-mobile'))
         self.assertIn('editor-checklist-box', content)
@@ -337,6 +455,21 @@ class ProjectVisibilityTests(TestCase):
         )
         res = self.client.get(reverse('projects:detail', kwargs={'pk': project.slug}))
         self.assertEqual(res.status_code, 404)
+
+    def test_admin_can_edit_any_project_from_its_detail_page(self):
+        project = Project.objects.create(
+            owner=self.trainer, title='مشروع المدرب', status=ProjectStatus.PUBLISHED
+        )
+        admin = User.objects.create_user(
+            phone='059700003', password='pass1234', full_name='مدير النظام',
+            role=UserRole.ADMIN,
+        )
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('projects:detail', kwargs={'pk': project.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['projects_json'][0]['adminCanEdit'])
 
     def test_published_course_project_details_are_reachable_from_public_course(self):
         course = Course.objects.create(

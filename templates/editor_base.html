@@ -22,6 +22,7 @@
   </div>
 
   <main class="container editor-page">
+    {{ training_categories_json|json_script:"training-categories-data" }}
     {% block editor_main %}{% endblock %}
   </main>
 {% endblock %}

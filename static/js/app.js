@@ -5,7 +5,9 @@
   var searchQuery = '';
   var activeTab = 'certificates';
   var skillsExpanded = false;
+  var trainerProjectVisibility = 'public';
   var lastGalleryDrag = 0;
+  var relatedCoursesAutoScroll = null;
   var certificateLanguage = 'ar';
 
   /* البيانات الحقيقية للمستخدم المسجّل (من السيرفر) تحل مكان بيانات العرض التوضيحي */
@@ -28,15 +30,20 @@
 
   /* هل المستخدم المسجّل مدرب؟ (يُبدَّل قسم الشهادات بقسم «الدورات التدريبية») */
   var IS_TRAINER = !!(SERVER_PROFILE && (SERVER_PROFILE.isTrainer || SERVER_PROFILE.roleKey === 'trainer'));
+  if (IS_TRAINER) activeTab = 'certificates';
 
   /* أزرار التعديل والحذف تظهر فقط لصاحب المشروع نفسه */
   function isOwner(p) {
     return !!(SERVER_PROFILE && SERVER_PROFILE.handle && p && p.handle && SERVER_PROFILE.handle === p.handle);
   }
 
+  function canManageProject(p) {
+    return !!(p && (p.adminCanEdit || isOwner(p)));
+  }
+
   /* الدورات: صاحب الدورة فقط يعدّلها ويحذفها (الدورات المحلية بلا handle تبقى كما كانت) */
   function canManageCourse(c) {
-    return !!(c && (!c.handle || isOwner(c)));
+    return !!(c && (c.adminCanManageCourse || !c.handle || isOwner(c)));
   }
 
   /* شهادات الطالب المكتسبة فعلياً (null لزائر غير مسجّل → بيانات العرض التوضيحي) */
@@ -181,6 +188,33 @@
     var isComingSoon = isCourse && !!c.comingSoon;
     var cardNavigation = ' data-goto="' + detailUrl + '"';
     var isDraftCourse = isCourse && c.status === 'draft';
+    var trainerStudentsAction = opts.trainerCourse
+      ? '<button class="btn-icon" data-act="trainer-course-students" data-id="' + e(c.id) +
+        '" title="' + e(t('trainerCourseStudents')) + '" aria-label="' + e(t('trainerCourseStudents')) + '">' +
+        UI.icon('users', 15) + '</button>'
+      : '';
+    var courseActions = opts.viewOnly || c.earned || !canManageCourse(c) ? '' :
+      '<div class="card-actions">' +
+        trainerStudentsAction +
+        '<button class="btn-icon" data-act="goto" data-url="' + SITE.u('courseEdit', e(c.id)) + '" title="' + e(t('edit')) + '">' + UI.icon('pencil', 15) + '</button>' +
+        (isCourse ? '' : '<button class="btn-icon danger" data-act="del-cert" data-id="' + e(c.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>') +
+      '</div>';
+    if (isCourse && opts.homeCourseCard) {
+      return '<article class="cert-card course-home-card' + (isComingSoon ? ' is-coming-soon' : '') + '"' +
+        cardNavigation + ' data-search="' + e((c.title + ' ' + c.category + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
+        courseActions +
+        '<div class="course-home-media">' +
+        (c.image
+          ? '<img class="course-home-image" src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">'
+          : '<div class="course-home-image-placeholder">' + UI.icon('book-open', 40) + '</div>') +
+        (isComingSoon ? '<span class="course-coming-soon-badge">' + e(t('courseComingSoon')) + '</span>' : '') +
+        '</div>' +
+        (c.price ? '<span class="course-home-price">' + e(c.price) + '</span>' : '') +
+        '<div class="course-home-content"><h3>' + e(c.title) + '</h3><div class="course-home-info">' +
+        (c.duration ? '<span>' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
+        (c.period ? '<span>' + UI.icon('calendar', 13) + e(c.period) + '</span>' : '') +
+        '</div></div></article>';
+    }
     var foot = isCourse
       ? '<div class="cert-foot">' +
           (c.duration ? '<span class="cert-meta">' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
@@ -190,10 +224,7 @@
         '</div>'
       : '<div class="cert-foot"><time>' + e(UI.formatDate(c.date)) + '</time><span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certVerified')) + '</span></div>';
     return '<article class="cert-card' + (isComingSoon ? ' is-coming-soon' : '') + '"' + cardNavigation + ' data-search="' + e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
-      (opts.viewOnly || c.earned || !canManageCourse(c) ? '' : '<div class="card-actions">' +
-          '<button class="btn-icon" data-act="goto" data-url="' + SITE.u('courseEdit', e(c.id)) + '" title="' + e(t('edit')) + '">' + UI.icon('pencil', 15) + '</button>' +
-      (isCourse ? '' : '<button class="btn-icon danger" data-act="del-cert" data-id="' + e(c.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>') +
-      '</div>') +
+      courseActions +
       '<div class="cert-thumb">' +
       (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">' : '') +
       '<span class="cert-cat">' + cat + '</span>' +
@@ -218,22 +249,25 @@
 
   function projCard(p, opts) {
     if (!opts || typeof opts !== 'object') opts = {};
-    var tags = (p.tags || []).slice(0, 3).map(function (x) { return '<span class="chip">' + e(x) + '</span>'; }).join('');
+    var projectTags = (p.tags || []).filter(Boolean);
+    var tags = projectTags.map(function (x) { return '<span class="chip">' + e(x) + '</span>'; }).join('');
+    var tagStrip = tags
+      ? '<div class="proj-tags" dir="' + (document.documentElement.dir || 'rtl') + '">' +
+        '<div class="proj-tags-track"><div class="proj-tags-group">' + tags + '</div></div></div>'
+      : '';
     var cover = p.cover ? '<img src="' + e(p.cover) + '" alt="" loading="lazy" decoding="async">' : '<div class="no-cover">' + UI.icon('layers', 34) + '</div>';
     var draft = p.status === 'draft' ? '<span class="chip warn" style="position:absolute;top:10px;inset-inline-start:10px;z-index:1">' + e(t('draft')) + '</span>' : '';
     var courseBadge = (p.visibility === 'courses' && p.status !== 'draft')
       ? '<span class="chip course-badge" style="position:absolute;top:10px;inset-inline-start:10px;z-index:1">' + UI.icon('award', 12) + ' ' + e(t('projectCourseBadge')) + '</span>'
       : '';
     return '<article class="proj-card" data-goto="' + projectDetailUrl(p.id) + '" data-search="' + e((p.title + ' ' + (p.summary || '') + ' ' + (p.tags || []).join(' ')).toLowerCase()) + '">' +
-      (!opts.viewOnly && isOwner(p) ? '<div class="card-actions">' +
+      (!opts.viewOnly && canManageProject(p) ? '<div class="card-actions">' +
       '<button class="btn-icon" data-act="goto" data-url="' + SITE.u('projectEdit', e(p.id)) + '" title="' + e(t('edit')) + '">' + UI.icon('pencil', 15) + '</button>' +
       '<button class="btn-icon danger" data-act="del-project" data-id="' + e(p.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>' +
       '</div>' : '') +
-      '<div class="proj-cover">' + cover + draft + courseBadge + '<div class="proj-tags">' + tags + '</div></div>' +
+      '<div class="proj-cover">' + cover + draft + courseBadge + tagStrip + '</div>' +
       '<div class="proj-body"><h3>' + e(p.title) + '</h3><p>' + e(p.summary || '') + '</p>' +
       '<div class="proj-meta">' +
-      '<span class="pm">' + UI.icon('calendar', 13) + e(UI.formatDate(p.date)) + '</span>' +
-      (p.role ? '<span class="pm">' + UI.icon('briefcase', 13) + e(p.role) + '</span>' : '') +
       (p.files && p.files.length ? '<span class="pm">' + UI.icon('file', 13) + p.files.length + '</span>' : '') +
       '</div></div>' +
       '<div class="proj-foot">' +
@@ -431,11 +465,10 @@
       '</div>' +
       (p.bio ? '<p class="bio">' + e(p.bio) + '</p>' : '') +
       '<div class="profile-meta">' +
-      (p.website ? '<a class="pm" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
+      (p.website ? '<a class="pm" data-act="confirm-profile-website" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
       (p.email ? '<span class="pm">' + UI.icon('message-circle', 14) + e(p.email) + '</span>' : '') +
-      '<span class="pm">' + UI.icon('calendar', 14) + e(t('joined')) + ' ' + e(UI.formatDate(p.joined)) + '</span>' +
       '</div></div>' +
-      (SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student'
+      (SERVER_PROFILE && typeof SERVER_PROFILE.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
           '<div class="referral-stat referral-stat-points">' +
           '<span class="referral-stat-icon referral-stat-star" aria-hidden="true">⭐</span>' +
@@ -448,18 +481,63 @@
         : '');
   }
 
+  function confirmProfileWebsiteOpen(url) {
+    var dialog = UI.modal({
+      title: t('websiteConfirmTitle'),
+      body: '<div class="website-confirm-content">' +
+        '<span class="website-confirm-icon" aria-hidden="true">' + UI.icon('external-link', 22) + '</span>' +
+        '<p class="modal-text">' + e(t('websiteConfirm')) + '</p>' +
+        '<span class="website-confirm-url" dir="ltr">' + e(url) + '</span>' +
+        '</div>',
+      footer: '<button class="btn btn-ghost" type="button" data-website-cancel>' + e(t('cancel')) + '</button>' +
+        '<button class="btn btn-primary" type="button" data-website-confirm>' +
+        UI.icon('external-link', 16) + e(t('websiteOpen')) + '</button>',
+      size: 'sm'
+    });
+    dialog.el.querySelector('[data-website-cancel]').addEventListener('click', dialog.close);
+    dialog.el.querySelector('[data-website-confirm]').addEventListener('click', function () {
+      dialog.close();
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
+  }
+
   function renderProfileTabs() {
     var host = document.getElementById('profileTabs');
     if (!host) return;
-    var tabs = [
-      {
-        id: 'certificates',
-        count: IS_TRAINER ? (Store.myCourses() || []).length : certStatCount(),
-        label: IS_TRAINER ? 'statTrainerCourses' : 'statCertificates',
-        icon: IS_TRAINER ? 'graduation-cap' : 'award'
-      },
-      { id: 'projects', count: Store.totals().projects, label: 'statProjects', icon: 'folder' }
-    ];
+    var tabs = [];
+    var trainerCertificates = IS_TRAINER ? (earnedCerts() || []) : [];
+    if (SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student') {
+      tabs.push({
+        id: 'active-courses',
+        count: Store.activeCourses().length,
+        label: 'studentActiveCourses',
+        icon: 'play'
+      });
+    }
+    tabs.push({
+      id: 'certificates',
+      count: IS_TRAINER ? trainerCertificates.length : certStatCount(),
+      label: 'studentProfileCertificates',
+      icon: 'award'
+    });
+    if (IS_TRAINER) {
+      tabs.push({
+        id: 'trainer-courses',
+        count: (Store.myCourses() || []).length,
+        label: 'trainerProfileCourses',
+        icon: 'graduation-cap'
+      });
+    }
+    tabs.push({
+        id: 'projects',
+        count: Store.totals().projects,
+        label: IS_TRAINER
+          ? 'trainerProfileProjects'
+          : (SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student'
+            ? 'studentProfileProjects'
+            : 'statProjects'),
+        icon: 'folder'
+      });
     if (SERVER_PROFILE) {
       tabs.push({
         id: 'saved',
@@ -481,17 +559,82 @@
     }).join('');
   }
 
+  function initSkillTagScroller(scroller) {
+    if (!scroller || scroller.dataset.skillScrollerInitialized === 'true') return;
+    scroller.dataset.skillScrollerInitialized = 'true';
+
+    var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var isRtl = window.getComputedStyle(scroller).direction === 'rtl';
+    var dragging = false;
+    var dragX = 0;
+    var dragScrollLeft = 0;
+    var pausedUntil = 0;
+    var hovering = false;
+    var direction = isRtl ? -1 : 1;
+    var previousTime = 0;
+
+    function pauseAutoScroll() {
+      pausedUntil = performance.now() + 2800;
+    }
+
+    scroller.addEventListener('pointerdown', function (event) {
+      if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      dragging = true;
+      dragX = event.clientX;
+      dragScrollLeft = scroller.scrollLeft;
+      scroller.classList.add('is-dragging');
+      scroller.setPointerCapture(event.pointerId);
+      pauseAutoScroll();
+    });
+
+    scroller.addEventListener('pointermove', function (event) {
+      if (!dragging) return;
+      scroller.scrollLeft = dragScrollLeft + (isRtl ? -1 : 1) * (event.clientX - dragX);
+    });
+
+    function endDrag() {
+      dragging = false;
+      scroller.classList.remove('is-dragging');
+    }
+
+    scroller.addEventListener('pointerup', endDrag);
+    scroller.addEventListener('pointercancel', endDrag);
+    scroller.addEventListener('mouseenter', function () { hovering = true; });
+    scroller.addEventListener('mouseleave', function () { hovering = false; });
+    scroller.addEventListener('wheel', pauseAutoScroll, { passive: true });
+    scroller.addEventListener('touchstart', pauseAutoScroll, { passive: true });
+
+    function animate(time) {
+      if (!scroller.isConnected) return;
+      if (scroller.scrollWidth > scroller.clientWidth && !reduceMotion && !document.hidden && !hovering && !dragging && time >= pausedUntil) {
+        if (previousTime) {
+          var maxScroll = scroller.scrollWidth - scroller.clientWidth;
+          var step = Math.min((time - previousTime) * 0.012, 1.2);
+          scroller.scrollLeft += direction * step;
+          if (!isRtl && scroller.scrollLeft >= maxScroll - 1) direction = -1;
+          else if (!isRtl && scroller.scrollLeft <= 1) direction = 1;
+          else if (isRtl && scroller.scrollLeft <= -maxScroll + 1) direction = 1;
+          else if (isRtl && scroller.scrollLeft >= -1) direction = -1;
+        }
+      }
+      previousTime = time;
+      window.requestAnimationFrame(animate);
+    }
+
+    window.requestAnimationFrame(animate);
+  }
+
   function renderSkills() {
     var skills = Store.collection('skills');
     var host = document.getElementById('skillsCard');
-    var shown = skillsExpanded ? skills : skills.slice(0, 4);
+    var shown = skills;
     host.innerHTML =
       '<div class="card-head">' +
       '<h2>' + UI.icon('zap', 17) + e(t('skills')) + '</h2>' +
       '<span class="spacer"></span>' +
       (skills.length > 4 ? '<button class="link-btn" data-act="toggle-skills">' + e(skillsExpanded ? t('showLess') : t('showAll')) + UI.icon('chevron-down', 14) + '</button>' : '') +
       '</div>' +
-      (skills.length ? '<div class="skills-grid ' + (skillsExpanded ? 'is-expanded' : 'is-collapsed') + '">' + shown.map(function (s) {
+      (skills.length ? '<div class="skills-grid ' + (skillsExpanded ? 'is-expanded' : 'is-collapsed skill-tags-scroll') + '">' + shown.map(function (s) {
         return '<div class="skill-item' + (skillsExpanded ? '' : ' skill-tag') + '">' +
           (skillsExpanded
             ? '<div class="skill-top"><span class="sk-name">' + e(s.name) + '</span><span class="sk-pct">' + (s.level || 0) + '%</span></div>' +
@@ -499,6 +642,7 @@
             : '<span class="sk-name">' + e(s.name) + '</span>') +
           '</div>';
       }).join('') + '</div>' : '<p class="tiny muted">' + e(t('skillsEmpty')) + '</p>');
+    if (!skillsExpanded) initSkillTagScroller(host.querySelector('.skill-tags-scroll'));
   }
 
   function syncProfileTabs() {
@@ -527,12 +671,44 @@
   }
 
   function renderPanels() {
+    var activeCoursesHost = document.getElementById('panel-active-courses');
+    if (activeCoursesHost && SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student') {
+      var activeCourses = Store.activeCourses().filter(matches);
+      activeCoursesHost.innerHTML = activeCourses.length
+        ? '<div class="card-grid profile-course-grid">' + activeCourses.map(function (course) {
+            return certCard(course, { course: true, homeCourseCard: true });
+          }).join('') + '</div>'
+        : UI.emptyState('play', searchQuery ? t('emptySearch') : t('activeCoursesEmpty'),
+          searchQuery ? '' : t('activeCoursesEmptySub'),
+          searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('courses') + '">' + UI.icon('play', 16) + e(t('myCertsCta')) + '</a>');
+    }
+
     if (IS_TRAINER) {
       var myCourses = (Store.myCourses() || []).filter(matches);
-      document.getElementById('panel-certificates').innerHTML = myCourses.length
-        ? '<div class="card-grid profile-course-grid">' + myCourses.map(function (c) { return certCard(c, { course: true }); }).join('') + '</div>'
+      document.getElementById('panel-trainer-courses').innerHTML = myCourses.length
+        ? '<div class="card-grid profile-course-grid">' + myCourses.map(function (c) {
+            return certCard(c, { course: true, trainerCourse: true });
+          }).join('') + '</div>'
         : UI.emptyState('graduation-cap', searchQuery ? t('emptySearch') : t('trainerCoursesEmpty'), searchQuery ? '' : t('trainerCoursesEmptySub'),
           searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('courseCreate') + '">' + UI.icon('plus', 16) + e(t('addCourse')) + '</a>');
+      var allTrainerCerts = earnedCerts() || [];
+      var trainerCerts = allTrainerCerts.filter(matches);
+      var certificateAddButton = '<button class="btn btn-primary" data-act="new-cert">' +
+        UI.icon('plus', 15) + e(t('addCert')) + '</button>';
+      document.getElementById('panel-certificates').innerHTML = !allTrainerCerts.length
+        ? '<div class="trainer-certificates-empty">' +
+          UI.emptyState('award', t('certEmpty'), t('certEmptySub'), certificateAddButton) +
+          '</div>'
+        : '<div class="trainer-certificates-toolbar">' + certificateAddButton + '</div>' +
+          (trainerCerts.length
+          ? '<div class="card-grid profile-certificate-grid">' + trainerCerts.map(function (cert) {
+            if (cert.workshop) return workshopCertificateCard(cert);
+            return cert.manual
+              ? certCard(cert, { manualImage: true })
+              : certCard(cert, { returnTo: location.pathname + location.search + location.hash, imageOnly: true });
+          }).join('') + '</div>'
+          : UI.emptyState('award', searchQuery ? t('emptySearch') : t('certEmpty'),
+            searchQuery ? '' : t('certEmptySub')));
 
       renderOtherPanels();
 
@@ -569,6 +745,56 @@
     syncProfileTabs();
   }
 
+  function openTrainerCourseStudents(courseId) {
+    var course = (Store.myCourses() || []).filter(function (item) {
+      return String(item.id) === String(courseId);
+    })[0];
+    if (!course) return;
+
+    var modal = UI.modal({
+      title: t('trainerCourseStudents') + ' — ' + course.title,
+      size: 'md',
+      body: '<p class="tiny muted">' + e(t('trainerCourseStudentsLoading')) + '</p>'
+    });
+    fetch(SITE.u('trainerCourseStudents', course.id), { credentials: 'same-origin' })
+      .then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) {
+            throw new Error(data.message || t('trainerCourseStudentsError'));
+          }
+          return data;
+        });
+      })
+      .then(function (data) {
+        if (!modal.el.isConnected) return;
+        modal.body.innerHTML = data.students.length
+          ? '<div class="trainer-course-students-list">' + data.students.map(function (student) {
+            var percent = Math.max(0, Math.min(100, Number(student.progress) || 0));
+            var progressText = t('trainerCourseLessonsProgress')
+              .replace('{{done}}', String(student.completedLessons))
+              .replace('{{total}}', String(student.totalLessons));
+            if (student.completed) progressText = t('trainerCourseComplete');
+            return '<article class="trainer-course-student">' +
+              UI.avatarOf({ name: student.name, avatar: student.avatar }, 42) +
+              '<div class="trainer-course-student-main"><div class="trainer-course-student-heading">' +
+              '<b>' + e(student.name) + '</b>' +
+              (student.handle ? '<span dir="ltr">@' + e(student.handle) + '</span>' : '') +
+              '</div><div class="trainer-course-progress-label"><span>' +
+              e(t('trainerCourseProgress')) + '</span><b>' + percent + '%</b></div>' +
+              '<div class="trainer-course-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
+              percent + '"><span style="width:' + percent + '%"></span></div>' +
+              '<small>' + e(progressText) + '</small></div></article>';
+          }).join('') + '</div>'
+          : '<p class="tiny muted">' + e(t('trainerCourseStudentsEmpty')) + '</p>';
+      })
+      .catch(function (error) {
+        if (modal.el.isConnected) {
+          modal.body.innerHTML = '<p class="tiny muted">' +
+            e(error.message || t('trainerCourseStudentsError')) + '</p>';
+        }
+      });
+  }
+
   function workshopCertificateCard(certificate) {
     return '<article class="cert-card cert-card-preview workshop-certificate-preview" data-goto="' +
       e(SITE.u('certificate', certificate.id)) + '" aria-label="' +
@@ -583,19 +809,48 @@
 
   /* Project and saved-project panels on the personal portfolio. */
   function renderOtherPanels() {
-    var projs = filterItems('projects');
+    var allProjects = Store.collection('projects');
+    var trainerProjects = allProjects;
+    var projects = trainerProjects;
+    if (IS_TRAINER && trainerProjectVisibility !== 'all') {
+      projects = trainerProjects.filter(function (project) {
+        return project.visibility === trainerProjectVisibility;
+      });
+    }
+    var projs = projects.filter(matches);
     var savedProjects = filterItems('savedProjects');
-
-    document.getElementById('panel-projects').innerHTML = projs.length
+    var filterControl = IS_TRAINER
+      ? '<div class="row gap-12" style="justify-content:flex-end;margin-bottom:16px"><select class="input" id="trainerProjectVisibilityFilter" aria-label="' + e(t('trainerProjectFilterLabel')) + '" style="width:auto;min-width:190px">' +
+        '<option value="all"' + (trainerProjectVisibility === 'all' ? ' selected' : '') + '>' + e(t('trainerProjectFilterAll')) + ' (' + trainerProjects.length + ')</option>' +
+        '<option value="public"' + (trainerProjectVisibility === 'public' ? ' selected' : '') + '>' + e(t('trainerProjectFilterPublic')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'public'; }).length + ')</option>' +
+        '<option value="courses"' + (trainerProjectVisibility === 'courses' ? ' selected' : '') + '>' + e(t('trainerProjectFilterCourses')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'courses'; }).length + ')</option>' +
+        '</select></div>'
+      : '';
+    var projectContent = projs.length
       ? '<div class="card-grid profile-project-grid">' + projs.map(function (p) { return projCard(p); }).join('') + '</div>'
       : UI.emptyState('folder', searchQuery ? t('emptySearch') : t('projEmpty'), searchQuery ? '' : t('projEmptySub'),
         searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('projectCreate') + '">' + UI.icon('plus', 16) + e(t('addProject')) + '</a>');
+    document.getElementById('panel-projects').innerHTML = filterControl + projectContent;
+
+    var trainerProjectFilter = document.getElementById('trainerProjectVisibilityFilter');
+    if (trainerProjectFilter) {
+      trainerProjectFilter.addEventListener('change', function () {
+        trainerProjectVisibility = trainerProjectFilter.value;
+        renderOtherPanels();
+      });
+    }
 
     var savedHost = document.getElementById('panel-saved');
     if (savedHost) {
       savedHost.innerHTML = savedProjects.length
         ? '<div class="card-grid profile-project-grid profile-saved-grid">' + savedProjects.map(function (p) { return projCard(p, { viewOnly: true }); }).join('') + '</div>'
-        : UI.emptyState('bookmark', searchQuery ? t('emptySearch') : t('savedProjectsEmpty'), searchQuery ? '' : t('savedProjectsEmptySub'), '');
+        : UI.emptyState(
+          'bookmark',
+          searchQuery ? t('emptySearch') : t('savedProjectsEmpty'),
+          searchQuery ? '' : t('savedProjectsEmptySub'),
+          searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('projects') + '">' +
+            UI.icon('folder', 16) + e(t('browseProjects')) + '</a>'
+        );
     }
   }
 
@@ -625,9 +880,12 @@
     if (!fab) return;
     fab.innerHTML = UI.icon('plus', 24);
     menu.innerHTML =
-      '<button class="fab-item" data-act="goto" data-url="' + SITE.u('projectCreate') + '">' + UI.icon('folder', 17) + e(t('createProjectCta')) + '</button>' +
-      (IS_TRAINER
-        ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('courseCreate') + '">' + UI.icon('graduation-cap', 17) + e(t('createCourseCta')) + '</button>'
+      (!IS_TRAINER || !SERVER_PROFILE || SERVER_PROFILE.canPublishContent !== false
+        ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('projectCreate') + '">' + UI.icon('folder', 17) + e(t('createProjectCta')) + '</button>'
+        : '') +
+      (IS_TRAINER && (!SERVER_PROFILE || SERVER_PROFILE.canPublishContent !== false)
+        ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('courseCreate') + '">' + UI.icon('graduation-cap', 17) + e(t('createCourseCta')) + '</button>' +
+          '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>'
         : '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>') +
       (SERVER_PROFILE && SERVER_PROFILE.canScanWorkshops && window.WorkshopScanner
         ? WorkshopScanner.menuItemHTML() + WorkshopScanner.panelHTML()
@@ -832,6 +1090,10 @@
     var gotoEl = target.closest('[data-goto]');
     var actEl = target.closest('[data-act]');
     var act = actEl && actEl.getAttribute('data-act');
+    if (gotoEl && target.closest('.cd-related-scroll, .related-projects-scroll, .proj-tags') && Date.now() - lastGalleryDrag < 320) {
+      ev.preventDefault();
+      return;
+    }
 
     if (!target.closest('.post-menu') && !target.closest('[data-act="menu"]') &&
       !target.closest('.share-menu') && !target.closest('[data-act="share-menu"]') &&
@@ -842,6 +1104,8 @@
       act === 'focus-comment' || act === 'like-stats' || act === 'share' || act === 'del-post' ||
       act === 'del-cert' || act === 'edit-cert' || act === 'del-project' || act === 'tab' ||
       act === 'toggle-skills' || act === 'edit-profile' || act === 'share-profile' ||
+      act === 'confirm-profile-website' ||
+      act === 'trainer-course-students' ||
       act === 'new-cert' || act === 'search-tag' || act === 'copy-id' || act === 'lightbox' ||
       act === 'print-cert' || act === 'certificate-language' ||
       act === 'del-file' || act === 'like-post-detail' || act === 'save-post-detail' ||
@@ -886,37 +1150,20 @@
     }
 
     switch (act) {
+      case 'confirm-profile-website':
+        confirmProfileWebsiteOpen(actEl.href);
+        break;
+
       case 'goto':
         location.href = actEl.getAttribute('data-url');
         break;
 
+      case 'trainer-course-students':
+        openTrainerCourseStudents(actEl.getAttribute('data-id'));
+        break;
+
       case 'enroll-course': {
         confirmCourseRegistration(actEl.getAttribute('data-title') || '');
-        break;
-      }
-
-      case 'redeem-course-points': {
-        UI.confirm('هل تريد استبدال 100 نقطة والحصول على اشتراك مجاني في هذه الدورة؟').then(function (ok) {
-          if (!ok) return;
-          fetch(actEl.getAttribute('data-url'), {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'X-CSRFToken': csrfToken(), 'X-Requested-With': 'XMLHttpRequest' }
-          }).then(function (response) {
-            return response.json().then(function (data) {
-              return { ok: response.ok, data: data };
-            });
-          }).then(function (result) {
-            if (!result.ok || !result.data.ok) {
-              UI.toast(result.data.error || t('required'), 'error');
-              return;
-            }
-            UI.toast('تم استبدال النقاط وتفعيل اشتراكك في الدورة.', 'success');
-            location.reload();
-          }).catch(function () {
-            UI.toast(t('required'), 'error');
-          });
-        });
         break;
       }
 
@@ -1273,25 +1520,10 @@
 
   /* ---------- carousel / gallery row: mouse drag (touch uses native scroll) ---------- */
   (function () {
-    var SEL = '.mc-track, .gallery-row';
+    var SEL = '.mc-track, .gallery-row, .cd-related-scroll, .related-projects-scroll, .proj-tags';
     var drag = null;
     var touch = null;
 
-    var rtlModelCache = 0;
-    function rtlScrollModel(el) {
-      if (rtlModelCache) return rtlModelCache;
-      var prev = el.scrollLeft;
-      var prevSnap = el.style.scrollSnapType;
-      el.style.scrollSnapType = 'none';
-      el.scrollLeft = -1;
-      rtlModelCache = el.scrollLeft < 0 ? -1 : 1;
-      el.scrollLeft = prev;
-      el.style.scrollSnapType = prevSnap;
-      return rtlModelCache;
-    }
-    function dragMult(track) {
-      return 1;
-    }
     function snapSign(track) {
       return -1;
     }
@@ -1300,11 +1532,18 @@
       if (ev.button !== 0) return;
       var track = ev.target.closest(SEL);
       if (!track) return;
+      if (window.innerWidth > 720 && track.matches('.cd-related-scroll, .related-projects-scroll')) return;
       if (ev.target.closest('video') || ev.target.closest('.lb-img')) return;
       var btn = ev.target.closest('button');
       if (btn && !btn.classList.contains('gal-item')) return;
       ev.preventDefault();
-      drag = { track: track, x: ev.clientX, left: track.scrollLeft, moved: false, mult: dragMult(track) };
+      drag = {
+        track: track,
+        x: ev.clientX,
+        left: track.matches('.cd-related-scroll, .related-projects-scroll, .proj-tags') ? relatedScrollPosition(track) : track.scrollLeft,
+        moved: false,
+        mult: track.classList.contains('gallery-row') ? -1 : 1
+      };
       track.style.scrollSnapType = 'none';
       track.classList.add('dragging');
     });
@@ -1313,7 +1552,9 @@
       if (!drag) return;
       var dx = ev.clientX - drag.x;
       if (Math.abs(dx) > 4) drag.moved = true;
-      drag.track.scrollLeft = drag.left + drag.mult * dx;
+      var position = drag.left + drag.mult * dx;
+      if (drag.track.matches('.cd-related-scroll, .related-projects-scroll, .proj-tags')) relatedSetScrollPosition(drag.track, position);
+      else drag.track.scrollLeft = position;
     });
 
     document.addEventListener('mouseup', function () {
@@ -1377,12 +1618,14 @@
     if (!url || url === '/') { onFail('no-endpoint'); return; }
     var fd = new FormData();
     fd.append('full_name', payload.name || '');
-    if (IS_TRAINER) {
+    if (IS_TRAINER || payload.isTrainerTarget) {
       fd.append('trainer_name_en', payload.trainerNameEnglish || '');
     } else {
       fd.append('full_name_ar', payload.fullNameArabic || '');
       fd.append('full_name_en', payload.fullNameEnglish || '');
     }
+    fd.append('whatsapp', payload.whatsapp || '');
+    fd.append('profile_form', '1');
     fd.append('handle', (payload.handle || '').replace(/^@/, ''));
     fd.append('headline', payload.title || '');
     fd.append('bio', payload.bio || '');
@@ -1390,6 +1633,7 @@
     fd.append('email', payload.email || '');
     if (payload.github) fd.append('github', payload.github);
     fd.append('skills', JSON.stringify(payload.skills || []));
+    if (payload.targetUserId) fd.append('target_user_id', String(payload.targetUserId));
     if (payload.avatarData && payload.avatarData.indexOf('data:image') === 0) {
       fd.append('avatar_data', payload.avatarData);
     }
@@ -1407,9 +1651,13 @@
     }).catch(function () { onFail('network'); });
   }
 
-  function openProfileModal() {
-    var p = Object.assign({}, Store.state.profile);
-    var skills = Store.collection('skills').map(function (s) { return Object.assign({}, s); });
+  function openProfileModal(targetProfile) {
+    var isAdminTarget = !!(targetProfile && targetProfile.adminTargetUserId);
+    var p = Object.assign({}, isAdminTarget ? targetProfile : Store.state.profile);
+    var isTargetTrainer = isAdminTarget ? !!p.isTrainer : IS_TRAINER;
+    var skills = isAdminTarget
+      ? (p.skillsWithLevels || []).map(function (skill) { return Object.assign({}, skill); })
+      : Store.collection('skills').map(function (s) { return Object.assign({}, s); });
     var avatarDraft = p.avatar || '';
 
     var bioInitial = (p.bio || '').slice(0, 150);
@@ -1424,16 +1672,18 @@
       '</div>' +
       '<div class="field"><label class="label">' + e(t('fieldName')) + '</label><input class="input" id="peName" value="' + e(p.name) + '">' +
       '<p class="hint" id="peNameHint"></p></div>' +
-      (IS_TRAINER
+      (isTargetTrainer
         ? '<div class="field"><label class="label">اسم المدرب بالإنجليزية</label><input class="input" id="peTrainerNameEnglish" dir="ltr" autocomplete="name" maxlength="200" value="' + e(p.trainerNameEnglish || p.fullNameEnglish || '') + '" placeholder="Example: Ahmad Khaled">' +
           '<p class="hint">يظهر هذا الاسم على النسخة الإنجليزية من شهادات دوراتك.</p></div>'
-        : '<div class="field"><label class="label">الاسم الكامل بالعربية (3–6 كلمات)</label><input class="input" id="peFullNameArabic" dir="rtl" autocomplete="name" value="' + e(p.fullNameArabic || '') + '" placeholder="أحمد محمد خالد عبد الرحمن الحسن"' + (p.fullNameArabic ? ' disabled' : '') + '>' +
-          '<p class="hint">يُحفظ مرة واحدة ويظهر على النسخة العربية من شهاداتك.</p></div>' +
-          '<div class="field"><label class="label">الاسم الكامل بالإنجليزية (3–6 كلمات)</label><input class="input" id="peFullNameEnglish" dir="ltr" autocomplete="name" value="' + e(p.fullNameEnglish || '') + '" placeholder="Ahmad Mohammad Khaled Abdul Rahman Alhasan"' + (p.fullNameEnglish ? ' disabled' : '') + '>' +
-          '<p class="hint">يُحفظ مرة واحدة ويظهر على النسخة الإنجليزية من شهاداتك.</p></div>') +
+        : '<div class="field"><label class="label">الاسم الكامل بالعربية</label><input class="input" id="peFullNameArabic" dir="rtl" lang="ar" autocomplete="name" maxlength="150" value="' + e(p.fullNameArabic || '') + '" placeholder="أحمد محمد خالد عبد الرحمن الحسن"' + (p.fullNameArabic && !isAdminTarget ? ' disabled' : '') + '>' +
+          '<p class="hint">' + (isAdminTarget ? 'يمكنك تعديل الاسم من حساب الأدمن في أي وقت.' : 'يُحفظ مرة واحدة ويظهر على النسخة العربية من شهاداتك.') + '</p></div>' +
+          '<div class="field"><label class="label">الاسم الكامل بالإنجليزية</label><input class="input" id="peFullNameEnglish" dir="ltr" lang="en" autocomplete="name" maxlength="150" value="' + e(p.fullNameEnglish || '') + '" placeholder="Ahmad Mohammad Khaled Abdul Rahman Alhasan"' + (p.fullNameEnglish && !isAdminTarget ? ' disabled' : '') + '>' +
+          '<p class="hint">' + (isAdminTarget ? 'يمكنك تعديل الاسم من حساب الأدمن في أي وقت.' : 'يُحفظ مرة واحدة ويظهر على النسخة الإنجليزية من شهاداتك.') + '</p></div>') +
       '<div class="field"><label class="label">' + e(t('fieldTitle')) + '</label><input class="input" id="peTitle" maxlength="35" value="' + e(titleInitial) + '"></div>' +
-      '<div class="field"><label class="label">' + e(t('fieldEmail')) + ' <span class="opt">(' + e(t('optional')) + ')</span></label><input class="input" id="peEmail" type="email" dir="ltr" placeholder="name@example.com" value="' + e(p.email || '') + '">' +
+      '<div class="field"><label class="label">' + e(t('fieldEmail')) + ' <span class="req">*</span></label><input class="input" id="peEmail" type="email" dir="ltr" required autocomplete="email" placeholder="name@example.com" value="' + e(p.email || '') + '">' +
       '<p class="hint" id="peEmailHint"></p></div>' +
+      '<div class="field"><label class="label">' + e(t('fieldWhatsapp')) + ' <span class="req">*</span></label><input class="input" id="peWhatsapp" type="tel" dir="ltr" inputmode="tel" required maxlength="13" pattern="\\+?[0-9]{1,12}" value="' + e(p.whatsapp || '') + '" placeholder="+970599999999">' +
+      '<p class="hint" id="peWhatsappHint"></p></div>' +
       '<div class="field"><label class="label">' + e(t('fieldBio')) + '</label>' +
       '<textarea class="textarea" id="peBio" rows="3" maxlength="150">' + e(bioInitial) + '</textarea>' +
       '<p class="hint" id="peBioCount"></p></div>' +
@@ -1453,6 +1703,7 @@
       footer: '<button class="btn btn-ghost" id="peCancel">' + e(t('cancel')) + '</button>' +
         '<button class="btn btn-primary" id="peSave">' + UI.icon('check', 15) + e(t('saveChanges')) + '</button>'
     });
+    m.body.classList.add('pe-profile-edit');
 
     var MAX_SKILLS = 8;
 
@@ -1524,14 +1775,34 @@
     var nameHintEl = m.body.querySelector('#peNameHint');
     var emailEl = m.body.querySelector('#peEmail');
     var emailHintEl = m.body.querySelector('#peEmailHint');
+    var fullNameArabicEl = m.body.querySelector('#peFullNameArabic');
+    var fullNameEnglishEl = m.body.querySelector('#peFullNameEnglish');
     var websiteEl = m.body.querySelector('#peWebsite');
     var websiteHintEl = m.body.querySelector('#peWebsiteHint');
+    var whatsappEl = m.body.querySelector('#peWhatsapp');
+    var whatsappHintEl = m.body.querySelector('#peWhatsappHint');
     var saveEl = m.el.querySelector('#peSave');
 
     var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
     var URL_RE = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}([:/?#]\S*)?$/i;
 
-    var nameValid = true, emailValid = true, websiteValid = true;
+    var nameValid = true, emailValid = false, websiteValid = true, whatsappValid = false;
+
+    function restrictNameCharacters(input, allowedPattern) {
+      if (!input) return;
+      input.addEventListener('input', function () {
+        var start = input.selectionStart;
+        var original = input.value;
+        var sanitized = original.replace(allowedPattern, '');
+        if (sanitized === original) return;
+        var removedBeforeCursor = original.slice(0, start).replace(allowedPattern, '').length;
+        input.value = sanitized;
+        input.setSelectionRange(start - removedBeforeCursor, start - removedBeforeCursor);
+      });
+    }
+
+    restrictNameCharacters(fullNameArabicEl, /[^\p{Script=Arabic}\p{M}\s]/gu);
+    restrictNameCharacters(fullNameEnglishEl, /[^A-Za-z\s'-]/g);
 
     function setHint(el, msg, cls) {
       el.textContent = msg;
@@ -1540,7 +1811,7 @@
     }
 
     function refreshSave() {
-      saveEl.disabled = !(nameValid && emailValid && websiteValid);
+      saveEl.disabled = !(nameValid && emailValid && websiteValid && whatsappValid);
     }
 
     function nameWordCount() {
@@ -1560,10 +1831,9 @@
 
     function checkEmailLive() {
       var v = emailEl.value.trim();
-      emailValid = true;
-      if (!v) setHint(emailHintEl, '', '');
-      else if (EMAIL_RE.test(v)) setHint(emailHintEl, t('emailValid'), 'ok');
-      else { setHint(emailHintEl, t('emailInvalid'), 'error'); emailValid = false; }
+      emailValid = EMAIL_RE.test(v);
+      if (emailValid) setHint(emailHintEl, t('emailValid'), 'ok');
+      else setHint(emailHintEl, t('emailInvalid'), 'error');
       refreshSave();
       return emailValid;
     }
@@ -1578,12 +1848,26 @@
       return websiteValid;
     }
 
+    function checkWhatsappLive() {
+      var value = whatsappEl.value.trim();
+      whatsappValid = /^\+?[0-9]{1,12}$/.test(value);
+      setHint(
+        whatsappHintEl,
+        whatsappValid ? '' : (value ? t('whatsappInvalid') : t('whatsappRequired')),
+        whatsappValid ? '' : 'error'
+      );
+      refreshSave();
+      return whatsappValid;
+    }
+
     nameEl.addEventListener('input', checkNameLive);
     emailEl.addEventListener('input', checkEmailLive);
     websiteEl.addEventListener('input', checkWebsiteLive);
+    whatsappEl.addEventListener('input', checkWhatsappLive);
     checkNameLive();
     checkEmailLive();
     checkWebsiteLive();
+    checkWhatsappLive();
 
     m.body.querySelector('#peAvatarBtn').addEventListener('click', function () { m.body.querySelector('#peAvatarFile').click(); });
     m.body.querySelector('#peAvatarFile').addEventListener('change', function (ev) {
@@ -1604,12 +1888,13 @@
       if (!checkNameLive()) { nameEl.focus(); return; }
       if (!checkEmailLive()) { emailEl.focus(); return; }
       if (!checkWebsiteLive()) { websiteEl.focus(); return; }
+      if (!checkWhatsappLive()) { whatsappEl.focus(); return; }
       var cleanSkills = skills.filter(function (s) { return s.name && s.name.trim(); }).map(function (s) {
         return { id: s.id || Store.uid('sk'), name: s.name.trim(), level: s.level || 50 };
       });
-      var fullNameArabic = IS_TRAINER ? '' : m.body.querySelector('#peFullNameArabic').value.trim();
-      var fullNameEnglish = IS_TRAINER ? '' : m.body.querySelector('#peFullNameEnglish').value.trim();
-      var trainerNameEnglish = IS_TRAINER
+      var fullNameArabic = isTargetTrainer ? '' : m.body.querySelector('#peFullNameArabic').value.trim();
+      var fullNameEnglish = isTargetTrainer ? '' : m.body.querySelector('#peFullNameEnglish').value.trim();
+      var trainerNameEnglish = isTargetTrainer
         ? m.body.querySelector('#peTrainerNameEnglish').value.trim()
         : '';
       var payload = {
@@ -1621,12 +1906,21 @@
         bio: m.body.querySelector('#peBio').value.trim(),
         website: m.body.querySelector('#peWebsite').value.trim(),
         email: m.body.querySelector('#peEmail').value.trim(),
+        whatsapp: whatsappEl ? whatsappEl.value.trim() : '',
         avatarData: avatarDraft,
-        skills: cleanSkills
+        skills: cleanSkills,
+        isTrainerTarget: isTargetTrainer,
+        targetUserId: isAdminTarget ? p.adminTargetUserId : null
       };
 
       btn.disabled = true;
       submitProfileUpdate(payload, function (res) {
+        if (isAdminTarget) {
+          m.close();
+          UI.toast(t('savedOk'), 'success');
+          location.reload();
+          return;
+        }
         var prof = res.profile || {};
         Store.updateProfile({
           name: prof.name || name,
@@ -1639,6 +1933,7 @@
           location: typeof prof.location === 'string' ? prof.location : (p.location || ''),
           website: typeof prof.website === 'string' ? prof.website : (p.website || ''),
           email: prof.email || payload.email,
+          whatsapp: typeof prof.whatsapp === 'string' ? prof.whatsapp : payload.whatsapp,
           verified: !!prof.verified,
           avatar: prof.avatar || avatarDraft,
           socials: prof.socials || (p.socials || {})
@@ -1651,6 +1946,9 @@
       }, function (err) {
         btn.disabled = false;
         if (err === 'invalid_name') UI.toast(t('nameInvalid'), 'error');
+        else if (err === 'invalid_email') UI.toast(t('emailInvalid'), 'error');
+        else if (err === 'required_whatsapp') UI.toast(t('whatsappRequired'), 'error');
+        else if (err === 'invalid_whatsapp') UI.toast(t('whatsappInvalid'), 'error');
         else if (err === 'legal_name_pair_required' || err === 'invalid_legal_name') UI.toast('أدخل الاسم بالعربية والإنجليزية، من ثلاث إلى ست كلمات لكل لغة.', 'error');
         else if (err === 'legal_name_locked') UI.toast('لا يمكن تعديل الاسم الثلاثي بعد حفظه.', 'error');
         else if (err === 'login') UI.toast(t('loginRequiredSave'), 'error');
@@ -1875,6 +2173,16 @@
       '>' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(label || t('back')) + '</a>';
   }
 
+  function safeExternalUrl(value) {
+    if (!value) return '';
+    try {
+      var url = new URL(value);
+      return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
   /* ---------- detail: certificate ---------- */
 
   function renderEarnedCertificate(host, c) {
@@ -1894,6 +2202,8 @@
     var certificateDuration = isEnglish
       ? (c.durationEnglish || '')
       : (c.duration || '');
+    var courseSummary = String(c.summary || c.description || '').trim();
+    var verificationUrl = c.workshop ? '' : safeExternalUrl(c.verifyUrl);
     var skills = c.skills || [];
     var heroImg = c.courseImage || c.image || '';
     var code = c.certificateCode || c.code || c.credentialId || '';
@@ -1937,6 +2247,15 @@
       earnedCertificateSheet(c, studentName, false, certificateLanguage) +
       (code ? '<div class="cert-code-row"><span class="lbl">' + e(t('certPageCode')) + '</span>' +
         '<span class="cert-code" dir="ltr">' + e(code) + '</span></div>' : '') +
+      (!c.workshop && c.credentialId
+        ? '<div class="cert-code-row"><span class="lbl">' + e(t('certId')) + '</span>' +
+          '<span class="cert-code" dir="ltr">' + e(c.credentialId) + '</span></div>'
+        : '') +
+      (verificationUrl
+        ? '<a class="btn btn-ghost" style="margin-top:12px" href="' + e(verificationUrl) +
+          '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) +
+          e(t('certVerify')) + '</a>'
+        : '') +
       '</section>' +
 
       (c.workshop ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('calendar', 18) +
@@ -1961,10 +2280,10 @@
       }).join('') + '</div>' +
       '</section>' : '') +
 
-      (c.description ?
+      (courseSummary ?
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('file-text', 18) + e(t('certPageAbout')) + '</h2>' +
-      '<div class="prose"><p>' + e(c.description) + '</p></div>' +
+      '<div class="prose"><p>' + e(courseSummary) + '</p></div>' +
       '</section>' : '') +
       '</div>' +
 
@@ -2030,9 +2349,10 @@
       '</div></div></aside></div>';
   }
 
-  function courseProjectCard(pj) {
+  function courseProjectCard(pj, hidden) {
     if (!pj) return '';
     var links = pj.links || {};
+    var projectRole = String(pj.role || '').trim();
     var tags = (pj.tags || []).slice(0, 4).map(function (tg) {
       return '<span class="chip">' + e(tg) + '</span>';
     }).join('');
@@ -2041,12 +2361,12 @@
     if (links.demo) actions += '<a class="btn btn-soft btn-sm" href="' + e(links.demo) + '" target="_blank" rel="noopener">' + UI.icon('external-link', 14) + ' ' + e(t('demo')) + '</a>';
     actions += '<a class="btn btn-primary btn-sm" href="' + projectDetailUrl(pj.id) + '">' + UI.icon('eye', 14) + ' ' + e(t('plProjectOpen')) + '</a>';
 
-    return '<article class="cd-project-card">' +
+    return '<article class="cd-project-card"' + (hidden ? ' hidden' : '') + '>' +
       (pj.cover ? '<div class="cd-project-cover"><img src="' + e(pj.cover) + '" alt="' + e(pj.title) + '" loading="lazy" decoding="async"></div>' : '') +
       '<div class="cd-project-body">' +
       '<div class="cd-project-head">' +
       '<span class="cd-project-badge">' + UI.icon('briefcase', 13) + ' ' + e(t('plProjectType')) + '</span>' +
-      (pj.role ? '<span class="cd-project-role">' + UI.icon('user', 13) + ' ' + e(pj.role) + '</span>' : '') +
+      (projectRole && projectRole !== 'مشروع تدريبي' ? '<span class="cd-project-role">' + UI.icon('user', 13) + ' ' + e(projectRole) + '</span>' : '') +
       '</div>' +
       '<h3 class="cd-project-title">' + e(pj.title) + '</h3>' +
       (pj.summary ? '<p class="cd-project-summary">' + e(pj.summary) + '</p>' : '') +
@@ -2109,6 +2429,11 @@
     if (trainerOwnerData) {
       try { trainerOwner = JSON.parse(trainerOwnerData.textContent) === true; } catch (err) { trainerOwner = false; }
     }
+    var adminCourseManager = false;
+    var adminCourseData = document.getElementById('course-admin-data');
+    if (adminCourseData) {
+      try { adminCourseManager = JSON.parse(adminCourseData.textContent) === true; } catch (err) { adminCourseManager = false; }
+    }
     var rewardsData = {};
     var rewardsEl = document.getElementById('course-rewards-data');
     if (rewardsEl) {
@@ -2133,6 +2458,7 @@
       }
     }
     if (!c) { renderNotFound(host); return; }
+    if (adminCourseManager) c.adminCanManageCourse = true;
     var isComingSoon = !!c.comingSoon;
     if (c.earned) { renderEarnedCertificate(host, c); return; }
     var related = Store.collection('certificates').filter(function (x) { return x.id !== c.id; }).slice(0, 3);
@@ -2148,7 +2474,10 @@
         history.replaceState(null, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
       } catch (err) { }
     }
-    var sub = (c.description || '').replace(/\s+/g, ' ').trim();
+    var courseSummary = String(c.summary || c.description || '').replace(/\s+/g, ' ').trim();
+    var courseContent = UI.sanitize(c.content || '');
+    var verificationUrl = safeExternalUrl(c.verifyUrl);
+    var sub = courseSummary;
     if (sub.length > 130) sub = sub.slice(0, 127).trim() + '…';
     var skills = c.skills || [];
     var instName = c.instructor || c.issuer;
@@ -2205,9 +2534,37 @@
         }
       });
     });
+    var shareButtonHTML = '';
+    if (c.courseType !== 'in_person' || rewardsData.shareUrl) {
+      shareButtonHTML = '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' +
+        e(rewardsData.shareUrl || SITE.u('course', e(c.id))) + '">' +
+        UI.icon('share-2', 16) + e(t('shareCta')) + '</button>';
+    }
+     var learnSection = '<section class="cd-card">' +
+       '<h2 class="cd-h2">' + UI.icon('check-circle', 18) + e(t('ucLearn')) + '</h2>' +
+       '<div class="cd-learn">' + (skills.length
+         ? skills.map(function (s) {
+           return '<div class="cd-learn-item">' + UI.icon('check', 16) + '<span>' + e(s) + '</span></div>';
+         }).join('')
+         : '<p>سيتم إضافة تفاصيل المهارات قريباً.</p>') + '</div>' +
+       '</section>';
+     var inPersonRegistrationForm = '<section class="cd-card cd-registration-card">' +
+       '<h2 class="cd-h2">' + UI.icon('user', 18) + 'طلب التسجيل في الدورة</h2>' +
+       '<p class="cd-registration-intro">عبّئ البيانات التالية لإرسال طلب تسجيلك.</p>' +
+       '<form class="cd-registration-form" id="inPersonRegistrationForm">' +
+       '<div class="cd-registration-fields">' +
+       '<label>الاسم الكامل<input class="input" name="fullName" type="text" autocomplete="name" aria-describedby="registrationFullNameError" required><span class="cd-registration-field-error" id="registrationFullNameError" aria-live="polite"></span></label>' +
+       '<label>رقم الهاتف / واتساب<input class="input" name="phone" type="tel" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="+970XXXXXXXXX" minlength="13" maxlength="13" pattern="\\+[0-9]{12}" title="أدخل + ثم 12 رقمًا" aria-describedby="registrationPhoneError" required><span class="cd-registration-field-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
+       '<label>العنوان<input class="input" name="address" type="text" autocomplete="street-address" aria-describedby="registrationAddressError" required><span class="cd-registration-field-error" id="registrationAddressError" aria-live="polite"></span></label>' +
+       '<label>التخصص<input class="input" name="specialty" type="text" aria-describedby="registrationSpecialtyError" required><span class="cd-registration-field-error" id="registrationSpecialtyError" aria-live="polite"></span></label>' +
+       '<label>الحالة<select class="input" name="studentStatus" aria-describedby="registrationStatusError" required><option value="">اختر الحالة</option><option value="student">طالب</option><option value="graduate">خريج</option></select><span class="cd-registration-field-error" id="registrationStatusError" aria-live="polite"></span></label>' +
+       '</div>' +
+       '<p class="cd-registration-error" id="inPersonRegistrationError" role="alert" hidden></p>' +
+       '<button class="cd-btn cd-btn-buy cd-registration-submit" type="submit" disabled>حفظ طلب التسجيل</button>' +
+       '</form></section>';
 
-    host.innerHTML =
-      backLink(null, true) +
+     host.innerHTML =
+       backLink(null, true) +
       '<section class="cd-hero" style="background-image:url(\'' + heroImg + '\')">' +
       '<div class="cd-hero-overlay"><div class="cd-hero-inner">' +
       '<nav class="cd-crumb"><a href="' + backDest + '">' + e(t('ucCourses')) + '</a><span class="cd-crumb-sep">›</span><span>' + e(c.category || '') + '</span></nav>' +
@@ -2217,10 +2574,9 @@
       (instructorProfileUrl
         ? '<a class="cd-author-profile" href="' + e(instructorProfileUrl) + '">' +
           '<img class="cd-author-av" src="' + e(instructor.avatar || UI.userLetterAvatar(instName, 64)) + '" alt="">' +
-          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b></span></a>'
+          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b> ' + UI.verifiedBadge(16) + '</span></a>'
         : '<img class="cd-author-av" src="' + e(UI.userLetterAvatar(instName, 64)) + '" alt="">' +
-          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b></span>') +
-      '<span class="cd-verified">' + UI.verifiedBadge(14) + e(t('certVerified')) + '</span>' +
+          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b> ' + UI.verifiedBadge(16) + '</span>') +
       '</div>' +
       '<div class="cd-pills">' +
       '<span class="cd-pill">' + UI.icon('clock', 14) + e(c.duration || '—') + '</span>' +
@@ -2235,20 +2591,23 @@
           UI.icon('clock', 18) + '<span>' + e(t('courseComingSoonNotice')) + '</span></div>'
         : '') +
 
-      '<div class="cd-grid">' +
+      (c.courseType === 'in_person'
+        ? '<div class="cd-inperson-learn">' + learnSection +
+          (shareButtonHTML
+            ? '<section class="cd-card cd-inperson-share">' + shareButtonHTML + '</section>'
+            : '') +
+          inPersonRegistrationForm + '</div>'
+        : '<div class="cd-grid">' +
       '<div class="cd-main">' +
       (skills.length ?
-      '<section class="cd-card">' +
-      '<h2 class="cd-h2">' + UI.icon('check-circle', 18) + e(t('ucLearn')) + '</h2>' +
-      '<div class="cd-learn">' + skills.map(function (s) {
-        return '<div class="cd-learn-item">' + UI.icon('check', 16) + '<span>' + e(s) + '</span></div>';
-      }).join('') + '</div>' +
-      '</section>' : '') +
-      (c.description ?
+      learnSection : '') +
+      (courseSummary || courseContent ?
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('file-text', 18) + e(t('ucDesc')) + '</h2>' +
-      '<div class="prose"><p>' + e(c.description) + '</p></div>' +
-      (c.verifyUrl ? '<a class="btn btn-ghost" style="margin-top:12px" href="' + e(c.verifyUrl) + '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) + e(t('certVerify')) + '</a>' : '') +
+      (courseContent
+        ? '<div class="prose cd-course-description">' + courseContent + '</div>'
+        : (courseSummary ? '<p class="cd-course-summary">' + e(courseSummary) + '</p>' : '')) +
+      (verificationUrl ? '<a class="btn btn-ghost" style="margin-top:12px" href="' + e(verificationUrl) + '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) + e(t('certVerify')) + '</a>' : '') +
       '</section>' : '') +
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('user', 18) + e(t('ucInstructor')) + '</h2>' +
@@ -2263,12 +2622,18 @@
       (linkedProjects.length ?
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('briefcase', 18) + e(t('ucLinkedProjects')) + '</h2>' +
-      '<div class="cd-projects">' + linkedProjects.map(function (pj) { return courseProjectCard(pj); }).join('') + '</div>' +
+      '<div class="cd-projects" id="cdCourseProjectsGrid">' + linkedProjects.map(function (pj, index) {
+        return courseProjectCard(pj, index >= 4);
+      }).join('') + '</div>' +
+      (linkedProjects.length > 4
+        ? '<div class="cd-projects-more-wrap"><button class="btn btn-soft" type="button" data-act="show-course-projects" aria-controls="cdCourseProjectsGrid" aria-expanded="false">' +
+          e(t('courseProjectsShowMore', { total: linkedProjects.length })) + '</button></div>'
+        : '') +
       '</section>' : '') +
       (related.length ?
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('layers', 18) + e(t('relatedCerts')) + '</h2>' +
-      '<div class="cd-related">' + related.map(function (x) { return certCard(x, { course: true, from: from }); }).join('') + '</div>' +
+      '<div class="cd-related-scroll" dir="' + (document.documentElement.dir || 'rtl') + '">' + related.map(function (x) { return certCard(x, { course: true, homeCourseCard: true, from: from }); }).join('') + '</div>' +
       '</section>' : '') +
       '</div>' +
 
@@ -2280,15 +2645,12 @@
       '<b>' + e(isComingSoon ? t('courseComingSoon') : (c.price || t('ucFree'))) + '</b>' +
       '<span>' + e(t('ucPriceNote')) + '</span>' +
       '</div>' +
-      (isComingSoon
+      (isComingSoon && !adminCourseManager && !trainerOwner
         ? '<div class="cd-btn cd-btn-buy cd-coming-soon-notice" role="status">' + UI.icon('clock', 16) + e(t('courseComingSoon')) + '</div>'
-        : enrolled || trainerOwner
+        : enrolled || trainerOwner || adminCourseManager
           ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
           : '<button class="cd-btn cd-btn-wa" type="button" data-act="enroll-course" data-title="' + e(c.title) + '">' + UI.icon('whatsapp', 17) + e(t('ucEnroll')) + '</button>') +
-      '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' + e(rewardsData.shareUrl || SITE.u('course', e(c.id))) + '">' + UI.icon('share-2', 16) + e(t('shareCta')) + '</button>' +
-      (!isComingSoon && rewardsData.canRedeem
-        ? '<button class="cd-btn cd-btn-redeem" type="button" data-act="redeem-course-points" data-url="' + e(rewardsData.redeemUrl) + '">' + UI.icon('award', 16) + 'استبدل 100 نقطة باشتراك مجاني</button>'
-        : '') +
+      shareButtonHTML +
       (canManageCourse(c)
         ? '<button class="cd-btn cd-btn-edit" type="button" data-act="goto" data-url="' + SITE.u('courseEdit', e(c.id)) + '">' + UI.icon('pencil', 15) + e(t('edit')) + '</button>'
         : '') +
@@ -2296,14 +2658,334 @@
       '<li>' + UI.icon('clock', 15) + '<span>' + e(t('ucDuration')) + ': <b>' + e(c.duration || '—') + '</b></span></li>' +
       '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('ucSessions')) + ': <b>' + e(c.period || '—') + '</b></span></li>' +
       '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
+      (c.credentialId
+        ? '<li>' + UI.icon('hash', 15) + '<span>' + e(t('certId')) + ': <b class="cd-cred" dir="ltr">' + e(c.credentialId) + '</b></span></li>'
+        : '') +
       '<li>' + UI.icon('globe', 15) + '<span>' + e(t('ucAccess')) + '</span></li>' +
       '</ul>' +
       '</div></div>' +
       '</aside>' +
-      '</div>';
+      '</div>');
 
+    if (c.courseType === 'in_person') {
+      var registrationForm = document.getElementById('inPersonRegistrationForm');
+      var registrationError = document.getElementById('inPersonRegistrationError');
+      var registrationSubmit = registrationForm.querySelector('[type="submit"]');
+      var registrationFields = {
+        fullName: {
+          error: document.getElementById('registrationFullNameError'),
+          validate: function (value) {
+            var parts = value.trim().split(/\s+/).filter(Boolean);
+            return parts.length >= 3 && parts.length <= 6 && parts.every(function (part) {
+              return /^[\p{L}\p{M}]+$/u.test(part);
+            }) ? '' : 'يرجى التحقق من الاسم المدخل.';
+          }
+        },
+        phone: {
+          error: document.getElementById('registrationPhoneError'),
+          validate: function (value) {
+            return /^\+[0-9]{12}$/.test(value.trim())
+              ? '' : 'أدخل + متبوعًا بـ 12 رقمًا.';
+          }
+        },
+        address: {
+          error: document.getElementById('registrationAddressError'),
+          validate: function (value) {
+            return value.trim() ? '' : 'أدخل العنوان.';
+          }
+        },
+        specialty: {
+          error: document.getElementById('registrationSpecialtyError'),
+          validate: function (value) {
+            return value.trim() ? '' : 'أدخل التخصص.';
+          }
+        },
+        studentStatus: {
+          error: document.getElementById('registrationStatusError'),
+          validate: function (value) {
+            return value === 'student' || value === 'graduate' ? '' : 'اختر طالب أو خريج.';
+          }
+        }
+      };
+      function validateRegistrationField(name) {
+        var field = registrationForm.elements[name];
+        var error = registrationFields[name].validate(field.value);
+        registrationFields[name].error.textContent = error;
+        if (error) field.setAttribute('aria-invalid', 'true');
+        else field.removeAttribute('aria-invalid');
+        return !error;
+      }
+      function validateRegistrationForm(revealErrors) {
+        var valid = Object.keys(registrationFields).every(function (name) {
+          if (revealErrors) return validateRegistrationField(name);
+          return !registrationFields[name].validate(registrationForm.elements[name].value);
+        });
+        registrationSubmit.disabled = !valid;
+        return valid;
+      }
+      Object.keys(registrationFields).forEach(function (name) {
+        var field = registrationForm.elements[name];
+        field.addEventListener('input', function () {
+          validateRegistrationField(name);
+          registrationSubmit.disabled = !Object.keys(registrationFields).every(function (key) {
+            return !registrationFields[key].validate(registrationForm.elements[key].value);
+          });
+          registrationError.hidden = true;
+        });
+        field.addEventListener('change', function () {
+          validateRegistrationField(name);
+          registrationSubmit.disabled = !Object.keys(registrationFields).every(function (key) {
+            return !registrationFields[key].validate(registrationForm.elements[key].value);
+          });
+          registrationError.hidden = true;
+        });
+        field.addEventListener('blur', function () {
+          validateRegistrationField(name);
+        });
+      });
+      registrationSubmit.disabled = !Object.keys(registrationFields).every(function (name) {
+        return !registrationFields[name].validate(registrationForm.elements[name].value);
+      });
+      registrationForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (!validateRegistrationForm(true)) {
+          registrationForm.querySelector('[aria-invalid="true"]').focus();
+          return;
+        }
+        var formData = new FormData(registrationForm);
+        var fullName = String(formData.get('fullName') || '').trim().replace(/\s+/g, ' ');
+        var phone = String(formData.get('phone') || '').trim();
+        var address = String(formData.get('address') || '').trim();
+        var specialty = String(formData.get('specialty') || '').trim();
+        var studentStatus = String(formData.get('studentStatus') || '').trim();
+        registrationError.hidden = true;
+        registrationSubmit.disabled = true;
+        registrationSubmit.textContent = 'جارٍ حفظ الطلب…';
+        fetch(SITE.u('courseRegistration', c.id), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken(),
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: JSON.stringify({
+            fullName: fullName,
+            phone: phone,
+            address: address,
+            specialty: specialty,
+            studentStatus: studentStatus
+          })
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) {
+              var error = new Error(data.error || 'registration_failed');
+              error.status = response.status;
+              throw error;
+            }
+            return data;
+          });
+        }).then(function () {
+          registrationForm.reset();
+          Object.keys(registrationFields).forEach(function (name) {
+            registrationFields[name].error.textContent = '';
+            registrationForm.elements[name].removeAttribute('aria-invalid');
+          });
+          registrationSubmit.disabled = true;
+          var successModal = UI.modal({
+            title: 'تم حفظ طلب التسجيل',
+            size: 'sm',
+            body: '<div class="course-registration-success" role="status">' +
+              '<div class="course-registration-success-art" aria-hidden="true">' +
+              '<span class="course-registration-success-sparkle">✨</span>' +
+              '<span class="course-registration-success-icon">' + UI.icon('check', 30) + '</span>' +
+              '<span class="course-registration-success-confetti">🎉</span>' +
+              '</div><h4>أهلاً وسهلاً ' + e(fullName.split(' ')[0]) + '!</h4>' +
+              '<p>وصلنا طلبك بنجاح، وسنتواصل معك قريباً لإكمال خطوات التسجيل.</p>' +
+              '<span class="course-registration-success-course">' + e(c.title) + '</span></div>',
+            footer: '<button class="btn btn-primary course-registration-success-close" type="button">رائع، شكراً</button>'
+          });
+          successModal.el.classList.add('course-registration-success-modal');
+          successModal.el.querySelector('.course-registration-success-close')
+            .addEventListener('click', successModal.close);
+        }).catch(function (error) {
+          if (error.status === 429) {
+            registrationError.textContent = 'تم إرسال عدة طلبات. حاول مرة أخرى لاحقاً.';
+          } else if (error.status === 404) {
+            registrationError.textContent = 'هذه الدورة غير متاحة للتسجيل حالياً.';
+          } else {
+            registrationError.textContent = 'تعذر حفظ الطلب حالياً. تحقق من اتصالك وحاول مجدداً.';
+            console.error('Course registration request failed:', error);
+          }
+          registrationError.hidden = false;
+        }).finally(function () {
+          registrationSubmit.textContent = 'حفظ طلب التسجيل';
+          validateRegistrationForm(false);
+        });
+      });
+    }
+
+    mountRelatedCarousel('.cd-related-scroll', '.cert-card');
     mountCourseHeroPlayer();
     if (registrationRequired && !enrolled) confirmCourseRegistration(c.title);
+  }
+
+  function mountRelatedCarousel(selector, cardSelector) {
+    if (relatedCarouselCleanup) relatedCarouselCleanup();
+    var track = document.querySelector(selector);
+    if (!track) return;
+
+    var cards = Array.prototype.slice.call(track.querySelectorAll(cardSelector)).filter(function (card) {
+      return !card.hasAttribute('data-related-carousel-clone');
+    });
+    if (cards.length < 2) return;
+    function loopDistance() {
+      var gap = parseFloat(window.getComputedStyle(track).columnGap) || 0;
+      return cards.reduce(function (width, card) {
+        return width + card.getBoundingClientRect().width;
+      }, 0) + gap * cards.length;
+    }
+
+    var active = false;
+    var resumeTimer = null;
+    var resizeHandler;
+    function removeClones() {
+      track.querySelectorAll('[data-related-carousel-clone]').forEach(function (clone) {
+        clone.remove();
+      });
+    }
+
+    function pauseAutoScroll() {
+      paused = true;
+      window.clearTimeout(resumeTimer);
+      resumeTimer = window.setTimeout(function () { paused = false; }, 4000);
+    }
+
+    var paused = false;
+    function onScroll() {
+      var position = relatedScrollPosition(track);
+      var distance = loopDistance();
+      if (distance && position >= distance) relatedSetScrollPosition(track, position - distance);
+    }
+    function onPointerEnter() { paused = true; }
+    function onPointerLeave() { paused = false; }
+    function onFocusOut(event) {
+      if (!track.contains(event.relatedTarget)) paused = false;
+    }
+
+    function start() {
+      if (active || window.innerWidth > 720 || !track.isConnected) return;
+      removeClones();
+      var distance = loopDistance();
+      var cloneSets = 0;
+      while (track.scrollWidth < track.clientWidth + distance && cloneSets < 20) {
+        cards.forEach(function (card) {
+          var clone = card.cloneNode(true);
+          clone.setAttribute('aria-hidden', 'true');
+          clone.setAttribute('data-related-carousel-clone', '');
+          clone.querySelectorAll('a, button, [tabindex]').forEach(function (item) {
+            item.setAttribute('tabindex', '-1');
+          });
+          track.appendChild(clone);
+        });
+        cloneSets += 1;
+      }
+
+      paused = false;
+      active = true;
+      track.addEventListener('scroll', onScroll, { passive: true });
+      track.addEventListener('pointerdown', pauseAutoScroll);
+      track.addEventListener('wheel', pauseAutoScroll, { passive: true });
+      track.addEventListener('mouseenter', onPointerEnter);
+      track.addEventListener('mouseleave', onPointerLeave);
+      track.addEventListener('focusin', onPointerEnter);
+      track.addEventListener('focusout', onFocusOut);
+
+      relatedCoursesAutoScroll = window.setInterval(function () {
+        if (paused || track.matches(':hover') || track.contains(document.activeElement)) return;
+        var firstCard = track.querySelector(cardSelector);
+        var gap = parseFloat(window.getComputedStyle(track).columnGap) || 0;
+        var step = firstCard ? firstCard.getBoundingClientRect().width + gap : track.clientWidth;
+        track.scrollTo({
+          left: relatedRawScrollPosition(track, relatedScrollPosition(track) + step),
+          behavior: 'smooth'
+        });
+      }, 3500);
+    }
+
+    function stop() {
+      if (!active) return;
+      active = false;
+      window.clearInterval(relatedCoursesAutoScroll);
+      relatedCoursesAutoScroll = null;
+      window.clearTimeout(resumeTimer);
+      track.removeEventListener('scroll', onScroll);
+      track.removeEventListener('pointerdown', pauseAutoScroll);
+      track.removeEventListener('wheel', pauseAutoScroll);
+      track.removeEventListener('mouseenter', onPointerEnter);
+      track.removeEventListener('mouseleave', onPointerLeave);
+      track.removeEventListener('focusin', onPointerEnter);
+      track.removeEventListener('focusout', onFocusOut);
+      removeClones();
+      relatedSetScrollPosition(track, 0);
+    }
+
+    resizeHandler = function () {
+      if (window.innerWidth > 720) stop();
+      else start();
+    };
+    window.addEventListener('resize', resizeHandler);
+    relatedCarouselCleanup = function () {
+      window.removeEventListener('resize', resizeHandler);
+      stop();
+      relatedCarouselCleanup = null;
+    };
+    resizeHandler();
+  }
+
+  var relatedRtlScrollModel = null;
+  var relatedCarouselCleanup = null;
+  function getRelatedRtlScrollModel(track) {
+    if (relatedRtlScrollModel !== null) return relatedRtlScrollModel;
+    var previous = track.scrollLeft;
+    track.scrollLeft = 0;
+    track.scrollLeft = -1;
+    if (track.scrollLeft < 0) relatedRtlScrollModel = 'negative';
+    else {
+      track.scrollLeft = 1;
+      relatedRtlScrollModel = track.scrollLeft > 0 ? 'reverse' : 'default';
+    }
+    track.scrollLeft = previous;
+    return relatedRtlScrollModel;
+  }
+
+  function relatedScrollPosition(track) {
+    var max = Math.max(0, track.scrollWidth - track.clientWidth);
+    if ((track.getAttribute('dir') || document.documentElement.dir) !== 'rtl') {
+      return Math.max(0, Math.min(max, track.scrollLeft));
+    }
+    var model = getRelatedRtlScrollModel(track);
+    if (model === 'negative') return Math.max(0, Math.min(max, -track.scrollLeft));
+    if (model === 'reverse') return Math.max(0, Math.min(max, track.scrollLeft));
+    return Math.max(0, Math.min(max, max - track.scrollLeft));
+  }
+
+  function relatedSetScrollPosition(track, position) {
+    var max = Math.max(0, track.scrollWidth - track.clientWidth);
+    position = Math.max(0, Math.min(max, position));
+    track.scrollLeft = relatedRawScrollPosition(track, position);
+  }
+
+  function relatedRawScrollPosition(track, position) {
+    var max = Math.max(0, track.scrollWidth - track.clientWidth);
+    position = Math.max(0, Math.min(max, position));
+    if ((track.getAttribute('dir') || document.documentElement.dir) !== 'rtl') {
+      return position;
+    }
+    var model = getRelatedRtlScrollModel(track);
+    if (model === 'negative') return -position;
+    if (model === 'reverse') return position;
+    return max - position;
   }
 
   /* تهيئة مشغّل Plyr لمعاينة أول درس في صفحة تفاصيل الدورة (نفس آلية مشغّل الدروس) */
@@ -2341,18 +3023,14 @@
       '<div class="detail-grid">' +
       '<div class="detail-main">' +
       '<div class="detail-title-row reveal reveal-1"><h1>' + e(p.title) + '</h1>' +
-      (isOwner(p) ? '<div class="detail-actions">' +
+      (canManageProject(p) ? '<div class="detail-actions">' +
       '<button class="btn btn-ghost btn-sm" data-act="edit-goto" data-url="' + SITE.u('projectEdit', e(p.id)) + '">' + UI.icon('pencil', 14) + e(t('edit')) + '</button>' +
       '<button class="btn btn-ghost btn-sm" data-act="del-project" data-id="' + e(p.id) + '">' + UI.icon('trash', 14) + e(t('delete')) + '</button>' +
       '</div>' : '') + '</div>' +
       (p.summary ? '<p class="muted" style="font-size:15.5px;line-height:1.9;margin-bottom:12px">' + e(p.summary) + '</p>' : '') +
       '<div class="project-detail-stats" aria-label="' + e(t('projectStats')) + '">' +
       '<span class="project-detail-stat" data-project-stat="views">' + UI.icon('eye', 16) + '<b>' + displayedViews + '</b><span>' + e(t('views')) + '</span></span>' +
-      '</div>' +
-      '<div class="detail-meta">' +
-      (p.role ? '<span class="pm">' + UI.icon('briefcase', 15) + e(p.role) + '</span>' : '') +
-      '<span class="pm">' + UI.icon('calendar', 15) + e(UI.formatDate(p.date)) + '</span>' +
-      (p.category ? '<span class="pm">' + UI.icon('folder', 15) + e(p.category) + '</span>' : '') +
+      (p.category ? '<span class="project-detail-stat">' + UI.icon('folder', 16) + '<span>' + e(p.category) + '</span></span>' : '') +
       '</div>' +
       (tags ? '<div class="stat-chips" style="margin-bottom:18px">' + tags + '</div>' : '') +
       '<div class="prose">' + UI.sanitize(p.content) + '</div>' +
@@ -2381,13 +3059,24 @@
         }).join('') + '</div></div>' : '') +
       '<div class="card side-card"><h3>' + UI.icon('calendar', 16) + e(t('projectUpdated')) + '</h3><p class="small muted">' + e(UI.formatDate(p.updatedAt || p.createdAt)) + '</p></div>' +
       '</aside></div>' +
-      (related.length ? '<h2 style="font-size:17px;margin:30px 0 14px">' + e(t('relatedProjects')) + '</h2><div class="related-scroll">' + related.map(projCard).join('') + '</div>' : '');
+      (related.length ? '<h2 style="font-size:17px;margin:30px 0 14px">' + e(t('relatedProjects')) + '</h2><div class="related-scroll related-projects-scroll" dir="' + (document.documentElement.dir || 'rtl') + '">' + related.map(projCard).join('') + '</div>' : '');
+    mountRelatedCarousel('.related-projects-scroll', '.proj-card');
   }
 
   document.addEventListener('click', function (ev) {
     var actEl = ev.target.closest('[data-act]');
     if (!actEl) return;
     var act = actEl.getAttribute('data-act');
+    if (act === 'show-course-projects') {
+      var projectsGrid = document.getElementById(actEl.getAttribute('aria-controls'));
+      if (!projectsGrid) return;
+      projectsGrid.querySelectorAll('.cd-project-card[hidden]').forEach(function (card) {
+        card.hidden = false;
+      });
+      actEl.setAttribute('aria-expanded', 'true');
+      actEl.parentElement.classList.add('is-hidden');
+      return;
+    }
     if (act === 'edit-goto') { location.href = actEl.getAttribute('data-url'); return; }
     if (act === 'like-project' || act === 'save-project') {
       var p = Store.find('projects', actEl.getAttribute('data-id'));
@@ -2453,7 +3142,10 @@
     try {
       if (page === 'home') {
         var hash = (location.hash || '').replace('#', '');
+        if (SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student') activeTab = 'active-courses';
         if (['certificates', 'projects'].indexOf(hash) >= 0 ||
+          (hash === 'trainer-courses' && IS_TRAINER) ||
+          (hash === 'active-courses' && SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student') ||
           (hash === 'saved' && SERVER_PROFILE)) activeTab = hash;
         renderHome();
       } else if (page === 'course') {
@@ -2491,7 +3183,7 @@
     else if (page === 'project') renderProjectDetail();
   });
 
-  window.AppPage = { renderHome: renderHome, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, workshopCertificateCard: workshopCertificateCard, projCard: projCard, initCaptions: initCaptions };
+  window.AppPage = { renderHome: renderHome, openProfileModal: openProfileModal, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, workshopCertificateCard: workshopCertificateCard, projCard: projCard, initCaptions: initCaptions, initSkillTagScroller: initSkillTagScroller };
 
   boot();
 })();

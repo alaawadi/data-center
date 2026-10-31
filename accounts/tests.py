@@ -6,7 +6,7 @@ from django.urls import reverse
 from courses.models import Course, CourseCertificate, CourseStatus
 from courses.models import StudentPointTransaction, StudentReferralLink
 from projects.models import Project, ProjectInteraction, ProjectStatus
-from users.models import Profile, User, UserRole
+from users.models import Profile, ProfileSkill, Skill, User, UserRole
 
 
 class SavedProjectsProfileTests(TestCase):
@@ -39,6 +39,16 @@ class SavedProjectsProfileTests(TestCase):
             reverse('accounts:profile', kwargs={'handle': self.owner.handle})
         )
         self.assertNotIn('saved_projects_json', viewer_response.context)
+
+    def test_authenticated_header_shows_name_initial_when_avatar_is_missing(self):
+        self.client.force_login(self.owner)
+
+        response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': self.owner.handle})
+        )
+
+        self.assertContains(response, 'class="account-initial"')
+        self.assertContains(response, f'data-account-initial="{self.owner.display_name[0]}"')
 
 
 class FreelancerListTests(TestCase):
@@ -83,6 +93,9 @@ class FreelancerListTests(TestCase):
         by_handle = {profile['handle']: profile for profile in profiles}
         self.assertContains(response, 'id="freelancersSearch"')
         self.assertContains(response, 'id="freelancersMore"')
+        self.assertEqual(response.context['freelancers_count'], len(profiles))
+        self.assertEqual(response.context['freelancers_badge'], f'{len(profiles)}+ مستقل')
+        self.assertContains(response, response.context['freelancers_badge'])
 
         self.assertEqual([profile['roleKey'] for profile in profiles[:1]], [UserRole.TRAINER])
         self.assertEqual(
@@ -134,19 +147,46 @@ class FreelancerListTests(TestCase):
 
     def test_public_profile_has_skills_and_profile_tabs_without_saved_tab(self):
         student = self._user('059900109', 'طالب بروفايل', UserRole.STUDENT)
+        skill = Skill.objects.create(name='Python')
+        profile_skill = ProfileSkill.objects.create(
+            profile=student.profile, skill=skill, level=85
+        )
 
         response = self.client.get(
             reverse('accounts:profile', kwargs={'handle': student.handle})
         )
 
+        self.assertContains(response, f'<title>{student.display_name} — مركز داتا</title>')
         self.assertEqual(response.context['profile_json']['roleKey'], UserRole.STUDENT)
+        self.assertEqual(
+            response.context['profile_json']['skillsWithLevels'],
+            [{'id': f'sk{profile_skill.pk}', 'name': 'Python', 'level': 85}],
+        )
         self.assertContains(response, 'id="publicSkills"')
         self.assertContains(response, 'id="profileTabs"')
         self.assertNotContains(response, 'data-tab="saved"')
         self.assertNotContains(response, 'workshop-scanner.js')
         self.assertNotContains(response, 'jsQR.js')
 
-    def test_owner_profile_embeds_referral_points_and_visits_for_profile_header(self):
+    def test_public_profiles_expose_whatsapp_only_for_trainers(self):
+        trainer = self._user('059900114', 'مدرب واتساب', UserRole.TRAINER)
+        trainer.profile.whatsapp = '+970599999999'
+        trainer.profile.save(update_fields=['whatsapp'])
+        student = self._user('059900115', 'طالب واتساب', UserRole.STUDENT)
+        student.profile.whatsapp = '+970511111111'
+        student.profile.save(update_fields=['whatsapp'])
+
+        trainer_response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': trainer.handle})
+        )
+        student_response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': student.handle})
+        )
+
+        self.assertEqual(trainer_response.context['profile_json']['whatsapp'], '+970599999999')
+        self.assertEqual(student_response.context['profile_json']['whatsapp'], '')
+
+    def test_referral_statistics_are_not_exposed_in_freelancer_profile(self):
         student = self._user('059900110', 'طالب الإحالات', UserRole.STUDENT)
         trainer = self._user('059900111', 'مدرب الإحالات', UserRole.TRAINER)
         course = Course.objects.create(
@@ -168,10 +208,12 @@ class FreelancerListTests(TestCase):
             reverse('accounts:profile', kwargs={'handle': student.handle})
         )
 
-        self.assertEqual(response.context['profile_json']['referral_points'], 20)
-        self.assertEqual(response.context['profile_json']['referral_visits'], 3)
-        self.assertContains(response, '"referral_points": 20')
-        self.assertContains(response, '"referral_visits": 3')
+        self.assertNotIn('referral_points', response.context['profile_json'])
+        self.assertNotIn('referral_visits', response.context['profile_json'])
+        self.assertNotIn('referral_points', response.context['server_profile'])
+        self.assertNotIn('referral_visits', response.context['server_profile'])
+        self.assertNotContains(response, 'إجمالي نقاط الإحالة')
+        self.assertNotContains(response, 'زيارات روابطك')
         self.assertNotContains(response, 'workshop-scanner.js')
         self.assertNotContains(response, 'jsQR.js')
 
@@ -192,7 +234,7 @@ class FreelancerListTests(TestCase):
         self.assertNotIn('referral_points', other_user_response.context['profile_json'])
         self.assertNotIn('referral_visits', other_user_response.context['profile_json'])
 
-    def test_trainer_profile_never_exposes_student_referral_statistics(self):
+    def test_trainer_freelancer_profile_does_not_expose_referral_statistics(self):
         trainer = self._user('059900112', 'مدرب الملف الشخصي', UserRole.TRAINER)
         self.client.force_login(trainer)
 
@@ -202,6 +244,8 @@ class FreelancerListTests(TestCase):
 
         self.assertNotIn('referral_points', response.context['profile_json'])
         self.assertNotIn('referral_visits', response.context['profile_json'])
+        self.assertNotIn('referral_points', response.context['server_profile'])
+        self.assertNotIn('referral_visits', response.context['server_profile'])
         self.assertNotContains(response, 'إجمالي نقاط الإحالة')
         self.assertNotContains(response, 'زيارات روابطك')
 

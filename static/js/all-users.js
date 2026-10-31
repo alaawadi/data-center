@@ -5,6 +5,7 @@
   var PAGE_SIZE = 18;
   var visibleLimit = INITIAL_LIMIT;
   var searchQuery = '';
+  var selectedSpecialty = '';
   var isLoadingMore = false;
   var reorderTools = document.getElementById('freelancerReorderTools');
   var reorderMode = false;
@@ -22,6 +23,7 @@
         avatar: p.avatar || '',
         verified: !!p.verified,
         title: p.title || '',
+        specialization: p.specialization || '',
         roleKey: p.roleKey || '',
         isTrainer: !!p.isTrainer,
         courses: 0,
@@ -33,6 +35,7 @@
     var rec = map[key];
     if (!rec.avatar && p.avatar) rec.avatar = p.avatar;
     if (!rec.title && p.title) rec.title = p.title;
+    if (!rec.specialization && p.specialization) rec.specialization = p.specialization;
   }
 
   function scanComments(list, map) {
@@ -66,6 +69,7 @@
         avatar: u.avatar || '',
         verified: !!u.verified || u.roleKey === 'trainer',
         title: u.title || '',
+        specialization: u.specialization || '',
         roleKey: u.roleKey || '',
         isTrainer: u.roleKey === 'trainer',
         courses: Number(u.courses) || 0,
@@ -127,6 +131,7 @@
       user.name,
       user.handle,
       user.title,
+      user.specialization,
       user.roleKey,
       roleText,
       user.certificates,
@@ -136,6 +141,67 @@
     return query.split(/\s+/).every(function (term) {
       return searchable.indexOf(term) !== -1;
     });
+  }
+
+  function populateCategoryTags() {
+    var host = document.getElementById('freelancersCategoryTags');
+    if (!host) return;
+    var specialties = {};
+    var trainingCategories = SITE.trainingCategories();
+    var categoryNames = trainingCategories || collect().map(function (user) {
+      return user.specialization;
+    });
+    var orderedCategories = [];
+    categoryNames.forEach(function (value) {
+      var specialty = String(value || '').trim();
+      var key = normalizeSearchText(specialty);
+      if (key && !specialties[key]) {
+        specialties[key] = specialty;
+        orderedCategories.push(key);
+      }
+    });
+    host.replaceChildren();
+    var allCategories = document.createElement('button');
+    allCategories.type = 'button';
+    allCategories.className = 'course-category-tag' + (selectedSpecialty ? '' : ' is-active');
+    allCategories.dataset.freelancerSpecialty = '';
+    allCategories.textContent = I18n.t('freelancersAllCategories');
+    allCategories.setAttribute('aria-pressed', selectedSpecialty ? 'false' : 'true');
+    host.appendChild(allCategories);
+
+    orderedCategories.forEach(function (key) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'course-category-tag' + (key === selectedSpecialty ? ' is-active' : '');
+      button.dataset.freelancerSpecialty = key;
+      button.textContent = specialties[key];
+      button.setAttribute('aria-pressed', key === selectedSpecialty ? 'true' : 'false');
+      host.appendChild(button);
+    });
+    updateCategoryTags();
+  }
+
+  function updateCategoryTags() {
+    var host = document.getElementById('freelancersCategoryTags');
+    if (!host) return;
+    host.querySelectorAll('[data-freelancer-specialty]').forEach(function (button) {
+      var isSelected = button.dataset.freelancerSpecialty === selectedSpecialty;
+      button.classList.toggle('is-active', isSelected);
+      button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+      button.disabled = reorderMode;
+    });
+    updateCategoryResetVisibility();
+  }
+
+  function updateCategoryResetVisibility() {
+    var host = document.getElementById('freelancersCategoryTags');
+    var resetButton = document.getElementById('freelancersCategoryReset');
+    var firstTag = host && host.querySelector('[data-freelancer-specialty]');
+    if (!host || !resetButton || !firstTag) return;
+    var hostBounds = host.getBoundingClientRect();
+    var tagBounds = firstTag.getBoundingClientRect();
+    var isFirstTagVisible = tagBounds.left < hostBounds.right && tagBounds.right > hostBounds.left;
+    resetButton.hidden = reorderMode || isFirstTagVisible || host.scrollWidth <= host.clientWidth;
   }
 
   function renderCard(u) {
@@ -161,7 +227,8 @@
     var query = normalizeSearchText(searchQuery);
     host.classList.toggle('is-reordering', reorderMode);
     var list = collect().filter(function (user) {
-      return matchesSearch(user, query);
+      return matchesSearch(user, query) &&
+        (!selectedSpecialty || normalizeSearchText(user.specialization) === selectedSpecialty);
     });
     var resultCount = document.getElementById('freelancersResultCount');
     if (resultCount) {
@@ -239,10 +306,12 @@
   function setReorderMode(enabled) {
     reorderMode = enabled;
     searchQuery = '';
+    selectedSpecialty = '';
     if (searchInput) {
       searchInput.value = '';
       searchInput.disabled = enabled;
     }
+    updateCategoryTags();
     document.getElementById('freelancerReorderStart').hidden = enabled;
     document.getElementById('freelancerReorderSave').hidden = !enabled;
     document.getElementById('freelancerReorderCancel').hidden = !enabled;
@@ -256,15 +325,82 @@
   }
 
   SiteChrome.mount();
+  var searchInput = document.getElementById('freelancersSearch');
+  var categoryTags = document.getElementById('freelancersCategoryTags');
+  populateCategoryTags();
   renderUsers();
 
-  var searchInput = document.getElementById('freelancersSearch');
   if (searchInput) {
     searchInput.addEventListener('input', UI.debounce(function () {
       searchQuery = searchInput.value;
       visibleLimit = INITIAL_LIMIT;
       renderUsers();
     }, 180));
+  }
+  if (categoryTags) {
+    var categoryReset = document.getElementById('freelancersCategoryReset');
+    var categoryDrag = null;
+    var suppressCategoryClick = false;
+
+    categoryTags.addEventListener('mousedown', function (event) {
+      if (event.button !== 0) return;
+      categoryDrag = {
+        startX: event.clientX,
+        startScrollLeft: categoryTags.scrollLeft,
+        moved: false
+      };
+    });
+
+    document.addEventListener('mousemove', function (event) {
+      if (!categoryDrag) return;
+      var deltaX = event.clientX - categoryDrag.startX;
+      if (Math.abs(deltaX) > 4) {
+        categoryDrag.moved = true;
+        categoryTags.classList.add('is-dragging');
+      }
+      if (categoryDrag.moved) {
+        categoryTags.scrollLeft = categoryDrag.startScrollLeft - deltaX;
+        event.preventDefault();
+      }
+    });
+
+    document.addEventListener('mouseup', function () {
+      if (!categoryDrag) return;
+      suppressCategoryClick = categoryDrag.moved;
+      categoryDrag = null;
+      categoryTags.classList.remove('is-dragging');
+      if (suppressCategoryClick) {
+        window.setTimeout(function () { suppressCategoryClick = false; }, 0);
+      }
+    });
+
+    categoryTags.addEventListener('click', function (event) {
+      if (suppressCategoryClick) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      var button = event.target.closest('[data-freelancer-specialty]');
+      if (!button || reorderMode) return;
+      selectedSpecialty = button.dataset.freelancerSpecialty;
+      visibleLimit = INITIAL_LIMIT;
+      updateCategoryTags();
+      renderUsers();
+    });
+
+    categoryTags.addEventListener('scroll', updateCategoryResetVisibility, { passive: true });
+
+    if (categoryReset) {
+      categoryReset.addEventListener('click', function () {
+        selectedSpecialty = '';
+        visibleLimit = INITIAL_LIMIT;
+        categoryTags.scrollTo({ left: 0, behavior: 'smooth' });
+        updateCategoryTags();
+        renderUsers();
+      });
+    }
+
+    window.addEventListener('resize', updateCategoryResetVisibility);
   }
 
   var moreButton = document.getElementById('freelancersMore');
@@ -435,6 +571,7 @@
 
   document.addEventListener('i18n:change', UI.debounce(function () {
     if (searchInput) searchQuery = searchInput.value;
+    populateCategoryTags();
     renderUsers();
   }, 60));
 })();
