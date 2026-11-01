@@ -394,12 +394,58 @@ class SignupStepOneTests(TestCase):
 
 
 class ProfileVerificationTests(TestCase):
+    def test_profile_update_accepts_only_supported_whatsapp_formats_and_letter_names(self):
+        user = User.objects.create_user(
+            phone='0591000067',
+            password='pass1234',
+            full_name='مستخدم تجربة',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(user)
+        url = reverse('users:profile-update')
+        base_data = {
+            'profile_form': '1',
+            'full_name': 'محمد أحمد',
+            'email': 'valid@example.com',
+            'full_name_ar': '',
+            'full_name_en': '',
+        }
+
+        for whatsapp in (
+            '+972599999999',
+            '+970599999999',
+            '972599999999',
+            '970599999999',
+        ):
+            response = self.client.post(url, {**base_data, 'whatsapp': whatsapp})
+            self.assertEqual(response.status_code, 200, whatsapp)
+            self.assertEqual(response.json()['profile']['whatsapp'], whatsapp)
+
+        for whatsapp in (
+            '+97259999999',
+            '9725999999999',
+            '+971599999999',
+            '0599999999',
+        ):
+            response = self.client.post(url, {**base_data, 'whatsapp': whatsapp})
+            self.assertEqual(response.status_code, 400, whatsapp)
+            self.assertEqual(response.json()['error'], 'invalid_whatsapp')
+
+        for name in ('محمد أحمد2', 'محمد أحمد!', 'One'):
+            response = self.client.post(url, {
+                **base_data,
+                'full_name': name,
+                'whatsapp': '+972599999999',
+            })
+            self.assertEqual(response.status_code, 400, name)
+            self.assertEqual(response.json()['error'], 'invalid_name')
+
     def test_profile_modal_requires_valid_email_and_whatsapp_for_students_and_trainers(self):
         for index, role in enumerate((UserRole.STUDENT, UserRole.TRAINER), start=1):
             user = User.objects.create_user(
                 phone=f'059100006{index}',
                 password='pass1234',
-                full_name=f'مستخدم تجربة {index}',
+                full_name='مستخدم تجربة',
                 role=role,
             )
             self.client.force_login(user)

@@ -1,3 +1,1 @@
-from django.db import models
-
-# Create your models here.
+"""Dashboard app models are defined by feature-specific apps."""

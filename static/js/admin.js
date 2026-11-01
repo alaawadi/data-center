@@ -49,6 +49,12 @@
       registrationRequestPhone: 'رقم الهاتف / واتساب',
       registrationRequestAddress: 'العنوان',
       registrationRequestSpecialty: 'التخصص',
+      registrationRequestGovernorate: 'المحافظة',
+      registrationRequestGovernorateGaza: 'غزة',
+      registrationRequestGovernorateCentral: 'الوسطى',
+      registrationRequestGovernorateInvalid: 'اختر المحافظة.',
+      registrationRequestStudyYear: 'السنة الدراسية',
+      registrationRequestStudyYearInvalid: 'أدخل السنة الدراسية كرقم صحيح موجب.',
       registrationRequestStudent: 'طالب',
       registrationRequestGraduate: 'خريج',
       registrationRequestStudentStatus: 'الحالة الدراسية',
@@ -59,6 +65,10 @@
       registrationRequestRejected: 'مرفوض',
       registrationRequestDate: 'تاريخ الطلب',
       registrationRequestCourse: 'الدورة',
+      registrationRequestCourseFilter: 'تصفية حسب الدورة',
+      registrationRequestAllCourses: 'كل الدورات',
+      registrationRequestCohortFilter: 'تصفية حسب شعبة الدورة',
+      registrationRequestAllCohorts: 'كل الشُعب',
       registrationRequestSource: 'مصدر الطلب',
       registrationRequestDirect: 'مباشر',
       registrationRequestEmpty: 'لا توجد طلبات تسجيل حتى الآن.',
@@ -207,6 +217,10 @@
       colJoined: 'الانضمام',
       colReferralVisits: 'زيارات الإحالة',
       colReferralPoints: 'نقاط الإحالة',
+      colReferralStatsVisibility: 'إظهار إحصاءات الإحالة',
+      referralStatsVisible: 'مفعّل',
+      referralStatsHidden: 'غير مفعّل',
+      referralStatsUpdated: 'تم تحديث إظهار إحصاءات الإحالة.',
       colRegisteredDevices: 'الأجهزة المسجلة',
       manageDevices: 'إدارة الجلسات',
       deviceSessionsTitle: 'جلسات تسجيل الدخول',
@@ -597,6 +611,12 @@
       registrationRequestPhone: 'Phone / WhatsApp',
       registrationRequestAddress: 'Address',
       registrationRequestSpecialty: 'Specialty',
+      registrationRequestGovernorate: 'Governorate',
+      registrationRequestGovernorateGaza: 'Gaza',
+      registrationRequestGovernorateCentral: 'Central',
+      registrationRequestGovernorateInvalid: 'Select a governorate.',
+      registrationRequestStudyYear: 'Study year',
+      registrationRequestStudyYearInvalid: 'Enter the study year as a positive whole number.',
       registrationRequestStudent: 'Student',
       registrationRequestGraduate: 'Graduate',
       registrationRequestStudentStatus: 'Student status',
@@ -607,6 +627,10 @@
       registrationRequestRejected: 'Rejected',
       registrationRequestDate: 'Applied on',
       registrationRequestCourse: 'Course',
+      registrationRequestCourseFilter: 'Filter by course',
+      registrationRequestAllCourses: 'All courses',
+      registrationRequestCohortFilter: 'Filter by course cohort',
+      registrationRequestAllCohorts: 'All cohorts',
       registrationRequestSource: 'Referral source',
       registrationRequestDirect: 'Direct',
       registrationRequestEmpty: 'There are no registration requests yet.',
@@ -756,6 +780,10 @@
       colJoined: 'Joined',
       colReferralVisits: 'Referral visits',
       colReferralPoints: 'Referral points',
+      colReferralStatsVisibility: 'Show referral stats',
+      referralStatsVisible: 'Enabled',
+      referralStatsHidden: 'Disabled',
+      referralStatsUpdated: 'Referral stats visibility updated.',
       colRegisteredDevices: 'Signed-in devices',
       manageDevices: 'Manage sessions',
       deviceSessionsTitle: 'Login sessions',
@@ -2130,7 +2158,12 @@
 
   function renderSide() {
     var host = document.getElementById('admSide');
-    if (host) host.innerHTML = sideHTML();
+    if (!host) return;
+    var nav = host.querySelector('.adm-nav');
+    var scrollTop = nav ? nav.scrollTop : 0;
+    host.innerHTML = sideHTML();
+    nav = host.querySelector('.adm-nav');
+    if (nav) nav.scrollTop = scrollTop;
   }
 
   function renderTop() {

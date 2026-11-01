@@ -225,17 +225,20 @@
   function renderLatestCourses() {
     var online = $('#online-courses-container');
     var inperson = $('#inperson-courses-container');
-    var workshops = $('#inperson-workshops-container');
-    if (!online || !inperson || !workshops) return;
+    if (!online || !inperson) return;
 
     var courseItems = readJsonScript('landing-courses-data', []);
     var inpersonCourseItems = readJsonScript('landing-inperson-courses-data', []);
-    var workshopItems = readJsonScript('landing-workshops-data', []);
 
-    function renderCourseCard(course) {
+    function renderCourseCard(course, isInPerson) {
       var image = course.image || course.cover || course.courseImage;
-      return '<a class="box" href="' + SITE.u('course', esc(course.id)) + '">' +
-        (image ? '<img src="' + esc(image) + '" alt="' + esc(course.title) + '" loading="lazy" decoding="async">' : '<div class="workshop-art">' + icon('book-open', 40) + '</div>') +
+      return '<a class="box' + (isInPerson ? ' inperson-course-card' : '') + '" href="' + SITE.u('course', esc(course.id)) + '">' +
+        (image
+          ? '<img src="' + esc(image) + '" alt="' + esc(course.title) + '" loading="lazy" decoding="async">'
+          : isInPerson
+            ? '<div class="inperson-course-art">' + icon('users', 40) + '<span>تعلّم وجهاً لوجه</span></div>'
+            : '<div class="workshop-art">' + icon('book-open', 40) + '</div>') +
+        (isInPerson ? '<span class="course-format-badge">' + icon('map-pin', 14) + ' دورة وجاهية</span>' : '') +
         (course.price ? '<span class="price">' + esc(course.price) + '</span>' : '') +
         '<div class="content"><h3 class="title">' + esc(course.title) + '</h3>' +
         '<div class="info">' +
@@ -247,35 +250,15 @@
     var onlineLimit = 6;
     var visibleCourses = courseItems.slice(0, onlineLimit);
     online.innerHTML = visibleCourses.length
-      ? visibleCourses.map(renderCourseCard).join('')
+      ? visibleCourses.map(function (course) { return renderCourseCard(course, false); }).join('')
       : '<p class="course-tab-empty">لا توجد دورات أونلاين حالياً.</p>';
     inperson.innerHTML = inpersonCourseItems.length
-      ? inpersonCourseItems.map(renderCourseCard).join('')
+      ? inpersonCourseItems.map(function (course) { return renderCourseCard(course, true); }).join('')
       : '<p class="course-tab-empty">لا توجد دورات وجاهية حالياً.</p>';
     var count = $('#online-courses-count');
     var moreLink = $('#online-courses-more');
     if (count) count.textContent = courseItems.length + ' دورة أونلاين';
     if (moreLink) moreLink.setAttribute('aria-label', 'عرض جميع الدورات الأونلاين، العدد ' + courseItems.length);
-
-    workshops.innerHTML = workshopItems.length ? workshopItems.map(function (workshop) {
-      var date = workshop.startsAt ? new Date(workshop.startsAt) : null;
-      var dateLabel = date && !isNaN(date.getTime())
-        ? new Intl.DateTimeFormat('ar', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
-        : '';
-      var duration = Number(workshop.durationMinutes);
-      var durationLabel = duration >= 60
-        ? Math.floor(duration / 60) + ' ساعة' + (duration % 60 ? ' و' + duration % 60 + ' دقيقة' : '')
-        : duration + ' دقيقة';
-      return '<article class="box workshop-card">' +
-        '<div class="workshop-art">' + icon('users', 40) + '</div>' +
-        '<div class="content"><h3 class="title">' + esc(workshop.title) + '</h3>' +
-        (workshop.description ? '<p>' + esc(workshop.description) + '</p>' : '') +
-        '<div class="info">' +
-        (dateLabel ? '<h3>' + icon('calendar', 13) + esc(dateLabel) + '</h3>' : '') +
-        (duration > 0 ? '<h3>' + icon('clock', 13) + esc(durationLabel) + '</h3>' : '') +
-        (workshop.location ? '<h3>' + icon('map-pin', 13) + esc(workshop.location) + '</h3>' : '') +
-        '</div></div></article>';
-    }).join('') : '<p class="course-tab-empty">لا توجد ورشات وجاهية حالياً.</p>';
   }
 
   function initCourseTabs() {

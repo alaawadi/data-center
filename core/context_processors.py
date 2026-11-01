@@ -144,7 +144,12 @@ def server_profile(request):
     if user.role == UserRole.STUDENT:
         data['canScanWorkshops'] = True
     resolver_match = getattr(request, 'resolver_match', None)
-    if resolver_match and resolver_match.view_name == 'portfolio:home':
+    if (
+        resolver_match
+        and resolver_match.view_name == 'portfolio:home'
+        and profile.show_referral_stats
+        and user.role == UserRole.STUDENT
+    ):
         data['referral_points'] = (
             StudentPointTransaction.objects.filter(student=user)
             .aggregate(total=Sum('points'))['total']

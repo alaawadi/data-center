@@ -2257,6 +2257,33 @@ html[dir='rtl'] .prose blockquote { border-radius: var(--r-md) 0 0 var(--r-md); 
 .cd-registration-fields label { display: flex; flex-direction: column; gap: 7px; color: var(--ink); font-size: 13.5px; font-weight: 700; }
 .cd-registration-fields .input { width: 100%; }
 .cd-registration-fields .input[aria-invalid='true'] { border-color: var(--danger, #dc2626); }
+.cd-registration-governorate { min-width: 0; padding: 0; border: 0; }
+.cd-registration-governorate legend { margin-bottom: 7px; color: var(--ink); font-size: 13.5px; font-weight: 700; }
+.cd-registration-governorate-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.cd-registration-governorate-option { position: relative; display: block !important; cursor: pointer; }
+.cd-registration-governorate-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.cd-registration-governorate-button {
+  display: grid;
+  min-height: 46px;
+  place-items: center;
+  padding: 10px 14px;
+  color: var(--ink);
+  background: var(--surface, var(--bg, #fff));
+  border: 1px solid var(--line-2, #dce2ea);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.cd-registration-governorate-option:hover .cd-registration-governorate-button { transform: translateY(-1px); border-color: color-mix(in srgb, var(--brand, #f59e0b) 55%, var(--line-2, #dce2ea)); }
+.cd-registration-governorate-input:checked + .cd-registration-governorate-button {
+  color: var(--brand-contrast, #713f12);
+  background: color-mix(in srgb, var(--brand, #f59e0b) 14%, var(--surface, #fff));
+  border-color: var(--brand, #f59e0b);
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--brand, #f59e0b) 16%, transparent);
+}
+.cd-registration-governorate-input:focus-visible + .cd-registration-governorate-button { outline: 3px solid color-mix(in srgb, var(--brand, #f59e0b) 45%, transparent); outline-offset: 2px; }
+.cd-registration-governorate-input[aria-invalid='true'] + .cd-registration-governorate-button { border-color: var(--danger, #dc2626); }
 .cd-registration-field-error { min-height: 18px; color: var(--danger, #dc2626); font-size: 12px; font-weight: 600; }
 .cd-registration-form > .cd-btn { width: 100%; margin-top: 18px; }
 .cd-registration-form > .cd-btn:disabled { cursor: not-allowed; opacity: .55; }

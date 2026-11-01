@@ -111,6 +111,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': self.registration.phone,
                 'address': self.registration.address,
                 'specialty': self.registration.specialty,
+                'governorate': self.registration.governorate,
+                'studyYear': self.registration.study_year,
                 'studentStatus': self.registration.student_status,
                 'cohortId': '',
                 'cohortName': '',
@@ -318,6 +320,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+970123456789',
                 'address': 'غزة',
                 'specialty': 'التصميم',
+                'governorate': 'central',
+                'studyYear': 3,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -328,6 +332,10 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(request.course, self.course)
         self.assertEqual(request.cohort.number, 1)
         self.assertEqual(request.full_name, 'محمد أحمد علي')
+        self.assertEqual(request.study_year, 3)
+        self.assertEqual(request.governorate, 'central')
+        self.assertEqual(response.json()['request']['governorate'], 'central')
+        self.assertEqual(response.json()['request']['studyYear'], 3)
         self.assertEqual(request.status, CourseRegistrationRequestStatus.NEW)
 
     def test_inperson_course_activation_closes_and_starts_numbered_cohorts(self):
@@ -618,6 +626,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+972564567890',
                 'address': 'غزة - النصر',
                 'specialty': 'تطوير الويب',
+                'governorate': 'central',
+                'studyYear': 4,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -631,6 +641,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(self.registration.phone, '+972564567890')
         self.assertEqual(self.registration.address, 'غزة - النصر')
         self.assertEqual(self.registration.specialty, 'تطوير الويب')
+        self.assertEqual(self.registration.governorate, 'central')
+        self.assertEqual(self.registration.study_year, 4)
         self.assertEqual(student.full_name, 'أحمد محمد علي حسن')
         self.assertEqual(student.phone, '0564567890')
         self.assertEqual(student.profile.whatsapp, '+972564567890')
@@ -650,6 +662,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+972564567890',
                 'address': 'غزة - النصر',
                 'specialty': 'تطوير الويب',
+                'governorate': 'gaza',
+                'studyYear': 5,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -663,6 +677,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(self.registration.phone, '+972564567890')
         self.assertEqual(self.registration.address, 'غزة - النصر')
         self.assertEqual(self.registration.specialty, 'تطوير الويب')
+        self.assertEqual(self.registration.governorate, 'gaza')
+        self.assertEqual(self.registration.study_year, 5)
         self.assertEqual(self.registration.student_status, 'student')
 
     def test_editing_registration_as_accepted_creates_student_and_setup_link(self):
@@ -890,6 +906,25 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+970123456789',
                 'address': 'غزة',
                 'specialty': 'التصميم',
+                'governorate': 'gaza',
+                'studyYear': 2,
+                'studentStatus': 'student',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(CourseRegistrationRequest.objects.count(), 1)
+
+        response = self.client.post(
+            reverse('dashboard:course-registration-request-save'),
+            data=json.dumps({
+                'courseId': self.course.slug,
+                'fullName': 'محمد أحمد علي',
+                'phone': '+970123456789',
+                'address': 'غزة',
+                'specialty': 'التصميم',
+                'governorate': 'gaza',
+                'studyYear': 1.5,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -906,6 +941,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+970123456789',
                 'address': 'غزة',
                 'specialty': 'التصميم',
+                'governorate': 'gaza',
+                'studyYear': 2,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -1053,6 +1090,26 @@ class StudentSessionManagementTests(TestCase):
             if row['databaseId'] == str(self.student.pk)
         )
         self.assertEqual(student_row['activeDevices'], 2)
+
+    def test_referral_stats_visibility_defaults_off_and_admin_can_toggle_it(self):
+        response = self.admin_client.get(reverse('dashboard:home'))
+        student_row = next(
+            row for row in response.context['students_json']
+            if row['databaseId'] == str(self.student.pk)
+        )
+        self.assertFalse(student_row['showReferralStats'])
+        self.assertFalse(self.student.profile.show_referral_stats)
+
+        toggle_response = self.admin_client.post(
+            reverse('dashboard:student-referral-stats-visibility', args=[self.student.pk]),
+            data=json.dumps({'visible': True}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(toggle_response.status_code, 200, toggle_response.content)
+        self.assertTrue(toggle_response.json()['showReferralStats'])
+        self.student.profile.refresh_from_db()
+        self.assertTrue(self.student.profile.show_referral_stats)
 
     def test_admin_can_revoke_one_session_and_force_logout_that_device(self):
         student_client, device = self._create_device_session(1)

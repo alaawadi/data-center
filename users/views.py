@@ -4,6 +4,7 @@ import binascii
 import hashlib
 import json
 import re
+import unicodedata
 import uuid
 
 from django.contrib import messages
@@ -482,7 +483,7 @@ def profile_update_ajax(request):
     whatsapp = (request.POST.get('whatsapp') or '').strip()
     if profile_form and not whatsapp:
         return JsonResponse({'ok': False, 'error': 'required_whatsapp'}, status=400)
-    if whatsapp and not re.fullmatch(r'\+?[0-9]{1,12}', whatsapp):
+    if whatsapp and not re.fullmatch(r'\+?97[02][0-9]{9}', whatsapp):
         return JsonResponse({'ok': False, 'error': 'invalid_whatsapp'}, status=400)
 
     profile, _ = Profile.objects.get_or_create(user=user)
@@ -495,7 +496,11 @@ def profile_update_ajax(request):
     full_name = (request.POST.get('full_name') or '').strip()
     if full_name:
         words = [w for w in full_name.split() if w]
-        if len(words) < 2 or len(words) > 3:
+        letters_only = all(
+            char.isspace() or char.isalpha() or unicodedata.category(char).startswith('M')
+            for char in full_name
+        ) and all(any(char.isalpha() for char in word) for word in words)
+        if not letters_only or len(words) < 2 or len(words) > 3:
             return JsonResponse(
                 {'ok': False, 'error': 'invalid_name'},
                 status=400,

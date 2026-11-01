@@ -334,6 +334,7 @@ class Profile(models.Model):
 
     # ── إعدادات ──
     is_public = models.BooleanField('ملف عام', default=True)
+    show_referral_stats = models.BooleanField('إظهار إحصاءات الإحالة', default=False)
     display_order = models.PositiveIntegerField(
         'ترتيب الظهور', null=True, blank=True, db_index=True
     )
@@ -406,6 +407,7 @@ class Profile(models.Model):
             'joined': self.user.date_joined.isoformat(),
             'role': self.user.get_role_display(),
             'roleKey': self.user.role,
+            'showReferralStats': self.show_referral_stats,
             'isTrainer': self.user.is_trainer,
             'specialization': self.specialization,
             'skills': [ps.skill.name for ps in self.profile_skills.select_related('skill')],

@@ -347,10 +347,20 @@ class CourseRegistrationRequest(models.Model):
     phone = models.CharField('الهاتف / واتساب', max_length=13)
     address = models.CharField('العنوان', max_length=255)
     specialty = models.CharField('التخصص', max_length=150)
+    governorate = models.CharField(
+        'المحافظة',
+        max_length=16,
+        choices=[('gaza', 'غزة'), ('central', 'الوسطى')],
+        blank=True,
+        default='',
+    )
+    study_year = models.PositiveIntegerField('السنة الدراسية', null=True, blank=True)
     student_status = models.CharField(
         'الحالة الدراسية',
         max_length=16,
         choices=[('student', 'طالب'), ('graduate', 'خريج')],
+        blank=True,
+        default='',
     )
     status = models.CharField(
         'حالة الطلب',

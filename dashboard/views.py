@@ -1,6 +1,7 @@
 """Views for the admin dashboard (admin.html)."""
 import base64
 import binascii
+import csv
 import hashlib
 import json
 import re
@@ -30,10 +31,9 @@ from django.db.models import Count, Q, Sum
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 from django.views.decorators.http import require_http_methods, require_POST
 from django.views.generic import TemplateView
-
 from core.context_processors import BRAND_PALETTES, DEFAULT_PLATFORM_SETTINGS, get_platform_settings
 from core.models import PlatformSettings, SiteVisitDaily
 from courses.referrals import (
@@ -87,6 +87,9 @@ MAX_AVATAR_BYTES = 4 * 1024 * 1024
 MAX_BACKUP_UPLOAD_BYTES = 300 * 1024 * 1024
 MAX_BACKUP_EXPANDED_BYTES = 750 * 1024 * 1024
 STUDENT_SETUP_LINK_TTL = timedelta(days=7)
+MAX_CALL_DATA_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_CALL_DATA_UPLOAD_ROWS = 10000
+CALL_DATA_DAILY_ASSIGNMENT_LIMIT = 50
 BACKUP_FORMAT = 'data-center-platform'
 BACKUP_EXCLUDED_MODELS = {
     'devicesession',
@@ -515,6 +518,8 @@ def _course_registration_request_payload(registration, referral_points_awarded=N
         'phone': registration.phone,
         'address': registration.address,
         'specialty': registration.specialty,
+        'governorate': registration.governorate,
+        'studyYear': registration.study_year,
         'studentStatus': registration.student_status,
         'cohortId': str(registration.cohort_id or ''),
         'cohortName': registration.cohort.name if registration.cohort_id else '',
@@ -656,7 +661,8 @@ def course_registration_request_save(request):
     except (UnicodeDecodeError, json.JSONDecodeError):
         return _admin_api_error('بيانات الطلب غير صالحة.', 400)
     if not isinstance(payload, dict) or set(payload) != {
-        'courseId', 'fullName', 'phone', 'address', 'specialty', 'studentStatus'
+        'courseId', 'fullName', 'phone', 'address', 'specialty', 'governorate', 'studyYear',
+        'studentStatus'
     }:
         return _admin_api_error('بيانات الطلب غير صالحة.', 400)
 
@@ -693,6 +699,8 @@ def course_registration_request_save(request):
     phone = payload.get('phone')
     address = payload.get('address')
     specialty = payload.get('specialty')
+    governorate = payload.get('governorate')
+    study_year = payload.get('studyYear')
     student_status = payload.get('studentStatus')
     if not isinstance(phone, str) or not re.fullmatch(r'\+[0-9]{12}', phone):
         return _admin_api_error('رقم الهاتف غير صالح.', 400)
@@ -700,6 +708,14 @@ def course_registration_request_save(request):
         return _admin_api_error('العنوان غير صالح.', 400)
     if not isinstance(specialty, str) or not specialty.strip() or len(specialty.strip()) > 150:
         return _admin_api_error('التخصص غير صالح.', 400)
+    if governorate not in ('gaza', 'central'):
+        return _admin_api_error('المحافظة غير صالحة.', 400)
+    if (
+        isinstance(study_year, bool)
+        or not isinstance(study_year, int)
+        or not 1 <= study_year <= 4294967295
+    ):
+        return _admin_api_error('السنة الدراسية يجب أن تكون رقماً صحيحاً موجباً.', 400)
     if student_status not in ('student', 'graduate'):
         return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
 
@@ -712,6 +728,8 @@ def course_registration_request_save(request):
             phone=phone,
             address=address.strip(),
             specialty=specialty.strip(),
+            governorate=governorate,
+            study_year=study_year,
             student_status=student_status,
             status=CourseRegistrationRequestStatus.NEW,
         )
@@ -732,11 +750,14 @@ def course_registration_request_update(request, pk):
     except (UnicodeDecodeError, json.JSONDecodeError):
         return _admin_api_error('بيانات الطالب غير صالحة.', 400)
     allowed_fields = {
-        'fullName', 'phone', 'address', 'specialty', 'studentStatus', 'status',
+        'fullName', 'phone', 'address', 'specialty', 'governorate', 'studyYear',
+        'studentStatus', 'status',
     }
-    if not isinstance(payload, dict) or set(payload) not in (
-        allowed_fields,
-        allowed_fields - {'status'},
+    required_fields = allowed_fields - {'status', 'studyYear', 'governorate'}
+    if (
+        not isinstance(payload, dict)
+        or not required_fields.issubset(payload)
+        or not set(payload).issubset(allowed_fields)
     ):
         return _admin_api_error('بيانات الطالب غير صالحة.', 400)
 
@@ -760,6 +781,10 @@ def course_registration_request_update(request, pk):
     phone = payload.get('phone')
     address = payload.get('address')
     specialty = payload.get('specialty')
+    has_governorate = 'governorate' in payload
+    governorate = payload.get('governorate')
+    has_study_year = 'studyYear' in payload
+    study_year = payload.get('studyYear')
     student_status = payload.get('studentStatus')
     request_status = payload.get('status')
     if not isinstance(phone, str) or not re.fullmatch(r'\+[0-9]{12}', phone):
@@ -774,7 +799,15 @@ def course_registration_request_update(request, pk):
         return _admin_api_error('العنوان غير صالح.', 400)
     if not isinstance(specialty, str) or not specialty.strip() or len(specialty.strip()) > 150:
         return _admin_api_error('التخصص غير صالح.', 400)
-    if student_status not in ('student', 'graduate'):
+    if has_governorate and governorate not in ('gaza', 'central'):
+        return _admin_api_error('المحافظة غير صالحة.', 400)
+    if has_study_year and (
+        isinstance(study_year, bool)
+        or not isinstance(study_year, int)
+        or not 1 <= study_year <= 4294967295
+    ):
+        return _admin_api_error('السنة الدراسية يجب أن تكون رقماً صحيحاً موجباً.', 400)
+    if student_status not in ('', 'student', 'graduate'):
         return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
     setup_token = None
     setup_expires_at = None
@@ -806,11 +839,20 @@ def course_registration_request_update(request, pk):
             registration.phone = phone
             registration.address = address.strip()
             registration.specialty = specialty.strip()
+            if has_governorate:
+                registration.governorate = governorate
+            if has_study_year:
+                registration.study_year = study_year
             registration.student_status = student_status
             registration.status = request_status
-            registration.save(update_fields=[
+            update_fields = [
                 'full_name', 'phone', 'address', 'specialty', 'student_status', 'status',
-            ])
+            ]
+            if has_study_year:
+                update_fields.append('study_year')
+            if has_governorate:
+                update_fields.append('governorate')
+            registration.save(update_fields=update_fields)
 
             student = None
             if registration.student_id or (
@@ -2036,6 +2078,7 @@ def student_save(request):
             'lastActive': student.last_login.isoformat() if student.last_login else '',
             'bio': profile.bio if profile else '',
             'avatar': profile.avatar.url if profile and profile.avatar else '',
+            'showReferralStats': profile.show_referral_stats if profile else False,
         },
     }, status=201 if is_new else 200)
 
@@ -2098,6 +2141,31 @@ def student_set_active(request, pk):
     student.is_active = payload['active']
     student.save(update_fields=['is_active'])
     return JsonResponse({'ok': True, 'active': student.is_active})
+
+
+@require_POST
+def student_referral_stats_visibility(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict) or not isinstance(payload.get('visible'), bool):
+        return _admin_api_error('حالة إظهار إحصاءات الإحالة غير صالحة.', 400)
+    try:
+        student = User.objects.get(pk=pk, role=UserRole.STUDENT)
+    except (User.DoesNotExist, ValueError, TypeError):
+        return _admin_api_error('الطالب غير موجود.', 404)
+
+    profile, _ = Profile.objects.get_or_create(user=student)
+    profile.show_referral_stats = payload['visible']
+    profile.save(update_fields=['show_referral_stats', 'updated_at'])
+    return JsonResponse({
+        'ok': True,
+        'showReferralStats': profile.show_referral_stats,
+    })
 
 
 @require_POST
@@ -2821,6 +2889,9 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 else '',
                 'referralPoints': student_points.get(student.pk, 0),
                 'referralVisits': student_referral_visits.get(student.pk, 0),
+                'showReferralStats': student.profile.show_referral_stats
+                if _trainer_profile(student)
+                else False,
                 'activeDevices': active_devices.get(student.pk, 0),
                 'displayOrder': student.profile.display_order
                 if _trainer_profile(student)

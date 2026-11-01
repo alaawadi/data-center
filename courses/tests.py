@@ -1184,6 +1184,8 @@ class CoursePageTests(TestCase):
                 'phone': '+970123456789',
                 'address': 'غزة - الرمال',
                 'specialty': 'علوم الحاسوب',
+                'governorate': 'gaza',
+                'studyYear': 2,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -1212,6 +1214,8 @@ class CoursePageTests(TestCase):
                 'phone': '+970123456789',
                 'address': 'غزة - الرمال',
                 'specialty': 'علوم الحاسوب',
+                'governorate': 'gaza',
+                'studyYear': 2,
                 'studentStatus': 'student',
             }),
             content_type='application/json',
@@ -1231,7 +1235,8 @@ class CoursePageTests(TestCase):
             'phone': '+970123456789',
             'address': 'غزة - الرمال',
             'specialty': 'علوم الحاسوب',
-            'studentStatus': 'student',
+            'governorate': 'gaza',
+            'studyYear': 2,
         }
         for full_name in ('محمد أحمد علي', 'محمد أحمد علي حسن يوسف محمود'):
             with self.subTest(full_name=full_name):
@@ -1247,8 +1252,41 @@ class CoursePageTests(TestCase):
                 self.assertEqual(registration.phone, '+970123456789')
                 self.assertEqual(registration.address, 'غزة - الرمال')
                 self.assertEqual(registration.specialty, 'علوم الحاسوب')
-                self.assertEqual(registration.student_status, 'student')
+                self.assertEqual(registration.governorate, 'gaza')
+                self.assertEqual(registration.study_year, 2)
+                self.assertEqual(registration.student_status, '')
                 self.assertEqual(registration.status, CourseRegistrationRequestStatus.NEW)
+
+    def test_inperson_registration_request_accepts_supported_phone_formats(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
+        payload = {
+            'fullName': 'محمد أحمد علي',
+            'address': 'غزة',
+            'specialty': 'علوم الحاسوب',
+            'governorate': 'central',
+            'studyYear': 2,
+            'studentStatus': 'student',
+        }
+
+        for phone in (
+            '970123456789',
+            '972123456789',
+            '+970123456789',
+            '+972123456789',
+            '0591234567',
+            '0561234567',
+        ):
+            with self.subTest(phone=phone):
+                response = self.client.post(
+                    url,
+                    data=json.dumps({**payload, 'phone': phone}),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 201, response.content)
+                registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
+                self.assertEqual(registration.phone, phone)
 
     def test_inperson_registration_request_rejects_names_outside_three_to_six_words(self):
         self.published.course_type = CourseType.IN_PERSON
@@ -1259,6 +1297,8 @@ class CoursePageTests(TestCase):
             'phone': '+970123456789',
             'address': 'غزة - الرمال',
             'specialty': 'علوم الحاسوب',
+            'governorate': 'gaza',
+            'studyYear': 2,
             'studentStatus': 'student',
         }
 
@@ -1283,12 +1323,15 @@ class CoursePageTests(TestCase):
             'phone': '+970123456789',
             'address': 'غزة',
             'specialty': 'علوم الحاسوب',
-            'studentStatus': 'student',
+            'governorate': 'gaza',
+            'studyYear': 2,
         }
 
         for field, value, error in (
             ('fullName', 'محمد أحمد', 'invalid_full_name'),
-            ('phone', '970123456789', 'invalid_phone'),
+            ('phone', '97012345678', 'invalid_phone'),
+            ('governorate', 'north', 'invalid_governorate'),
+            ('studyYear', 1.5, 'invalid_study_year'),
             ('studentStatus', 'other', 'invalid_student_status'),
         ):
             with self.subTest(field=field):

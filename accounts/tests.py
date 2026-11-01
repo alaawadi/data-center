@@ -234,6 +234,38 @@ class FreelancerListTests(TestCase):
         self.assertNotIn('referral_points', other_user_response.context['profile_json'])
         self.assertNotIn('referral_visits', other_user_response.context['profile_json'])
 
+    def test_referral_statistics_are_exposed_only_when_student_enables_them(self):
+        student = self._user('0599000117', 'طالب إحصاءات عامة', UserRole.STUDENT)
+        trainer = self._user('0599000118', 'مدرب إحصاءات عامة', UserRole.TRAINER)
+        course = Course.objects.create(
+            owner=trainer,
+            title='دورة إحصاءات عامة',
+            price='₪150',
+            status=CourseStatus.PUBLISHED,
+        )
+        StudentPointTransaction.objects.create(
+            student=student,
+            course=course,
+            points=35,
+            kind=StudentPointTransaction.Kind.REFERRAL,
+        )
+        StudentReferralLink.objects.create(referrer=student, course=course, visits=9)
+        student.profile.show_referral_stats = True
+        student.profile.save(update_fields=['show_referral_stats'])
+
+        public_response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': student.handle})
+        )
+        self.assertTrue(public_response.context['profile_json']['showReferralStats'])
+        self.assertEqual(public_response.context['profile_json']['referral_points'], 35)
+        self.assertEqual(public_response.context['profile_json']['referral_visits'], 9)
+
+        self.client.force_login(student)
+        portfolio_response = self.client.get(reverse('portfolio:home'))
+        self.assertTrue(portfolio_response.context['server_profile']['showReferralStats'])
+        self.assertEqual(portfolio_response.context['server_profile']['referral_points'], 35)
+        self.assertEqual(portfolio_response.context['server_profile']['referral_visits'], 9)
+
     def test_trainer_freelancer_profile_does_not_expose_referral_statistics(self):
         trainer = self._user('059900112', 'مدرب الملف الشخصي', UserRole.TRAINER)
         self.client.force_login(trainer)

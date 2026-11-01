@@ -353,7 +353,12 @@
           {
             k: 'activeDevices', label: t('colRegisteredDevices'),
             sortVal: function (u) { return Number(u.activeDevices) || 0; },
-            render: function (u) { return '<span class="chip neutral">' + (Number(u.activeDevices) || 0) + '</span>'; },
+            render: function (u) {
+              return '<button type="button" class="chip neutral linkish" data-act="user-sessions" data-id="' +
+                e(u.id) + '" aria-label="' + e(t('manageDevices') + ' — ' + u.name) +
+                '" aria-haspopup="dialog" style="font-weight:600">' +
+                (Number(u.activeDevices) || 0) + '</button>';
+            },
             csv: function (u) { return Number(u.activeDevices) || 0; }
           },
           {
@@ -369,11 +374,26 @@
             csv: function (u) { return Number(u.referralPoints) || 0; }
           },
           {
+            k: 'showReferralStats',
+            label: t('colReferralStatsVisibility'),
+            sortVal: function (u) { return u.showReferralStats === true ? 1 : 0; },
+            render: function (u) {
+              var visible = u.showReferralStats === true;
+              return '<button type="button" class="st st-toggle ' +
+                (visible ? 'st-ok' : 'st-mute') + '" data-act="student-referral-stats-visibility" data-id="' +
+                e(u.id) + '" aria-pressed="' + visible + '" aria-label="' +
+                e(t(visible ? 'referralStatsVisible' : 'referralStatsHidden')) + '">' +
+                e(t(visible ? 'referralStatsVisible' : 'referralStatsHidden')) + '</button>';
+            },
+            csv: function (u) {
+              return u.showReferralStats === true ? t('referralStatsVisible') : t('referralStatsHidden');
+            }
+          },
+          {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (u) {
               return orderDragHandle() +
                 iconBtn('user-edit', u.id, 'pencil', t('edit')) +
-                iconBtn('user-redeem-referral-points', u.id, 'graduation-cap', t('redeemReferralPoints')) +
                 iconBtn('user-del', u.id, 'trash', t('delete'), 'danger');
             }
           }
@@ -632,6 +652,32 @@
 
   Admin.on('user-sessions', function (el) {
     openStudentSessions(Store.find('users', el.getAttribute('data-id')));
+  });
+  Admin.on('student-referral-stats-visibility', function (el) {
+    var user = Store.find('users', el.getAttribute('data-id'));
+    if (!user || !user.databaseId) return;
+    var visible = user.showReferralStats !== true;
+    el.disabled = true;
+    fetch(SITE.u('studentReferralStatsVisibility', user.databaseId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ visible: visible })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+        user.showReferralStats = data.showReferralStats === true;
+        Store.save(true);
+        Admin.renderAll();
+        UI.toast(t('referralStatsUpdated'), 'success');
+      });
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('saveError'), 'error');
+    });
   });
   Admin.on('user-del', function (el) {
     var id = el.getAttribute('data-id');
@@ -1640,12 +1686,38 @@
           maxLength: 150
         },
         {
+          k: 'governorate',
+          label: t('registrationRequestGovernorate'),
+          type: 'select',
+          value: request.governorate || '',
+          required: true,
+          options: [
+            { v: '', l: '—' },
+            { v: 'gaza', l: t('registrationRequestGovernorateGaza') },
+            { v: 'central', l: t('registrationRequestGovernorateCentral') }
+          ]
+        },
+        {
+          k: 'studyYear',
+          label: t('registrationRequestStudyYear'),
+          type: 'number',
+          value: request.studyYear || '',
+          min: 1,
+          max: 4294967295,
+          step: 1,
+          required: true,
+          validate: function (value) {
+            return /^[1-9]\d*$/.test(value) && Number(value) <= 4294967295
+              ? '' : t('registrationRequestStudyYearInvalid');
+          }
+        },
+        {
           k: 'studentStatus',
           label: t('registrationRequestStatus'),
           type: 'select',
-          value: request.studentStatus || 'student',
-          required: true,
+          value: request.studentStatus || '',
           options: [
+            { v: '', l: '—' },
             { v: 'student', l: t('registrationRequestStudent') },
             { v: 'graduate', l: t('registrationRequestGraduate') }
           ]
@@ -1702,6 +1774,8 @@
             request.phone,
             request.sourceStudentName,
             request.specialty,
+            request.governorate,
+            request.studyYear,
             request.address
           ].join(' ');
         },
@@ -1753,6 +1827,35 @@
             sortVal: function (request) { return request.specialty; },
             render: function (request) { return e(request.specialty); },
             csv: function (request) { return request.specialty; }
+          },
+          {
+            k: 'governorate',
+            label: t('registrationRequestGovernorate'),
+            sortVal: function (request) { return request.governorate || ''; },
+            render: function (request) {
+              return request.governorate === 'gaza'
+                ? e(t('registrationRequestGovernorateGaza'))
+                : request.governorate === 'central'
+                  ? e(t('registrationRequestGovernorateCentral'))
+                  : '<span class="tiny muted">—</span>';
+            },
+            csv: function (request) {
+              return request.governorate === 'gaza'
+                ? t('registrationRequestGovernorateGaza')
+                : request.governorate === 'central'
+                  ? t('registrationRequestGovernorateCentral') : '';
+            }
+          },
+          {
+            k: 'studyYear',
+            label: t('registrationRequestStudyYear'),
+            sortVal: function (request) { return Number(request.studyYear) || 0; },
+            render: function (request) {
+              return request.studyYear
+                ? e(request.studyYear)
+                : '<span class="tiny muted">—</span>';
+            },
+            csv: function (request) { return request.studyYear || ''; }
           },
           {
             k: 'paidAmount',
@@ -1837,6 +1940,8 @@
   var courseCohortSourceQueries = {};
   var courseCohortApplicantQueries = {};
   var expandedHistoricalCohorts = {};
+  var courseRegistrationRequestCourseFilter = '';
+  var courseRegistrationRequestCohortFilter = '';
 
   function getCourseCohortRoute() {
     var match = (location.hash || '').replace(/^#\/?/, '').match(/^in-person-course-cohorts\/(.+)$/);
@@ -1871,6 +1976,8 @@
       name: t('registrationRequestName'),
       phone: t('registrationRequestPhone'),
       source: t('registrationRequestSource'),
+      governorate: t('registrationRequestGovernorate'),
+      studyYear: t('registrationRequestStudyYear'),
       status: t('registrationRequestStatus'),
       date: t('registrationRequestDate'),
       paid: t('courseRegistrationPaidAmount'),
@@ -1880,41 +1987,69 @@
       '" data-registration-request-row="' +
       e(request.id) + '" data-include-course="' + (includeCourse ? 'true' : 'false') +
       '" data-editing="' + (editing ? 'true' : 'false') +
+      '" data-request-course="' + e(request.courseId || '') +
+      '" data-request-cohort="' + e(request.cohortId || '') +
       '" data-request-status="' + e(status) + '" data-request-created-at="' +
       e(request.createdAt || '') +
       '" data-cohort-source="' +
       e(request.sourceStudentName || '') + '" data-applicant-search="' +
-      e([request.fullName || '', request.phone || ''].join(' ').toLocaleLowerCase()) + '">' +
+      e([request.fullName || '', request.phone || '', request.studyYear || '', request.governorate || ''].join(' ').toLocaleLowerCase()) + '">' +
       (includeCourse ? '<td data-label="' + e(labels.course) + '"><b>' + e(request.courseTitle || '—') + '</b></td>' : '') +
       '<td data-label="' + e(labels.name) + '">' + (editing
-        ? '<div class="course-request-inline-fields">' +
-          '<input class="input" type="text" maxlength="200" data-registration-field="fullName" placeholder="' +
+        ? '<input class="input course-request-inline-control" type="text" maxlength="200" data-registration-field="fullName" placeholder="' +
           e(labels.name) + '" value="' +
-          e(request.fullName || '') + '" aria-label="' + e(labels.name) + '">' +
-          '<input class="input" type="text" maxlength="255" data-registration-field="address" placeholder="' +
-          e(t('registrationRequestAddress')) + '" value="' +
-          e(request.address || '') + '" aria-label="' + e(t('registrationRequestAddress')) + '">' +
-          '<input class="input" type="text" maxlength="150" data-registration-field="specialty" placeholder="' +
-          e(t('registrationRequestSpecialty')) + '" value="' +
-          e(request.specialty || '') + '" aria-label="' + e(t('registrationRequestSpecialty')) + '">' +
-          '<select class="input" data-registration-field="studentStatus" aria-label="' +
-          e(t('registrationRequestStudentStatus')) + '">' +
-          '<option value="student"' + (request.studentStatus === 'student' ? ' selected' : '') + '>' +
-          e(t('registrationRequestStudent')) + '</option>' +
-          '<option value="graduate"' + (request.studentStatus === 'graduate' ? ' selected' : '') + '>' +
-          e(t('registrationRequestGraduate')) + '</option></select></div>'
+          e(request.fullName || '') + '" aria-label="' + e(labels.name) + '">'
         : '<button type="button" class="course-cohort-request-name" data-act="course-registration-details" data-id="' +
           e(request.id) + '" aria-label="' + e(t('courseCohortRequestDetails') + ' — ' + request.fullName) +
           '">' + e(request.fullName) + '</button>') + '</td>' +
+      '<td data-label="' + e(t('registrationRequestAddress')) + '">' + (editing
+        ? '<input class="input course-request-inline-control" type="text" maxlength="255" data-registration-field="address" value="' +
+          e(request.address || '') + '" aria-label="' + e(t('registrationRequestAddress')) + '">'
+        : e(request.address || '—')) + '</td>' +
+      '<td data-label="' + e(t('registrationRequestSpecialty')) + '">' + (editing
+        ? '<input class="input course-request-inline-control" type="text" maxlength="150" data-registration-field="specialty" value="' +
+          e(request.specialty || '') + '" aria-label="' + e(t('registrationRequestSpecialty')) + '">'
+        : e(request.specialty || '—')) + '</td>' +
+      '<td data-label="' + e(t('registrationRequestStudentStatus')) + '">' + (editing
+        ? '<select class="input course-request-inline-control" data-registration-field="studentStatus" aria-label="' +
+          e(t('registrationRequestStudentStatus')) + '">' +
+          '<option value=""' + (!request.studentStatus ? ' selected' : '') + '>—</option>' +
+          '<option value="student"' + (request.studentStatus === 'student' ? ' selected' : '') + '>' +
+          e(t('registrationRequestStudent')) + '</option>' +
+          '<option value="graduate"' + (request.studentStatus === 'graduate' ? ' selected' : '') + '>' +
+          e(t('registrationRequestGraduate')) + '</option></select>'
+        : request.studentStatus === 'student'
+          ? e(t('registrationRequestStudent'))
+          : request.studentStatus === 'graduate'
+            ? e(t('registrationRequestGraduate')) : '<span class="tiny muted">—</span>') + '</td>' +
+      '<td data-label="' + e(labels.studyYear) + '">' + (editing
+            ? '<input class="input course-request-inline-control" type="number" min="1" max="4294967295" step="1" data-registration-field="studyYear" value="' +
+              e(request.studyYear || '') + '" aria-label="' + e(labels.studyYear) + '">'
+            : request.studyYear
+          ? e(request.studyYear)
+          : '<span class="tiny muted">—</span>') + '</td>' +
+      '<td data-label="' + e(labels.governorate) + '">' + (editing
+        ? '<select class="input course-request-inline-control" data-registration-field="governorate" aria-label="' +
+          e(labels.governorate) + '">' +
+          '<option value=""' + (!request.governorate ? ' selected' : '') + '>—</option>' +
+          '<option value="gaza"' + (request.governorate === 'gaza' ? ' selected' : '') + '>' +
+          e(t('registrationRequestGovernorateGaza')) + '</option>' +
+          '<option value="central"' + (request.governorate === 'central' ? ' selected' : '') + '>' +
+          e(t('registrationRequestGovernorateCentral')) + '</option></select>'
+        : request.governorate === 'gaza'
+          ? e(t('registrationRequestGovernorateGaza'))
+          : request.governorate === 'central'
+            ? e(t('registrationRequestGovernorateCentral'))
+            : '<span class="tiny muted">—</span>') + '</td>' +
       '<td data-label="' + e(labels.phone) + '">' + (editing
-        ? '<input class="input course-request-inline-phone" type="tel" maxlength="13" dir="ltr" data-registration-field="phone" value="' +
+        ? '<input class="input course-request-inline-control course-request-inline-phone" type="tel" maxlength="13" dir="ltr" data-registration-field="phone" value="' +
           e(request.phone || '') + '" aria-label="' + e(labels.phone) + '">'
         : '<a href="https://wa.me/' + e(String(request.phone || '').replace(/\D/g, '')) +
           '" target="_blank" rel="noopener noreferrer" dir="ltr">' + e(request.phone || '—') + '</a>') +
       '</td>' +
       '<td data-label="' + e(labels.source) + '">' + e(source) + '</td>' +
       '<td data-label="' + e(labels.status) + '">' + (editing
-        ? '<select class="input course-request-inline-status" data-registration-field="status" aria-label="' +
+        ? '<select class="input course-request-inline-control course-request-inline-status" data-registration-field="status" aria-label="' +
           e(labels.status) + '">' +
           statusOptions.map(function (option) {
             return '<option value="' + option.value + '"' +
@@ -1963,7 +2098,56 @@
     }).filter(function (name, index, names) {
       return name && names.indexOf(name) === index;
     });
-    return '<div class="course-cohort-filters">' +
+    var courseOptions = [];
+    var courseOptionIds = [];
+    cohortRequests.forEach(function (request) {
+      var courseId = String(request.courseId || '');
+      if (!courseId || courseOptionIds.indexOf(courseId) !== -1) return;
+      courseOptionIds.push(courseId);
+      courseOptions.push({ id: courseId, title: request.courseTitle || courseId });
+    });
+    courseOptions.sort(function (left, right) {
+      return left.title.localeCompare(right.title);
+    });
+    var selectedCourseId = courseRegistrationRequestCourseFilter;
+    var cohortOptions = [];
+    var cohortOptionIds = [];
+    cohortRequests.forEach(function (request) {
+      var courseId = String(request.courseId || '');
+      var cohortId = String(request.cohortId || '');
+      if (selectedCourseId && courseId !== selectedCourseId) return;
+      if (!cohortId || cohortOptionIds.indexOf(cohortId) !== -1) return;
+      cohortOptionIds.push(cohortId);
+      cohortOptions.push({
+        id: cohortId,
+        name: request.cohortName || t('courseCohort') + ' ' + cohortId
+      });
+    });
+    cohortOptions.sort(function (left, right) {
+      return left.name.localeCompare(right.name);
+    });
+    return '<div class="course-cohort-filters' +
+      (includeCourse ? ' course-registration-request-filters' : '') + '">' +
+      (includeCourse
+        ? '<label class="course-cohort-filter"><span>' +
+          e(t('registrationRequestCourseFilter')) + '</span>' +
+          '<select class="input" data-registration-course-filter>' +
+          '<option value="">' + e(t('registrationRequestAllCourses')) + '</option>' +
+          courseOptions.map(function (course) {
+            return '<option value="' + e(course.id) + '"' +
+              (selectedCourseId === course.id ? ' selected' : '') + '>' +
+              e(course.title) + '</option>';
+          }).join('') + '</select></label>' +
+          '<label class="course-cohort-filter"><span>' +
+          e(t('registrationRequestCohortFilter')) + '</span>' +
+          '<select class="input" data-registration-cohort-filter>' +
+          '<option value="">' + e(t('registrationRequestAllCohorts')) + '</option>' +
+          cohortOptions.map(function (cohort) {
+            return '<option value="' + e(cohort.id) + '"' +
+              (courseRegistrationRequestCohortFilter === cohort.id ? ' selected' : '') + '>' +
+              e(cohort.name) + '</option>';
+          }).join('') + '</select></label>'
+        : '') +
       '<label class="course-cohort-filter">' +
       '<span>' + e(t('courseCohortApplicantSearch')) + '</span>' +
       '<input class="input" type="search" data-cohort-applicant-search="' + e(cohort.id) +
@@ -1987,6 +2171,11 @@
       '"><table class="adm-table"><thead><tr>' +
       (includeCourse ? '<th scope="col">' + e(t('registrationRequestCourse')) + '</th>' : '') +
       '<th scope="col">' + e(t('registrationRequestName')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestAddress')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestSpecialty')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestStudentStatus')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestStudyYear')) + '</th>' +
+      '<th scope="col">' + e(t('registrationRequestGovernorate')) + '</th>' +
       '<th scope="col">' + e(t('registrationRequestPhone')) + '</th>' +
       '<th scope="col">' + e(t('registrationRequestSource')) + '</th>' +
       '<th scope="col">' + e(t('registrationRequestStatus')) + '</th>' +
@@ -2087,7 +2276,13 @@
           (row.getAttribute('data-applicant-search') || '').indexOf(query) !== -1;
         var matchesSource = !selectedSource ||
           row.getAttribute('data-cohort-source') === selectedSource;
-        var matches = matchesApplicant && matchesSource;
+        var matchesCourse = cohortId !== 'all' ||
+          !courseRegistrationRequestCourseFilter ||
+          row.getAttribute('data-request-course') === courseRegistrationRequestCourseFilter;
+        var matchesCohort = cohortId !== 'all' ||
+          !courseRegistrationRequestCohortFilter ||
+          row.getAttribute('data-request-cohort') === courseRegistrationRequestCohortFilter;
+        var matches = matchesApplicant && matchesSource && matchesCourse && matchesCohort;
         row.hidden = !matches;
         if (matches) visibleCount += 1;
       });
@@ -2114,6 +2309,64 @@
       });
       if (select.value || courseCohortApplicantQueries[cohortId]) filterRequests(cohortId, card);
     });
+
+    var allRequestsCard = host.querySelector('.course-registration-requests-table-wrap')
+      ? host.querySelector('.course-registration-requests-table-wrap').closest('.course-cohort-card')
+      : null;
+    var allRequestsSearch = allRequestsCard &&
+      allRequestsCard.querySelector('[data-cohort-applicant-search]');
+    var allRequestsCohortId = allRequestsSearch &&
+      allRequestsSearch.getAttribute('data-cohort-applicant-search');
+    var courseFilter = host.querySelector('[data-registration-course-filter]');
+    var cohortFilter = host.querySelector('[data-registration-cohort-filter]');
+    if (allRequestsCard && allRequestsCohortId) {
+      function applyRegistrationRequestFilters() {
+        filterRequests(allRequestsCohortId, allRequestsCard);
+      }
+      if (courseFilter) {
+        courseFilter.addEventListener('change', function () {
+          courseRegistrationRequestCourseFilter = courseFilter.value;
+          courseRegistrationRequestCohortFilter = '';
+          var selectedCourse = courseRegistrationRequestCourseFilter;
+          var matchingCohorts = AdminData.courseRegistrationRequests().filter(function (request) {
+            return request.cohortId &&
+              (!selectedCourse || String(request.courseId) === selectedCourse);
+          }).reduce(function (options, request) {
+            var cohortId = String(request.cohortId);
+            if (!options.some(function (cohort) { return cohort.id === cohortId; })) {
+              options.push({
+                id: cohortId,
+                name: request.cohortName || t('courseCohort') + ' ' + cohortId
+              });
+            }
+            return options;
+          }, []).sort(function (left, right) {
+            return left.name.localeCompare(right.name);
+          });
+          if (cohortFilter) {
+            cohortFilter.innerHTML = '<option value="">' +
+              e(t('registrationRequestAllCohorts')) + '</option>' +
+              matchingCohorts.map(function (cohort) {
+                return '<option value="' + e(cohort.id) + '">' +
+                  e(cohort.name) + '</option>';
+              }).join('');
+          }
+          applyRegistrationRequestFilters();
+        });
+      }
+      if (cohortFilter) {
+        cohortFilter.addEventListener('change', function () {
+          courseRegistrationRequestCohortFilter = cohortFilter.value;
+          applyRegistrationRequestFilters();
+        });
+      }
+      if (
+        courseRegistrationRequestCourseFilter ||
+        courseRegistrationRequestCohortFilter
+      ) {
+        applyRegistrationRequestFilters();
+      }
+    }
   }
 
   Admin.register('in-person-course-cohorts', {
@@ -2149,7 +2402,7 @@
     };
     var studentStatusKey = request.studentStatus === 'graduate'
       ? 'registrationRequestGraduate'
-      : 'registrationRequestStudent';
+      : request.studentStatus === 'student' ? 'registrationRequestStudent' : '';
     var status = request.status || 'new';
     var statusClass = status === 'accepted' ? 'st-ok'
       : status === 'rejected' ? 'st-danger'
@@ -2181,7 +2434,15 @@
         e(t('courseCohortApplicantInfo')) + '</h4><div class="course-request-detail-grid">' +
         detailField(t('registrationRequestAddress'), request.address) +
         detailField(t('registrationRequestSpecialty'), request.specialty) +
-        detailField(t('colRole'), t(studentStatusKey)) +
+        detailField(
+          t('registrationRequestGovernorate'),
+          request.governorate === 'gaza'
+            ? t('registrationRequestGovernorateGaza')
+            : request.governorate === 'central'
+              ? t('registrationRequestGovernorateCentral') : ''
+        ) +
+        detailField(t('registrationRequestStudyYear'), request.studyYear) +
+        detailField(t('colRole'), studentStatusKey ? t(studentStatusKey) : '—') +
         '</div></section>' +
         '<section class="course-request-detail-section"><h4>' +
         e(t('courseCohortApplicationInfo')) + '</h4><div class="course-request-detail-grid">' +
@@ -2244,11 +2505,23 @@
     }
     if (!values.address || values.address.length > 255 ||
         !values.specialty || values.specialty.length > 150 ||
-        ['student', 'graduate'].indexOf(values.studentStatus) === -1 ||
+        ['gaza', 'central'].indexOf(values.governorate) === -1 ||
+        !/^[1-9]\d*$/.test(values.studyYear || '') ||
+        Number(values.studyYear) > 4294967295 ||
+        ['', 'student', 'graduate'].indexOf(values.studentStatus) === -1 ||
         ['new', 'contacted', 'accepted', 'rejected'].indexOf(values.status) === -1) {
-      UI.toast(t('registrationRequestInvalid'), 'error');
+      UI.toast(
+        !/^[1-9]\d*$/.test(values.studyYear || '') ||
+          Number(values.studyYear) > 4294967295
+          ? t('registrationRequestStudyYearInvalid')
+          : ['gaza', 'central'].indexOf(values.governorate) === -1
+            ? t('registrationRequestGovernorateInvalid')
+            : t('registrationRequestInvalid'),
+        'error'
+      );
       return;
     }
+    values.studyYear = Number(values.studyYear);
     el.disabled = true;
     fetch(SITE.u('courseRegistrationRequestUpdate', requestId), {
       method: 'POST',
@@ -3179,6 +3452,30 @@
           maxLength: 150
         },
         {
+          k: 'governorate',
+          label: t('registrationRequestGovernorate'),
+          type: 'select',
+          required: true,
+          options: [
+            { v: '', l: '—' },
+            { v: 'gaza', l: t('registrationRequestGovernorateGaza') },
+            { v: 'central', l: t('registrationRequestGovernorateCentral') }
+          ]
+        },
+        {
+          k: 'studyYear',
+          label: t('registrationRequestStudyYear'),
+          type: 'number',
+          min: 1,
+          max: 4294967295,
+          step: 1,
+          required: true,
+          validate: function (value) {
+            return /^[1-9]\d*$/.test(value) && Number(value) <= 4294967295
+              ? '' : t('registrationRequestStudyYearInvalid');
+          }
+        },
+        {
           k: 'studentStatus',
           label: t('registrationRequestStatus'),
           type: 'select',
@@ -3650,6 +3947,7 @@
           }
         ]
       });
+
     }
   });
 

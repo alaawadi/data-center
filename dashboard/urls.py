@@ -21,6 +21,7 @@ urlpatterns = [
     path('panel/trainers/<str:pk>/status/', views.trainer_set_active, name='trainer-status'),
     path('panel/trainers/<str:pk>/content-permission/', views.trainer_set_content_permission, name='trainer-content-permission'),
     path('panel/students/<str:pk>/status/', views.student_set_active, name='student-status'),
+    path('panel/students/<str:pk>/referral-stats-visibility/', views.student_referral_stats_visibility, name='student-referral-stats-visibility'),
     path('panel/students/<str:pk>/sessions/', views.student_sessions, name='student-sessions'),
     path('panel/students/<str:pk>/referral-points/reset/', views.student_reset_referral_points, name='student-reset-referral-points'),
     path('panel/students/<str:pk>/referral-points/redeem/', views.student_redeem_referral_points, name='student-redeem-referral-points'),

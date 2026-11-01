@@ -468,7 +468,8 @@
       (p.website ? '<a class="pm" data-act="confirm-profile-website" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
       (p.email ? '<span class="pm">' + UI.icon('message-circle', 14) + e(p.email) + '</span>' : '') +
       '</div></div>' +
-      (SERVER_PROFILE && typeof SERVER_PROFILE.referral_points === 'number'
+      (SERVER_PROFILE && SERVER_PROFILE.showReferralStats === true &&
+        typeof SERVER_PROFILE.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
           '<div class="referral-stat referral-stat-points">' +
           '<span class="referral-stat-icon referral-stat-star" aria-hidden="true">⭐</span>' +
@@ -1670,7 +1671,7 @@
       '<input type="file" id="peAvatarFile" accept="image/*" class="hide"></div>' +
       '<div><div class="strong">' + e(t('fieldAvatar')) + '</div><div class="hint">' + e(t('avatarHint')) + '</div></div>' +
       '</div>' +
-      '<div class="field"><label class="label">' + e(t('fieldName')) + '</label><input class="input" id="peName" value="' + e(p.name) + '">' +
+      '<div class="field"><label class="label">' + e(t('fieldName')) + '</label><input class="input" id="peName" type="text" autocomplete="name" maxlength="150" value="' + e(p.name) + '">' +
       '<p class="hint" id="peNameHint"></p></div>' +
       (isTargetTrainer
         ? '<div class="field"><label class="label">اسم المدرب بالإنجليزية</label><input class="input" id="peTrainerNameEnglish" dir="ltr" autocomplete="name" maxlength="200" value="' + e(p.trainerNameEnglish || p.fullNameEnglish || '') + '" placeholder="Example: Ahmad Khaled">' +
@@ -1682,7 +1683,7 @@
       '<div class="field"><label class="label">' + e(t('fieldTitle')) + '</label><input class="input" id="peTitle" maxlength="35" value="' + e(titleInitial) + '"></div>' +
       '<div class="field"><label class="label">' + e(t('fieldEmail')) + ' <span class="req">*</span></label><input class="input" id="peEmail" type="email" dir="ltr" required autocomplete="email" placeholder="name@example.com" value="' + e(p.email || '') + '">' +
       '<p class="hint" id="peEmailHint"></p></div>' +
-      '<div class="field"><label class="label">' + e(t('fieldWhatsapp')) + ' <span class="req">*</span></label><input class="input" id="peWhatsapp" type="tel" dir="ltr" inputmode="tel" required maxlength="13" pattern="\\+?[0-9]{1,12}" value="' + e(p.whatsapp || '') + '" placeholder="+970599999999">' +
+      '<div class="field"><label class="label">' + e(t('fieldWhatsapp')) + ' <span class="req">*</span></label><input class="input" id="peWhatsapp" type="tel" dir="ltr" inputmode="tel" required maxlength="13" pattern="\\+?97[02][0-9]{9}" value="' + e(p.whatsapp || '') + '" placeholder="+970599999999">' +
       '<p class="hint" id="peWhatsappHint"></p></div>' +
       '<div class="field"><label class="label">' + e(t('fieldBio')) + '</label>' +
       '<textarea class="textarea" id="peBio" rows="3" maxlength="150">' + e(bioInitial) + '</textarea>' +
@@ -1814,17 +1815,20 @@
       saveEl.disabled = !(nameValid && emailValid && websiteValid && whatsappValid);
     }
 
-    function nameWordCount() {
-      return (nameEl.value.trim() || p.name || '').split(/\s+/).filter(Boolean).length;
-    }
-
     function checkNameLive() {
-      var n = nameWordCount();
-      nameValid = true;
-      if (n === 0) setHint(nameHintEl, t('nameWordsHint'), '');
-      else if (n < 2) { setHint(nameHintEl, t('nameTooShort'), 'error'); nameValid = false; }
-      else if (n > 3) { setHint(nameHintEl, t('nameTooLong'), 'error'); nameValid = false; }
-      else setHint(nameHintEl, t('nameValid'), 'ok');
+      var value = nameEl.value.trim();
+      var words = value ? value.split(/\s+/).filter(Boolean) : [];
+      var lettersOnly = /^[\p{L}\p{M}\s]+$/u.test(value) &&
+        words.every(function (word) { return /\p{L}/u.test(word); });
+      nameValid = false;
+      if (!value) setHint(nameHintEl, t('nameWordsHint'), 'error');
+      else if (!lettersOnly) setHint(nameHintEl, t('nameLettersOnly'), 'error');
+      else if (words.length < 2) setHint(nameHintEl, t('nameTooShort'), 'error');
+      else if (words.length > 3) setHint(nameHintEl, t('nameTooLong'), 'error');
+      else {
+        nameValid = true;
+        setHint(nameHintEl, t('nameValid'), 'ok');
+      }
       refreshSave();
       return nameValid;
     }
@@ -1850,7 +1854,7 @@
 
     function checkWhatsappLive() {
       var value = whatsappEl.value.trim();
-      whatsappValid = /^\+?[0-9]{1,12}$/.test(value);
+      whatsappValid = /^\+?97[02][0-9]{9}$/.test(value);
       setHint(
         whatsappHintEl,
         whatsappValid ? '' : (value ? t('whatsappInvalid') : t('whatsappRequired')),
@@ -2554,10 +2558,14 @@
        '<form class="cd-registration-form" id="inPersonRegistrationForm">' +
        '<div class="cd-registration-fields">' +
        '<label>الاسم الكامل<input class="input" name="fullName" type="text" autocomplete="name" aria-describedby="registrationFullNameError" required><span class="cd-registration-field-error" id="registrationFullNameError" aria-live="polite"></span></label>' +
-       '<label>رقم الهاتف / واتساب<input class="input" name="phone" type="tel" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="+970XXXXXXXXX" minlength="13" maxlength="13" pattern="\\+[0-9]{12}" title="أدخل + ثم 12 رقمًا" aria-describedby="registrationPhoneError" required><span class="cd-registration-field-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
-       '<label>العنوان<input class="input" name="address" type="text" autocomplete="street-address" aria-describedby="registrationAddressError" required><span class="cd-registration-field-error" id="registrationAddressError" aria-live="polite"></span></label>' +
+       '<label>رقم الهاتف / واتساب<input class="input" name="phone" type="tel" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="972xxxxxxxxx" maxlength="13" pattern="(?:97[02][0-9]{9}|\\+97[02][0-9]{9}|05[69][0-9]{7})" title="12 رقماً تبدأ بـ970 أو 972، أو 13 خانة تبدأ بـ+970 أو +972، أو 10 أرقام تبدأ بـ059 أو 056" aria-describedby="registrationPhoneError" required><span class="cd-registration-field-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
        '<label>التخصص<input class="input" name="specialty" type="text" aria-describedby="registrationSpecialtyError" required><span class="cd-registration-field-error" id="registrationSpecialtyError" aria-live="polite"></span></label>' +
-       '<label>الحالة<select class="input" name="studentStatus" aria-describedby="registrationStatusError" required><option value="">اختر الحالة</option><option value="student">طالب</option><option value="graduate">خريج</option></select><span class="cd-registration-field-error" id="registrationStatusError" aria-live="polite"></span></label>' +
+       '<label>السنة الدراسية<input class="input" name="studyYear" type="number" min="1" max="4294967295" step="1" inputmode="numeric" aria-describedby="registrationStudyYearError" required><span class="cd-registration-field-error" id="registrationStudyYearError" aria-live="polite"></span></label>' +
+       '<label>العنوان<input class="input" name="address" type="text" autocomplete="street-address" aria-describedby="registrationAddressError" required><span class="cd-registration-field-error" id="registrationAddressError" aria-live="polite"></span></label>' +
+       '<fieldset class="cd-registration-governorate" aria-describedby="registrationGovernorateError"><legend>المحافظة</legend><div class="cd-registration-governorate-options">' +
+       '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="gaza" required><span class="cd-registration-governorate-button">غزة</span></label>' +
+       '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="central" required><span class="cd-registration-governorate-button">الوسطى</span></label>' +
+       '</div><span class="cd-registration-field-error" id="registrationGovernorateError" aria-live="polite"></span></fieldset>' +
        '</div>' +
        '<p class="cd-registration-error" id="inPersonRegistrationError" role="alert" hidden></p>' +
        '<button class="cd-btn cd-btn-buy cd-registration-submit" type="submit" disabled>حفظ طلب التسجيل</button>' +
@@ -2684,8 +2692,8 @@
         phone: {
           error: document.getElementById('registrationPhoneError'),
           validate: function (value) {
-            return /^\+[0-9]{12}$/.test(value.trim())
-              ? '' : 'أدخل + متبوعًا بـ 12 رقمًا.';
+            return /^(?:97[02]\d{9}|\+97[02]\d{9}|05[69]\d{7})$/.test(value.trim())
+              ? '' : 'أدخل 12 رقماً يبدأ بـ970 أو 972، أو 13 خانة تبدأ بـ+970 أو +972، أو 10 أرقام تبدأ بـ059 أو 056.';
           }
         },
         address: {
@@ -2700,10 +2708,17 @@
             return value.trim() ? '' : 'أدخل التخصص.';
           }
         },
-        studentStatus: {
-          error: document.getElementById('registrationStatusError'),
+        studyYear: {
+          error: document.getElementById('registrationStudyYearError'),
           validate: function (value) {
-            return value === 'student' || value === 'graduate' ? '' : 'اختر طالب أو خريج.';
+            return /^[1-9]\d*$/.test(value.trim()) && Number(value) <= 4294967295
+              ? '' : 'أدخل السنة الدراسية كرقم صحيح موجب.';
+          }
+        },
+        governorate: {
+          error: document.getElementById('registrationGovernorateError'),
+          validate: function (value) {
+            return value === 'gaza' || value === 'central' ? '' : 'اختر المحافظة.';
           }
         }
       };
@@ -2711,8 +2726,13 @@
         var field = registrationForm.elements[name];
         var error = registrationFields[name].validate(field.value);
         registrationFields[name].error.textContent = error;
-        if (error) field.setAttribute('aria-invalid', 'true');
-        else field.removeAttribute('aria-invalid');
+        Array.prototype.forEach.call(
+          registrationForm.querySelectorAll('[name="' + name + '"]'),
+          function (control) {
+            if (error) control.setAttribute('aria-invalid', 'true');
+            else control.removeAttribute('aria-invalid');
+          }
+        );
         return !error;
       }
       function validateRegistrationForm(revealErrors) {
@@ -2725,22 +2745,25 @@
       }
       Object.keys(registrationFields).forEach(function (name) {
         var field = registrationForm.elements[name];
-        field.addEventListener('input', function () {
-          validateRegistrationField(name);
-          registrationSubmit.disabled = !Object.keys(registrationFields).every(function (key) {
-            return !registrationFields[key].validate(registrationForm.elements[key].value);
+        var controls = registrationForm.querySelectorAll('[name="' + name + '"]');
+        Array.prototype.forEach.call(controls, function (control) {
+          control.addEventListener('input', function () {
+            validateRegistrationField(name);
+            registrationSubmit.disabled = !Object.keys(registrationFields).every(function (key) {
+              return !registrationFields[key].validate(registrationForm.elements[key].value);
+            });
+            registrationError.hidden = true;
           });
-          registrationError.hidden = true;
-        });
-        field.addEventListener('change', function () {
-          validateRegistrationField(name);
-          registrationSubmit.disabled = !Object.keys(registrationFields).every(function (key) {
-            return !registrationFields[key].validate(registrationForm.elements[key].value);
+          control.addEventListener('change', function () {
+            validateRegistrationField(name);
+            registrationSubmit.disabled = !Object.keys(registrationFields).every(function (key) {
+              return !registrationFields[key].validate(registrationForm.elements[key].value);
+            });
+            registrationError.hidden = true;
           });
-          registrationError.hidden = true;
-        });
-        field.addEventListener('blur', function () {
-          validateRegistrationField(name);
+          control.addEventListener('blur', function () {
+            validateRegistrationField(name);
+          });
         });
       });
       registrationSubmit.disabled = !Object.keys(registrationFields).every(function (name) {
@@ -2757,7 +2780,8 @@
         var phone = String(formData.get('phone') || '').trim();
         var address = String(formData.get('address') || '').trim();
         var specialty = String(formData.get('specialty') || '').trim();
-        var studentStatus = String(formData.get('studentStatus') || '').trim();
+        var studyYear = Number(formData.get('studyYear'));
+        var governorate = String(formData.get('governorate') || '').trim();
         registrationError.hidden = true;
         registrationSubmit.disabled = true;
         registrationSubmit.textContent = 'جارٍ حفظ الطلب…';
@@ -2774,7 +2798,8 @@
             phone: phone,
             address: address,
             specialty: specialty,
-            studentStatus: studentStatus
+            studyYear: studyYear,
+            governorate: governorate
           })
         }).then(function (response) {
           return response.json().then(function (data) {
@@ -2789,7 +2814,12 @@
           registrationForm.reset();
           Object.keys(registrationFields).forEach(function (name) {
             registrationFields[name].error.textContent = '';
-            registrationForm.elements[name].removeAttribute('aria-invalid');
+            Array.prototype.forEach.call(
+              registrationForm.querySelectorAll('[name="' + name + '"]'),
+              function (control) {
+                control.removeAttribute('aria-invalid');
+              }
+            );
           });
           registrationSubmit.disabled = true;
           var successModal = UI.modal({

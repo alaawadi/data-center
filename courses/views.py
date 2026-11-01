@@ -270,17 +270,27 @@ def course_registration_request(request, pk):
         return JsonResponse({'ok': False, 'error': 'invalid_full_name'}, status=400)
 
     phone = str(payload.get('phone') or '').strip()
-    if not re.fullmatch(r'\+[0-9]{12}', phone):
+    if not re.fullmatch(r'(?:97[02][0-9]{9}|\+97[02][0-9]{9}|05[69][0-9]{7})', phone):
         return JsonResponse({'ok': False, 'error': 'invalid_phone'}, status=400)
 
     address = str(payload.get('address') or '').strip()
     specialty = str(payload.get('specialty') or '').strip()
-    student_status = str(payload.get('studentStatus') or '').strip()
+    governorate = payload.get('governorate')
+    study_year = payload.get('studyYear')
+    student_status = payload.get('studentStatus', '')
     if not address or len(address) > 255:
         return JsonResponse({'ok': False, 'error': 'invalid_address'}, status=400)
     if not specialty or len(specialty) > 150:
         return JsonResponse({'ok': False, 'error': 'invalid_specialty'}, status=400)
-    if student_status not in ('student', 'graduate'):
+    if governorate not in ('gaza', 'central'):
+        return JsonResponse({'ok': False, 'error': 'invalid_governorate'}, status=400)
+    if (
+        isinstance(study_year, bool)
+        or not isinstance(study_year, int)
+        or not 1 <= study_year <= 4294967295
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_study_year'}, status=400)
+    if student_status not in ('', 'student', 'graduate'):
         return JsonResponse({'ok': False, 'error': 'invalid_student_status'}, status=400)
 
     referral_link = None
@@ -310,6 +320,8 @@ def course_registration_request(request, pk):
             phone=phone,
             address=address,
             specialty=specialty,
+            governorate=governorate,
+            study_year=study_year,
             student_status=student_status,
             status=CourseRegistrationRequestStatus.NEW,
         )

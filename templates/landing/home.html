@@ -16,7 +16,6 @@
   {{ site_settings|json_script:"site-settings-data" }}
   {{ courses_json|json_script:"landing-courses-data" }}
   {{ inperson_courses_json|json_script:"landing-inperson-courses-data" }}
-  {{ workshops_json|json_script:"landing-workshops-data" }}
   <!-- شاشة التحميل -->
   <div class="site-loader" id="siteLoader" aria-hidden="true">
     <picture>
@@ -72,19 +71,14 @@
   <section class="course-section course" id="latest-courses">
     <h2 class="heading">أحدث <span>الدورات</span></h2>
     <div class="course-tabs" role="tablist" aria-label="تصنيف الدورات">
-      <button class="course-tab" type="button" id="tab-workshops" role="tab" aria-selected="false" aria-controls="panel-workshops" tabindex="-1" data-course-tab="workshops">ورشات وجاهية</button>
-      <button class="course-tab" type="button" id="tab-inperson-courses" role="tab" aria-selected="false" aria-controls="panel-inperson-courses" tabindex="-1" data-course-tab="inperson-courses">دورات وجاهية</button>
-      <button class="course-tab is-active" type="button" id="tab-online-courses" role="tab" aria-selected="true" aria-controls="panel-online-courses" tabindex="0" data-course-tab="online-courses">دورات أونلاين</button>
+      <button class="course-tab is-active" type="button" id="tab-inperson-courses" role="tab" aria-selected="true" aria-controls="panel-inperson-courses" tabindex="0" data-course-tab="inperson-courses">دورات وجاهية</button>
+      <button class="course-tab" type="button" id="tab-online-courses" role="tab" aria-selected="false" aria-controls="panel-online-courses" tabindex="-1" data-course-tab="online-courses">دورات أونلاين</button>
     </div>
-    <div class="course-tab-panel" id="panel-workshops" role="tabpanel" aria-labelledby="tab-workshops" data-course-panel="workshops" hidden>
-      <p class="course-tab-description">تعرف على مهارات جديدة من خلال ورشات ملخصة وبشهادات معتمدة.</p>
-      <div class="box-container" id="inperson-workshops-container"></div>
-    </div>
-    <div class="course-tab-panel" id="panel-inperson-courses" role="tabpanel" aria-labelledby="tab-inperson-courses" data-course-panel="inperson-courses" hidden>
+    <div class="course-tab-panel" id="panel-inperson-courses" role="tabpanel" aria-labelledby="tab-inperson-courses" data-course-panel="inperson-courses">
       <p class="course-tab-description">تعلّم وجاهياً وتفاعل مع المدرب والطلاب في بيئة تعليمية احترافية.</p>
       <div class="box-container" id="inperson-courses-container"></div>
     </div>
-    <div class="course-tab-panel" id="panel-online-courses" role="tabpanel" aria-labelledby="tab-online-courses" data-course-panel="online-courses">
+    <div class="course-tab-panel" id="panel-online-courses" role="tabpanel" aria-labelledby="tab-online-courses" data-course-panel="online-courses" hidden>
       <p class="course-tab-description">دورات متكاملة تساعدك في اكتساب مهارات متكاملة والأكثر طلباً في سوق العمل.</p>
       <div class="box-container" id="online-courses-container"></div>
       <a class="course-more-link" href="{% url 'courses:list' %}" id="online-courses-more">

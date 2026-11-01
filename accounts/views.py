@@ -4,7 +4,7 @@ import json
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
@@ -14,6 +14,8 @@ from courses.models import (
     CourseStatus,
     ManualCertificate,
     ManualCertificateStatus,
+    StudentPointTransaction,
+    StudentReferralLink,
     TrainingCategory,
     WorkshopCertificate,
 )
@@ -187,6 +189,17 @@ class FreelancerDetailView(TemplateView):
             {'id': f'sk{skill.pk}', 'name': skill.skill.name, 'level': skill.level}
             for skill in profile.profile_skills.select_related('skill')
         ]
+        if profile.show_referral_stats and profile.user.role == UserRole.STUDENT:
+            context['profile_json']['referral_points'] = (
+                StudentPointTransaction.objects.filter(student=profile.user)
+                .aggregate(total=Sum('points'))['total']
+                or 0
+            )
+            context['profile_json']['referral_visits'] = (
+                StudentReferralLink.objects.filter(referrer=profile.user)
+                .aggregate(total=Sum('visits'))['total']
+                or 0
+            )
         if self.request.user.is_authenticated and (
             self.request.user.is_staff or self.request.user.is_admin_role
         ):

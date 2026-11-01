@@ -47,12 +47,15 @@ class HomePageTests(TestCase):
         self.assertNotContains(response, 'متابعة التقدّم')
         self.assertNotContains(response, 'مجتمع المستقلين')
         self.assertContains(response, 'أحدث <span>الدورات</span>')
-        self.assertContains(response, 'ورشات وجاهية')
+        self.assertNotContains(response, 'ورشات وجاهية')
         self.assertContains(response, 'دورات وجاهية')
         self.assertContains(response, 'دورات أونلاين')
-        self.assertContains(response, 'تعرف على مهارات جديدة من خلال ورشات ملخصة وبشهادات معتمدة.')
         self.assertContains(response, 'دورات متكاملة تساعدك في اكتساب مهارات متكاملة والأكثر طلباً في سوق العمل.')
         self.assertContains(response, 'تعلّم وجاهياً وتفاعل مع المدرب والطلاب في بيئة تعليمية احترافية.')
+        self.assertContains(response, 'id="tab-inperson-courses" role="tab" aria-selected="true"')
+        self.assertContains(response, 'id="panel-inperson-courses" role="tabpanel" aria-labelledby="tab-inperson-courses" data-course-panel="inperson-courses"')
+        self.assertContains(response, 'id="tab-online-courses" role="tab" aria-selected="false"')
+        self.assertContains(response, 'data-course-panel="online-courses" hidden')
         self.assertContains(response, 'id="online-courses-more"')
         self.assertContains(response, 'id="online-courses-count"')
         self.assertContains(response, reverse('courses:list'))
@@ -114,8 +117,8 @@ class HomePageTests(TestCase):
         self.assertEqual(sheet_titles, [published.title])
         self.assertNotIn('syllabus', response.context['courses_sheet_json'][0])
 
-    def test_homepage_includes_workshops_for_the_in_person_workshop_tab(self):
-        workshop = InPersonWorkshop.objects.create(
+    def test_homepage_does_not_render_the_in_person_workshops_tab(self):
+        InPersonWorkshop.objects.create(
             title='ورشة تجربة',
             description='وصف الورشة',
             starts_at=timezone.now(),
@@ -124,13 +127,12 @@ class HomePageTests(TestCase):
         )
 
         response = self.client.get(reverse('landing:home'))
-
         self.assertEqual(response.status_code, 200)
-        workshops = response.context['workshops_json']
-        self.assertEqual(len(workshops), 1)
-        self.assertEqual(workshops[0]['id'], workshop.pk)
-        self.assertEqual(workshops[0]['title'], workshop.title)
-        self.assertContains(response, 'id="landing-workshops-data"')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('workshops_json', response.context)
+        self.assertNotContains(response, 'id="tab-workshops"')
+        self.assertNotContains(response, 'id="panel-workshops"')
+        self.assertNotContains(response, 'id="landing-workshops-data"')
 
     def test_inperson_courses_show_only_on_homepage_in_their_own_tab(self):
         trainer = get_user_model().objects.create_user(

@@ -89,7 +89,7 @@
         '<button class="profile-email-copy" type="button" data-act="copy-profile-email" data-email="' + e(p.email) +
         '" title="' + e(t('copyEmail')) + '" aria-label="' + e(t('copyEmail')) + '">' + UI.icon('copy', 14) + '</button></span>' : '') +
       '</div></div>' +
-      (selfProfile && typeof p.referral_points === 'number'
+      (p.showReferralStats === true && typeof p.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
           '<div class="referral-stat referral-stat-points">' +
           '<span class="referral-stat-icon referral-stat-star" aria-hidden="true">⭐</span>' +
@@ -388,6 +388,9 @@
         fullNameEnglish: EMBEDDED_PROFILE.fullNameEnglish,
         trainerNameEnglish: EMBEDDED_PROFILE.trainerNameEnglish,
         skillsWithLevels: EMBEDDED_PROFILE.skillsWithLevels,
+        showReferralStats: EMBEDDED_PROFILE.showReferralStats,
+        referral_points: EMBEDDED_PROFILE.referral_points,
+        referral_visits: EMBEDDED_PROFILE.referral_visits,
         isTrainer: EMBEDDED_PROFILE.isTrainer,
         roleKey: EMBEDDED_PROFILE.roleKey
       });
