@@ -73,7 +73,7 @@ from courses.models import (
     start_next_inperson_cohort,
 )
 from courses.views import _sync_quiz, course_editor_context
-from projects.models import Project, ProjectStatus
+from projects.models import Project, ProjectStatus, ProjectVisibility
 from projects.views import project_editor_context
 from users.models import (
     DeviceSession,
@@ -2822,6 +2822,11 @@ def trainer_set_content_permission(request, pk):
         return _admin_api_error('المدرب غير موجود.', 404)
     trainer.can_publish_content = payload['allowed']
     trainer.save(update_fields=['can_publish_content'])
+    if not trainer.can_publish_content:
+        Course.objects.filter(owner=trainer).update(
+            profile_only=True,
+            updated_at=timezone.now(),
+        )
     return JsonResponse({'ok': True, 'canPublishContent': trainer.can_publish_content})
 
 
@@ -3252,6 +3257,26 @@ def course_set_active(request, pk):
 
 
 @require_POST
+def course_set_profile_only(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict) or not isinstance(payload.get('profileOnly'), bool):
+        return _admin_api_error('حالة ظهور الدورة غير صالحة.', 400)
+    try:
+        course = Course.objects.select_related('owner').get(pk=pk)
+    except (Course.DoesNotExist, ValueError, TypeError):
+        return _admin_api_error('الدورة غير موجودة.', 404)
+    course.profile_only = payload['profileOnly']
+    course.save(update_fields=['profile_only', 'updated_at'])
+    return JsonResponse({'ok': True, 'profileOnly': course.profile_only})
+
+
+@require_POST
 def project_set_active(request, pk):
     denied = _admin_api_user(request)
     if denied:
@@ -3272,6 +3297,30 @@ def project_set_active(request, pk):
     except (Project.DoesNotExist, ValueError, TypeError):
         return _admin_api_error('المشروع غير موجود.', 404)
     return JsonResponse({'ok': True, 'active': project.status == ProjectStatus.PUBLISHED})
+
+
+@require_POST
+def project_set_profile_only(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict) or not isinstance(payload.get('profileOnly'), bool):
+        return _admin_api_error('حالة ظهور المشروع غير صالحة.', 400)
+    try:
+        project = Project.objects.select_related('owner').get(pk=pk)
+    except (Project.DoesNotExist, ValueError, TypeError):
+        return _admin_api_error('المشروع غير موجود.', 404)
+    if project.owner.role != UserRole.TRAINER:
+        return _admin_api_error('إعداد الظهور متاح لمشاريع المدربين فقط.', 400)
+    project.visibility = (
+        ProjectVisibility.PERSONAL if payload['profileOnly'] else ProjectVisibility.PUBLIC
+    )
+    project.save(update_fields=['visibility', 'updated_at'])
+    return JsonResponse({'ok': True, 'profileOnly': payload['profileOnly']})
 
 
 @require_POST
@@ -3459,6 +3508,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['skip_generic_courses_json'] = True
+        context['admin_current_user_name'] = self.request.user.display_name
         context['training_categories_json'] = _training_categories_payload()
         context['freelancer_categories_json'] = _freelancer_categories_payload()
         context['platform_settings'] = get_platform_settings(

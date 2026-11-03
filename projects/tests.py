@@ -91,6 +91,23 @@ class ProjectVisibilityTests(TestCase):
                 self.assertEqual(response.json()['error'], 'title_required')
         self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
 
+    def test_new_trainer_project_defaults_to_profile_only(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps({
+                'id': '',
+                'title': 'مشروع المدرب الجديد',
+                'status': 'draft',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        project = Project.objects.get(slug=response.json()['id'])
+        self.assertEqual(project.visibility, ProjectVisibility.PERSONAL)
+
     def _publish_payload(self, **overrides):
         payload = {
             'id': '',

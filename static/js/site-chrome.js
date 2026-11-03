@@ -146,7 +146,7 @@
   /* ----------------------------------------------------------
      ورقة الدورات المنبثقة (نفس سلوك لاندنج)
      ---------------------------------------------------------- */
-  function renderSheetCourses() {
+  function renderSheetCourses(courses) {
     var list = document.getElementById('coursesSheetList');
     if (!list) return;
     var titleEl = document.querySelector('.courses-sheet .sheet-title');
@@ -162,18 +162,7 @@
     list.dataset.mode = 'courses';
     if (titleEl) titleEl.textContent = 'دورات مركز داتا';
 
-    var coursesData = document.getElementById('courses-sheet-data');
-    var certs = null;
-    if (coursesData) {
-      try {
-        var parsedCourses = JSON.parse(coursesData.textContent);
-        if (Array.isArray(parsedCourses)) certs = parsedCourses;
-      } catch (err) {
-        certs = null;
-      }
-    }
-    if (!certs && window.Store) certs = Store.collection('certificates');
-    certs = certs || [];
+    var certs = Array.isArray(courses) ? courses : [];
     if (!certs.length) {
       list.innerHTML = '<div class="csi-empty">لا توجد دورات حالياً</div>';
       return;
@@ -195,6 +184,37 @@
     }).join('');
   }
 
+  var coursesSheetPromise = null;
+  var coursesSheetLoaded = false;
+
+  function loadSheetCourses() {
+    if (coursesSheetLoaded) return;
+    var list = document.getElementById('coursesSheetList');
+    var url = window.SITE_URLS && SITE_URLS.courseSheetData;
+    if (!list || !url) {
+      console.error('Course sheet data URL is unavailable.');
+      return;
+    }
+    list.innerHTML = '<div class="csi-empty">جارٍ تحميل الدورات...</div>';
+    if (!coursesSheetPromise) {
+      coursesSheetPromise = fetch(url, { headers: { Accept: 'application/json' } })
+        .then(function (response) {
+          if (!response.ok) throw new Error('Course sheet request failed: ' + response.status);
+          return response.json();
+        })
+        .then(function (courses) {
+          if (!Array.isArray(courses)) throw new Error('Course sheet response is invalid.');
+          coursesSheetLoaded = true;
+          renderSheetCourses(courses);
+        })
+        .catch(function (error) {
+          coursesSheetPromise = null;
+          list.innerHTML = '<div class="csi-empty">تعذر تحميل الدورات. حاول مرة أخرى.</div>';
+          console.error(error);
+        });
+    }
+  }
+
   function initSheet() {
     var overlay = document.getElementById('coursesSheetOverlay');
     var fab = document.getElementById('coursesFabBtn');
@@ -203,7 +223,11 @@
 
     renderSheetCourses();
 
-    function open() { overlay.classList.add('open'); document.body.classList.add('no-scroll'); }
+    function open() {
+      overlay.classList.add('open');
+      document.body.classList.add('no-scroll');
+      if (document.body.dataset.page !== 'playlist') loadSheetCourses();
+    }
     function close() { overlay.classList.remove('open'); document.body.classList.remove('no-scroll'); }
 
     fab.addEventListener('click', open);

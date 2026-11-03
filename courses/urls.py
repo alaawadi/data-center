@@ -7,6 +7,7 @@ app_name = 'courses'
 
 urlpatterns = [
     path('courses/', views.CourseListView.as_view(), name='list'),
+    path('courses/sheet-data/', views.course_sheet_data, name='sheet-data'),
     path('courses/edit/', views.CourseEditorView.as_view(), name='create'),
     path('courses/edit/<str:pk>/', views.CourseEditorView.as_view(), name='edit'),
     path('courses/save/', views.course_save, name='save'),

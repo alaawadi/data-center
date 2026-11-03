@@ -343,13 +343,20 @@ class FreelancerListTests(TestCase):
         self.assertNotContains(response, 'workshop-scanner.js')
         self.assertNotContains(response, 'jsQR.js')
 
-    def test_public_trainer_profile_includes_profile_only_inperson_and_inactive_courses(self):
+    def test_public_trainer_profile_includes_profile_only_and_inactive_courses(self):
         trainer = self._user('059900115', 'مدرب بروفايل', UserRole.TRAINER)
         profile_only_course = Course.objects.create(
             owner=trainer,
             title='دورة وجاهية للبروفايل',
             status=CourseStatus.PUBLISHED,
             course_type=CourseType.IN_PERSON,
+            profile_only=True,
+        )
+        profile_only_online_course = Course.objects.create(
+            owner=trainer,
+            title='دورة أونلاين للبروفايل فقط',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.ONLINE,
             profile_only=True,
         )
         inactive_course = Course.objects.create(
@@ -371,6 +378,7 @@ class FreelancerListTests(TestCase):
         courses = response.context['courses_json']
         courses_by_id = {course['id']: course for course in courses}
         self.assertIn(profile_only_course.slug, courses_by_id)
+        self.assertIn(profile_only_online_course.slug, courses_by_id)
         self.assertEqual(
             courses_by_id[profile_only_course.slug]['courseType'],
             CourseType.IN_PERSON,

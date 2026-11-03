@@ -6,8 +6,23 @@
   {% include "partials/theme_bootstrap.html" %}
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}مركز داتا للتدريب والتطوير{% endblock %}</title>
-  <meta name="description" content="{% block description %}{% endblock %}">
+  <title>{% block title %}{{ seo_title }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{{ seo_description }}{% endblock %}">
+  <meta name="robots" content="{{ seo_robots }}">
+  {% if seo_canonical_url %}<link rel="canonical" href="{{ seo_canonical_url }}">{% endif %}
+  <meta property="og:type" content="{{ seo_og_type }}">
+  <meta property="og:locale" content="ar_PS">
+  <meta property="og:site_name" content="{{ seo_site_name }}">
+  <meta property="og:title" content="{{ seo_title }}">
+  <meta property="og:description" content="{{ seo_description }}">
+  {% if seo_canonical_url %}<meta property="og:url" content="{{ seo_canonical_url }}">{% endif %}
+  <meta property="og:image" content="{{ seo_image_url }}">
+  <meta property="og:image:alt" content="مركز داتا للتدريب والتطوير">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ seo_title }}">
+  <meta name="twitter:description" content="{{ seo_description }}">
+  <meta name="twitter:image" content="{{ seo_image_url }}">
+  {{ seo_json_ld|safe }}
   {% block favicon %}
     <link rel="icon" href="{% static_v 'images/logo.svg' %}" type="image/svg+xml">
   {% endblock %}

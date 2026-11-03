@@ -48,7 +48,7 @@ from courses.models import (
     WorkshopAttendance,
     WorkshopCertificate,
 )
-from projects.models import Project, ProjectComment, ProjectStatus
+from projects.models import Project, ProjectComment, ProjectStatus, ProjectVisibility
 from posts.models import Post, PostTag
 from users.models import (
     DeviceSession,
@@ -102,6 +102,9 @@ class AdminCourseRegistrationRequestTests(TestCase):
         response = self.client.get(reverse('dashboard:home'))
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['admin_current_user_name'], self.admin.display_name)
+        self.assertContains(response, 'id="admin-current-user-name"')
+        self.assertContains(response, json.dumps(self.admin.display_name))
         self.assertEqual(
             response.context['course_registration_requests_json'],
             [{
@@ -664,6 +667,11 @@ class AdminCourseRegistrationRequestTests(TestCase):
             role=UserRole.TRAINER,
         )
         self.client.force_login(self.admin)
+        course = Course.objects.create(
+            owner=trainer,
+            title='دورة سابقة منشورة',
+            status=CourseStatus.PUBLISHED,
+        )
 
         response = self.client.post(
             reverse(
@@ -1422,6 +1430,11 @@ class AdminTrainerListTests(TestCase):
             full_name='مدرب النشر',
             role=UserRole.TRAINER,
         )
+        course = Course.objects.create(
+            owner=trainer,
+            title='دورة سابقة منشورة',
+            status=CourseStatus.PUBLISHED,
+        )
         self.client.force_login(self.admin)
 
         response = self.client.post(
@@ -1434,6 +1447,8 @@ class AdminTrainerListTests(TestCase):
         self.assertFalse(response.json()['canPublishContent'])
         trainer.refresh_from_db()
         self.assertFalse(trainer.can_publish_content)
+        course.refresh_from_db()
+        self.assertTrue(course.profile_only)
 
     def test_non_admin_cannot_toggle_trainer_content_permission(self):
         trainer = User.objects.create_user(
@@ -2710,6 +2725,93 @@ class AdminCourseActivationTests(TestCase):
             status=CourseStatus.PUBLISHED,
         )
         self.url = reverse('dashboard:course-status', args=[self.course.pk])
+        self.visibility_url = reverse('dashboard:course-visibility', args=[self.course.pk])
+
+    def test_admin_can_choose_online_course_visibility(self):
+        self.client.force_login(self.admin)
+
+        hidden = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(hidden.status_code, 200, hidden.content)
+        self.assertTrue(hidden.json()['profileOnly'])
+        self.course.refresh_from_db()
+        self.assertTrue(self.course.profile_only)
+        public_courses = self.client.get(reverse('courses:list')).context['courses_json']
+        self.assertNotIn(self.course.slug, [course['id'] for course in public_courses])
+
+        visible = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': False}),
+            content_type='application/json',
+        )
+        self.assertEqual(visible.status_code, 200, visible.content)
+        self.assertFalse(visible.json()['profileOnly'])
+        public_courses = self.client.get(reverse('courses:list')).context['courses_json']
+        self.assertIn(self.course.slug, [course['id'] for course in public_courses])
+
+    def test_admin_can_choose_inperson_course_homepage_visibility(self):
+        self.course.course_type = CourseType.IN_PERSON
+        self.course.profile_only = True
+        self.course.save(update_fields=['course_type', 'profile_only'])
+        self.client.force_login(self.admin)
+
+        hidden = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(hidden.status_code, 200, hidden.content)
+        homepage_courses = self.client.get(reverse('landing:home')).context['inperson_courses_json']
+        self.assertNotIn(self.course.slug, [course['id'] for course in homepage_courses])
+
+        visible = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': False}),
+            content_type='application/json',
+        )
+        self.assertEqual(visible.status_code, 200, visible.content)
+        homepage_courses = self.client.get(reverse('landing:home')).context['inperson_courses_json']
+        self.assertIn(self.course.slug, [course['id'] for course in homepage_courses])
+
+    def test_admin_can_show_online_course_when_trainer_publishing_is_disabled(self):
+        self.trainer.can_publish_content = False
+        self.trainer.save(update_fields=['can_publish_content'])
+        self.course.profile_only = True
+        self.course.save(update_fields=['profile_only'])
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': False}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['profileOnly'])
+        self.course.refresh_from_db()
+        self.assertFalse(self.course.profile_only)
+        public_courses = self.client.get(reverse('courses:list')).context['courses_json']
+        self.assertIn(self.course.slug, [course['id'] for course in public_courses])
+
+    def test_course_visibility_requires_admin_and_boolean_value(self):
+        self.client.force_login(self.trainer)
+        response = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 403)
+
+        self.client.force_login(self.admin)
+        response = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': 'true'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_admin_can_deactivate_and_reactivate_course(self):
         self.client.force_login(self.admin)
@@ -2790,6 +2892,66 @@ class AdminProjectActivationTests(TestCase):
             status=ProjectStatus.PUBLISHED,
         )
         self.url = reverse('dashboard:project-status', args=[self.project.pk])
+        self.visibility_url = reverse('dashboard:project-visibility', args=[self.project.pk])
+
+    def test_admin_can_change_trainer_project_visibility(self):
+        trainer = User.objects.create_user(
+            phone='0591000032',
+            password='trainer-password',
+            full_name='مدرب مشاريع',
+            role=UserRole.TRAINER,
+        )
+        project = Project.objects.create(
+            owner=trainer,
+            title='مشروع المدرب',
+            status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.PERSONAL,
+        )
+        url = reverse('dashboard:project-visibility', args=[project.pk])
+        self.client.force_login(self.admin)
+
+        public_response = self.client.post(
+            url,
+            json.dumps({'profileOnly': False}),
+            content_type='application/json',
+        )
+        self.assertEqual(public_response.status_code, 200, public_response.content)
+        self.assertFalse(public_response.json()['profileOnly'])
+        project.refresh_from_db()
+        self.assertEqual(project.visibility, ProjectVisibility.PUBLIC)
+
+        profile_only_response = self.client.post(
+            url,
+            json.dumps({'profileOnly': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(profile_only_response.status_code, 200, profile_only_response.content)
+        self.assertTrue(profile_only_response.json()['profileOnly'])
+        project.refresh_from_db()
+        self.assertEqual(project.visibility, ProjectVisibility.PERSONAL)
+
+    def test_project_visibility_toggle_rejects_non_trainer_projects_and_invalid_values(self):
+        self.client.force_login(self.admin)
+        non_trainer_response = self.client.post(
+            self.visibility_url,
+            json.dumps({'profileOnly': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(non_trainer_response.status_code, 400)
+
+        trainer = User.objects.create_user(
+            phone='0591000033',
+            password='trainer-password',
+            full_name='مدرب مشاريع آخر',
+            role=UserRole.TRAINER,
+        )
+        project = Project.objects.create(owner=trainer, title='مشروع آخر')
+        response = self.client.post(
+            reverse('dashboard:project-visibility', args=[project.pk]),
+            json.dumps({'profileOnly': 'true'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_admin_can_deactivate_and_reactivate_project(self):
         self.client.force_login(self.admin)

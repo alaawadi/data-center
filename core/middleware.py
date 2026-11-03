@@ -1,3 +1,6 @@
+from urllib.parse import urlsplit
+
+from django.conf import settings
 from django.db.models import F
 from django.http import HttpResponse
 from django.utils import timezone
@@ -14,8 +17,18 @@ class MaintenanceModeMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
+        self.asset_prefixes = tuple(
+            prefix
+            for prefix in (
+                urlsplit(settings.STATIC_URL).path,
+                urlsplit(settings.MEDIA_URL).path,
+            )
+            if prefix
+        )
 
     def __call__(self, request):
+        if request.path_info.startswith(self.asset_prefixes):
+            return self.get_response(request)
         settings_data = PlatformSettings.objects.filter(pk=1).values_list('data', flat=True).first()
         request.platform_settings_data = settings_data
         path = request.path_info

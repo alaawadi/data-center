@@ -20,6 +20,7 @@ from django.utils.html import strip_tags
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import TemplateView
 
+from core.seo import json_ld_script, seo_absolute_url, seo_plain_text
 from courses.models import CourseProgress, CourseStatus, TrainingCategory
 from users.models import User, UserRole
 
@@ -268,6 +269,37 @@ class ProjectDetailView(TemplateView):
             project = _find_project(key, owned)
         if project is None:
             raise Http404('المشروع غير موجود')
+        context['seo_title'] = f'{project.title} — مشروع | مركز داتا'
+        context['seo_description'] = seo_plain_text(
+            project.summary or project.content,
+            f'استعرض مشروع {project.title} على مركز داتا.',
+        )
+        if project.status != ProjectStatus.PUBLISHED or project.visibility != ProjectVisibility.PUBLIC:
+            context['seo_robots'] = 'noindex, nofollow'
+            context['seo_canonical_url'] = ''
+        else:
+            context['seo_canonical_url'] = seo_absolute_url(
+                reverse('projects:detail', kwargs={'pk': project.slug})
+            )
+        context['seo_og_type'] = 'article'
+        project_schema = {
+            '@context': 'https://schema.org',
+            '@type': 'CreativeWork',
+            'name': project.title,
+            'description': context['seo_description'],
+            'author': {
+                '@type': 'Person',
+                'name': project.owner.display_name,
+            },
+        }
+        if context['seo_canonical_url']:
+            project_schema['url'] = context['seo_canonical_url']
+        if project.cover:
+            context['seo_image_url'] = seo_absolute_url(project.cover.url)
+            project_schema['image'] = context['seo_image_url']
+        if project.project_date:
+            project_schema['dateCreated'] = project.project_date.isoformat()
+        context['seo_json_ld'] = json_ld_script(project_schema)
         if project.is_published or (
             project.visibility == ProjectVisibility.COURSES
             and project.source_lesson_id
@@ -393,7 +425,7 @@ def project_save(request):
             project.visibility
             if project
             else ProjectVisibility.PERSONAL
-            if request.user.is_trainer and not request.user.can_publish_content and not is_admin
+            if owner.is_trainer and not is_admin
             else ProjectVisibility.PUBLIC
         )
     allowed_visibilities = {

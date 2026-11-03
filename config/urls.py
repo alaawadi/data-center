@@ -9,8 +9,12 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from core.seo import robots_txt, sitemap_xml
+
 urlpatterns = [
     path('django-admin/', admin.site.urls),
+    path('robots.txt', robots_txt, name='robots_txt'),
+    path('sitemap.xml', sitemap_xml, name='sitemap'),
 
     path('', include('landing.urls', namespace='landing')),
     path('', include('users.urls', namespace='users')),

@@ -8,6 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}لوحة التحكم — مركز داتا{% endblock %}</title>
   <meta name="description" content="{% block description %}لوحة تحكم متكاملة لإدارة المنصة والمستخدمين والمدربين والدورات والدروس والمشاريع واليوميات{% endblock %}">
+  <meta name="robots" content="noindex, nofollow">
   <link rel="icon" href="{% static_v 'images/logo.svg' %}" type="image/svg+xml">
   {% include "partials/fonts.html" %}
   {% block css %}
@@ -44,6 +45,7 @@
   {{ course_registration_requests_json|json_script:"admin-course-registration-requests-data" }}
   {{ online_course_invoices_json|json_script:"admin-online-course-invoices-data" }}
   {{ admin_subscriptions_json|json_script:"admin-subscriptions-data" }}
+  {{ admin_current_user_name|json_script:"admin-current-user-name" }}
   {{ training_categories_json|json_script:"admin-training-categories-data" }}
   {{ freelancer_categories_json|json_script:"admin-freelancer-categories-data" }}
   {% include "partials/js_urls.html" %}

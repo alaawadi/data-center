@@ -2,7 +2,7 @@
 
 from django.db.models import Sum
 
-from courses.models import Course, CourseStatus, StudentPointTransaction, StudentReferralLink
+from courses.models import StudentPointTransaction, StudentReferralLink
 from users.models import FreelancerCategory, UserRole
 
 from .models import PlatformSettings
@@ -89,17 +89,6 @@ def site_chrome(request):
         if path.startswith(prefix):
             active_tab = tab
             break
-    editor_views = {
-        'dashboard:course-editor-create',
-        'dashboard:course-editor-edit',
-        'dashboard:project-editor-create',
-        'dashboard:project-editor-edit',
-    }
-    is_editor_fragment = (
-        request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-        and request.resolver_match
-        and request.resolver_match.view_name in editor_views
-    )
     return {
         'active_tab': active_tab,
         'is_landing': request.resolver_match.view_name == 'landing:home'
@@ -107,21 +96,6 @@ def site_chrome(request):
         'site_settings': get_platform_settings(
             getattr(request, 'platform_settings_data', None)
         ),
-        'courses_sheet_json': [] if is_editor_fragment else [
-            {
-                'id': course.slug or str(course.pk),
-                'title': course.title,
-                'image': course.cover.url if course.cover else '',
-                'duration': course.duration,
-                'period': course.period,
-                'price': f"₪{str(course.price or '').strip().replace('₪', '').strip()}"
-                if str(course.price or '').strip().replace('₪', '').strip()
-                else '',
-            }
-            for course in Course.objects.filter(status=CourseStatus.PUBLISHED)
-            .only('pk', 'slug', 'title', 'cover', 'duration', 'period', 'price')
-            .order_by('-created_at', '-pk')
-        ],
     }
 
 

@@ -5,6 +5,7 @@
       landing: "{% url 'landing:home' %}",
       portfolio: "{% url 'portfolio:home' %}",
       courses: "{% url 'courses:list' %}",
+      courseSheetData: "{% url 'courses:sheet-data' %}",
       course: "{% url 'courses:detail' pk='__ID__' %}",
       courseRegistration: "{% url 'courses:registration-request' pk='__ID__' %}",
       certificate: "{% url 'courses:certificate' pk='__ID__' %}",
@@ -51,7 +52,9 @@
       trainerStatus: "{% url 'dashboard:trainer-status' pk='__ID__' %}",
       trainerContentPermission: "{% url 'dashboard:trainer-content-permission' pk='__ID__' %}",
       courseStatus: "{% url 'dashboard:course-status' pk='__ID__' %}",
+      courseVisibility: "{% url 'dashboard:course-visibility' pk='__ID__' %}",
       projectStatus: "{% url 'dashboard:project-status' pk='__ID__' %}",
+      projectVisibility: "{% url 'dashboard:project-visibility' pk='__ID__' %}",
       certificateStatus: "{% url 'dashboard:certificate-status' certificate_key='__ID__' %}",
       courseStudentRemove: "{% url 'dashboard:course-student-remove' pk=0 %}".replace('/0/remove/', '/__ID__/remove/'),
       courseStudents: "{% url 'dashboard:course-students' pk='__ID__' %}",
@@ -91,7 +94,6 @@
     window.CSRF_TOKEN = "{{ csrf_token }}";
   </script>
   <script src="{% static_v 'js/site-urls.js' %}"></script>
-  {{ courses_sheet_json|json_script:"courses-sheet-data" }}
   {% if server_profile %}{{ server_profile|json_script:"my-profile-data" }}{% endif %}
   {% if projects_json != "" %}{{ projects_json|json_script:"projects-data" }}{% endif %}
   {% if saved_projects_json != "" %}{{ saved_projects_json|json_script:"saved-projects-data" }}{% endif %}

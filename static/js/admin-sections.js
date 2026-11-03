@@ -419,7 +419,7 @@
                 iconBtn('user-del', u.id, 'trash', t('delete'), 'danger');
             }
           }
-        ]
+        ].filter(Boolean)
       });
     }
   });
@@ -1145,6 +1145,11 @@
         return response.json().then(function (data) {
           if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
           tr.canPublishContent = data.canPublishContent;
+          if (!data.canPublishContent) {
+            Store.collection('certificates').forEach(function (course) {
+              if (String(course.trainerId) === String(tr.id)) course.profileOnly = true;
+            });
+          }
           Store.save(true);
           UI.toast(t('statusUpd'), 'success');
           Admin.renderAll();
@@ -1994,6 +1999,32 @@
                 e(t(active ? 'courseActive' : 'courseInactive')) + '</button>';
             },
             csv: function (c) { return (c.status || 'draft') === 'published' ? t('courseActive') : t('courseInactive'); }
+          },
+          {
+            k: 'visibility',
+            label: t(inPersonOnly ? 'courseHomepageVisibility' : 'courseVisibility'),
+            sortVal: function (c) { return c.profileOnly ? 1 : 0; },
+            render: function (c) {
+              var showOnPlatform = !c.profileOnly;
+              var visibilityKey = inPersonOnly
+                ? (showOnPlatform ? 'courseHomepageVisible' : 'courseHomepageHidden')
+                : (showOnPlatform ? 'courseVisibilityPlatform' : 'courseVisibilityProfile');
+              var label = t(visibilityKey);
+              var action = inPersonOnly
+                ? (showOnPlatform ? 'courseHomepageConfirmHide' : 'courseHomepageConfirmShow')
+                : (showOnPlatform ? 'courseVisibilityHide' : 'courseVisibilityShow');
+              var title = t(action);
+              return '<button type="button" class="st st-toggle ' +
+                (showOnPlatform ? 'st-ok' : 'st-mute') + '" data-act="course-visibility-toggle" data-id="' +
+                e(c.pk || c.id) + '" aria-label="' + e(title) + '" title="' + e(title) + '">' +
+                e(label) + '</button>';
+            },
+            csv: function (c) {
+              var visibilityKey = inPersonOnly
+                ? (c.profileOnly ? 'courseHomepageHidden' : 'courseHomepageVisible')
+                : (c.profileOnly ? 'courseVisibilityProfile' : 'courseVisibilityPlatform');
+              return t(visibilityKey);
+            }
           },
           {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
@@ -4878,6 +4909,47 @@
     });
   });
 
+  Admin.on('course-visibility-toggle', function (el) {
+    var course = Store.collection('certificates').filter(function (item) {
+      return String(item.pk || item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!course) return;
+    var profileOnly = !course.profileOnly;
+    var inPerson = course.courseType === 'in_person';
+    var confirmKey = inPerson
+      ? (profileOnly ? 'courseHomepageConfirmHide' : 'courseHomepageConfirmShow')
+      : (profileOnly ? 'courseVisibilityConfirmHide' : 'courseVisibilityConfirmShow');
+    UI.confirm(t(confirmKey)).then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      return fetch(SITE.u('courseVisibility', el.getAttribute('data-id')), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ profileOnly: profileOnly })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) {
+            throw new Error(data.message || data.error || t('saveError'));
+          }
+          course.profileOnly = data.profileOnly;
+          Store.save(true);
+          Admin.renderAll();
+          var visibilityKey = inPerson
+            ? (data.profileOnly ? 'courseHomepageHidden' : 'courseHomepageVisible')
+            : (data.profileOnly ? 'courseVisibilityProfile' : 'courseVisibilityPlatform');
+          UI.toast(t(visibilityKey), 'success');
+        });
+      }).catch(function (error) {
+        Admin.renderAll();
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+
   Admin.on('course-bulk-pub', function () { bulkSet('courses', 'courses', 'certificates', 'status', 'published'); });
   Admin.on('course-bulk-draft', function () { bulkSet('courses', 'courses', 'certificates', 'status', 'draft'); });
   Admin.on('course-bulk-del', function () { bulkDel('courses', 'courses', 'certificates'); });
@@ -5278,6 +5350,35 @@
             csv: function (p) { return p.owner && p.owner.name || ''; }
           },
           {
+            k: 'visibility',
+            label: t('projectVisibility'),
+            sortVal: function (p) { return p.visibility || 'public'; },
+            render: function (p) {
+              if (p.ownerRole !== 'trainer') {
+                var fixedVisibility = p.visibility === 'courses'
+                  ? t('projectTypeCourse')
+                  : t('projectVisibilityPublic');
+                return '<span class="tiny muted">' + e(fixedVisibility) + '</span>';
+              }
+              var profileOnly = p.visibility === 'personal';
+              var label = t(profileOnly ? 'projectVisibilityPersonal' : 'projectVisibilityPublic');
+              var confirmKey = profileOnly
+                ? 'projectVisibilityConfirmPublic'
+                : 'projectVisibilityConfirmPersonal';
+              return '<button type="button" class="st st-toggle ' +
+                (profileOnly ? 'st-mute' : 'st-ok') + '" data-act="project-visibility-toggle" data-id="' +
+                e(p.pk || p.id) + '" aria-label="' + e(t(confirmKey)) + '" title="' +
+                e(t(confirmKey)) + '">' + e(label) + '</button>';
+            },
+            csv: function (p) {
+              return p.visibility === 'personal'
+                ? t('projectVisibilityPersonal')
+                : p.visibility === 'courses'
+                  ? t('projectTypeCourse')
+                  : t('projectVisibilityPublic');
+            }
+          },
+          {
             k: 'stats', label: t('colStats'), sortVal: function (p) { return p.views || 0; },
             render: function (p) {
               return '<span class="tiny muted" style="display:flex;gap:10px;flex-wrap:wrap">' +
@@ -5335,6 +5436,40 @@
           project.status = data.active ? 'published' : 'inactive';
           Admin.renderAll();
           UI.toast(t(data.active ? 'projectActive' : 'projectInactive'), 'success');
+        });
+      }).catch(function (error) {
+        el.disabled = false;
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+
+  Admin.on('project-visibility-toggle', function (el) {
+    var project = AdminData.projects().filter(function (item) {
+      return String(item.pk || item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!project || project.ownerRole !== 'trainer') return;
+    var profileOnly = project.visibility !== 'personal';
+    var confirmKey = profileOnly
+      ? 'projectVisibilityConfirmPersonal'
+      : 'projectVisibilityConfirmPublic';
+    UI.confirm(t(confirmKey)).then(function (confirmed) {
+      if (!confirmed) return;
+      el.disabled = true;
+      return fetch(SITE.u('projectVisibility', el.getAttribute('data-id')), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ profileOnly: profileOnly })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          project.visibility = data.profileOnly ? 'personal' : 'public';
+          Admin.renderAll();
+          UI.toast(t(data.profileOnly ? 'projectVisibilityPersonal' : 'projectVisibilityPublic'), 'success');
         });
       }).catch(function (error) {
         el.disabled = false;

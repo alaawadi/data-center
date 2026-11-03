@@ -109,14 +109,12 @@ class HomePageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'id="courses-data"')
         self.assertContains(response, 'id="landing-courses-data"')
-        self.assertContains(response, 'id="courses-sheet-data"')
+        self.assertContains(response, 'courseSheetData')
         titles = [course['title'] for course in response.context['courses_json']]
         self.assertEqual(titles, [published.title])
         self.assertEqual(response.context['courses_json'][0]['syllabus'], [])
         self.assertEqual(response.context['courses_json'][0]['content'], '')
-        sheet_titles = [course['title'] for course in response.context['courses_sheet_json']]
-        self.assertEqual(sheet_titles, [published.title])
-        self.assertNotIn('syllabus', response.context['courses_sheet_json'][0])
+        self.assertNotContains(response, 'id="courses-sheet-data"')
 
     def test_homepage_sends_only_card_fields_for_the_visible_course_cards(self):
         trainer = get_user_model().objects.create_user(

@@ -9,11 +9,11 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
+from core.seo import json_ld_script, seo_absolute_url, seo_plain_text
 from courses.models import (
     Course,
     CourseCertificate,
     CourseStatus,
-    CourseType,
     ManualCertificate,
     ManualCertificateStatus,
     StudentPointTransaction,
@@ -211,6 +211,29 @@ class FreelancerDetailView(TemplateView):
             is_public=True,
         )
         context['profile'] = profile
+        context['seo_title'] = f'{profile.user.display_name} — ملف مهني | مركز داتا'
+        context['seo_description'] = seo_plain_text(
+            profile.bio or profile.headline or profile.specialization,
+            f'استعرض الملف المهني والمهارات والخبرات لـ{profile.user.display_name}.',
+        )
+        context['seo_og_type'] = 'profile'
+        person_schema = {
+            '@context': 'https://schema.org',
+            '@type': 'ProfilePage',
+            'name': context['seo_title'],
+            'description': context['seo_description'],
+            'url': context.get('seo_canonical_url', ''),
+            'mainEntity': {
+                '@type': 'Person',
+                'name': profile.user.display_name,
+                'description': context['seo_description'],
+                'jobTitle': profile.headline,
+            },
+        }
+        if profile.avatar:
+            context['seo_image_url'] = seo_absolute_url(profile.avatar.url)
+            person_schema['mainEntity']['image'] = context['seo_image_url']
+        context['seo_json_ld'] = json_ld_script(person_schema)
 
         is_owner = self.request.user.is_authenticated and self.request.user.pk == profile.user_id
 
@@ -341,7 +364,6 @@ class FreelancerDetailView(TemplateView):
                 Course.objects.filter(
                     owner=profile.user,
                     status=CourseStatus.PUBLISHED,
-                    course_type=CourseType.IN_PERSON,
                     profile_only=True,
                 )
                 .select_related('owner', 'owner__profile')

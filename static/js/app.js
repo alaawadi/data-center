@@ -1054,7 +1054,7 @@
     fab.innerHTML = UI.icon('plus', 24);
     menu.innerHTML =
       '<button class="fab-item" data-act="goto" data-url="' + SITE.u('projectCreate') + '">' + UI.icon('folder', 17) + e(t('createProjectCta')) + '</button>' +
-      (IS_TRAINER && (!SERVER_PROFILE || SERVER_PROFILE.canPublishContent !== false)
+      (IS_TRAINER
         ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('courseCreate') + '">' + UI.icon('graduation-cap', 17) + e(t('createCourseCta')) + '</button>' +
           '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>'
         : '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>') +

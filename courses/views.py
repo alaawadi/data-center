@@ -26,6 +26,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 from django.views.generic import TemplateView
 
+from core.seo import json_ld_script, seo_absolute_url, seo_plain_text
 from projects.models import Project, ProjectFile, ProjectImage, ProjectStatus
 from users.forms import COUNTRY_CALLING_CODE_CHOICES
 from users.models import User, UserRole
@@ -118,7 +119,8 @@ def published_courses_payload():
     return [
         course.to_public_dict(include_syllabus=False, include_content=False)
         for course in _published_courses(include_syllabus=False).filter(
-            course_type=CourseType.ONLINE
+            course_type=CourseType.ONLINE,
+            profile_only=False,
         ).order_by(
             F('display_order').asc(nulls_last=True), '-created_at'
         )
@@ -134,6 +136,30 @@ def published_inperson_courses_payload():
             profile_only=False,
         ).order_by(F('display_order').asc(nulls_last=True), '-created_at')
     ]
+
+
+@require_GET
+def course_sheet_data(request):
+    """Return lightweight course data only when the site-wide course sheet is opened."""
+    courses = Course.objects.filter(
+        status=CourseStatus.PUBLISHED,
+        profile_only=False,
+    ).only(
+        'pk', 'slug', 'title', 'cover', 'duration', 'period', 'price'
+    ).order_by('-created_at', '-pk')
+    return JsonResponse([
+        {
+            'id': course.slug or str(course.pk),
+            'title': course.title,
+            'image': course.cover.url if course.cover else '',
+            'duration': course.duration,
+            'period': course.period,
+            'price': f"₪{str(course.price or '').strip().replace('₪', '').strip()}"
+            if str(course.price or '').strip().replace('₪', '').strip()
+            else '',
+        }
+        for course in courses
+    ], safe=False)
 
 
 def _can_view(course, user):
@@ -190,7 +216,8 @@ class CourseListView(TemplateView):
             is_active=False
         ).values_list('name', flat=True)
         queryset = _published_courses(include_syllabus=False).filter(
-            course_type=CourseType.ONLINE
+            course_type=CourseType.ONLINE,
+            profile_only=False,
         ).exclude(category__in=inactive_categories).order_by(
             F('display_order').asc(nulls_last=True), '-created_at'
         )
@@ -427,11 +454,54 @@ class CourseDetailView(TemplateView):
                     self.request.session.modified = True
         related = (
             _published_courses(include_syllabus=False)
-            .filter(course_type=course.course_type)
+            .filter(
+                course_type=course.course_type,
+                profile_only=False,
+            )
             .exclude(pk=course.pk)
             .order_by('-created_at')[:3]
         )
         context['course'] = course
+        context['seo_title'] = f'{course.title} — دورة تدريبية | مركز داتا'
+        context['seo_description'] = seo_plain_text(
+            course.summary or course.content,
+            f'تعرّف على دورة {course.title} في مركز داتا للتدريب والتطوير.',
+        )
+        if (
+            not course.is_published
+            or course.profile_only
+        ):
+            context['seo_robots'] = 'noindex, nofollow'
+            context['seo_canonical_url'] = ''
+        else:
+            context['seo_canonical_url'] = seo_absolute_url(
+                reverse('courses:detail', kwargs={'pk': course.slug})
+            )
+        context['seo_og_type'] = 'article'
+        course_schema = {
+            '@context': 'https://schema.org',
+            '@type': 'Course',
+            'name': course.title,
+            'description': context['seo_description'],
+            'inLanguage': 'ar',
+            'courseMode': 'Online' if course.course_type == CourseType.ONLINE else 'Onsite',
+            'provider': {
+                '@type': 'Organization',
+                'name': 'مركز داتا للتدريب والتطوير',
+                'url': seo_absolute_url('/'),
+            },
+            'instructor': {
+                '@type': 'Person',
+                'name': course.owner.display_name,
+            },
+        }
+        if context['seo_canonical_url']:
+            course_schema['url'] = context['seo_canonical_url']
+        if course.cover:
+            context['seo_image_url'] = seo_absolute_url(course.cover.url)
+            course_schema['image'] = context['seo_image_url']
+        course_schema['datePublished'] = course.created_at.date().isoformat()
+        context['seo_json_ld'] = json_ld_script(course_schema)
         if course.course_type == CourseType.IN_PERSON:
             context['country_calling_code_choices'] = COUNTRY_CALLING_CODE_CHOICES
             context['course_registration_count'] = _course_registration_request_count(
@@ -699,8 +769,6 @@ def course_editor_context(request, key=None):
         course = _find_course(key, queryset)
         if course is None:
             raise Http404('الدورة غير موجودة')
-        if request.user.is_trainer and not is_admin and not request.user.can_publish_content:
-            raise PermissionDenied('صلاحية تعديل الدورات متوقفة.')
         # محرر الدورة يحتاج نصوص الأسئلة والإجابات الصحيحة.
         course_data = course.to_public_dict(include_answers=True)
         course_data['coverStorageName'] = course.cover.name if course.cover else ''
@@ -709,8 +777,6 @@ def course_editor_context(request, key=None):
     else:
         if not request.user.is_trainer and not is_admin:
             raise PermissionDenied('الإنشاء متاح للمدربين فقط')
-        if request.user.is_trainer and not is_admin and not request.user.can_publish_content:
-            raise PermissionDenied('صلاحية إنشاء الدورات متوقفة.')
         context['courses_json'] = []
         context['course_title_en'] = ''
     context['is_admin_editor'] = is_admin
@@ -802,8 +868,6 @@ def course_discard_changes(request):
     course = _find_course(key, queryset)
     if course is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
-    if request.user.is_trainer and not is_admin and not request.user.can_publish_content:
-        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
 
     latest_version = CourseVersion.objects.filter(course=course).order_by(
         '-version_number'
@@ -1276,8 +1340,6 @@ def course_save(request):
             return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
 
     status = CourseStatus.PUBLISHED if payload.get('status') == CourseStatus.PUBLISHED else CourseStatus.DRAFT
-    if request.user.is_trainer and not is_admin and not request.user.can_publish_content:
-        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
     raw_title = payload.get('title')
     title = str(
         raw_title if raw_title is not None else (course.title if course else '')
@@ -1417,10 +1479,14 @@ def course_save(request):
     else:
         raw_course_type = course.course_type if course is not None else CourseType.ONLINE
     course_fields['course_type'] = raw_course_type
-    if request.user.is_trainer and not is_admin:
-        course_fields['profile_only'] = raw_course_type == CourseType.IN_PERSON
+    if course.owner.is_trainer and not course.owner.can_publish_content:
+        course_fields['profile_only'] = True
+    elif created and request.user.is_trainer and not is_admin:
+        course_fields['profile_only'] = True
     elif is_admin and course is not None and course.course_type != raw_course_type:
         course_fields['profile_only'] = False
+    elif request.user.is_trainer and not is_admin:
+        course_fields['profile_only'] = bool(payload.get('profileOnly', False))
     if isinstance(raw_skills, list):
         course_fields['skills'] = skills
 
@@ -1500,9 +1566,6 @@ def course_delete(request):
     course = _find_course(key, Course.objects.filter(owner=request.user))
     if course is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
-    if request.user.is_trainer and not request.user.can_publish_content:
-        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
-
     course.delete()
     return JsonResponse({'ok': True, 'url': reverse('courses:list')})
 

@@ -72,6 +72,10 @@ CSRF_TRUSTED_ORIGINS = _env_list(
     'DJANGO_CSRF_TRUSTED_ORIGINS',
     ('https://alaawadi99998.pythonanywhere.com',) if not DEBUG else (),
 )
+SEO_SITE_URL = os.environ.get(
+    'DJANGO_SEO_SITE_URL',
+    'https://alaawadi99998.pythonanywhere.com',
+).strip().rstrip('/') or 'https://alaawadi99998.pythonanywhere.com'
 
 # Application definition
 
@@ -123,6 +127,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.site_chrome',
                 'core.context_processors.server_profile',
+                'core.seo.seo_context',
             ],
         },
     },

@@ -255,8 +255,21 @@
       trainerDeactivate: 'إيقاف المدرب مؤقتاً',
       trainerContentAllowed: 'النشر مسموح',
       trainerContentDenied: 'النشر متوقف',
-      trainerAllowContent: 'السماح للمدرب بإنشاء ونشر الدورات والمشاريع',
-      trainerDenyContent: 'إيقاف صلاحية إنشاء ونشر الدورات والمشاريع',
+      trainerAllowContent: 'السماح للمدرب بالنشر العلني للدورات والمشاريع',
+      trainerDenyContent: 'إيقاف النشر العلني للدورات والمشاريع',
+      courseVisibility: 'ظهور الدورة',
+      courseVisibilityPlatform: 'تظهر في المنصة',
+      courseVisibilityProfile: 'في البروفايل فقط',
+      courseVisibilityShow: 'إظهار الدورة في المنصة',
+      courseVisibilityHide: 'إظهار الدورة في البروفايل فقط',
+      courseVisibilityConfirmShow: 'هل تريد إظهار هذه الدورة في المنصة؟',
+      courseVisibilityConfirmHide: 'هل تريد إخفاء هذه الدورة من المنصة وإظهارها في البروفايل فقط؟',
+      courseVisibilityTrainerDisabled: 'يجب السماح للمدرب بالنشر أولاً قبل إظهار الدورة في المنصة.',
+      courseHomepageVisibility: 'ظهورها في الرئيسية',
+      courseHomepageVisible: 'تظهر في الرئيسية',
+      courseHomepageHidden: 'في بروفايل المدرب فقط',
+      courseHomepageConfirmShow: 'هل تريد عرض هذه الدورة الوجاهية في الرئيسية؟',
+      courseHomepageConfirmHide: 'هل تريد قصر ظهور هذه الدورة الوجاهية على بروفايل المدرب؟',
       studentActivate: 'إعادة تفعيل الطالب',
       studentSuspend: 'إيقاف الطالب',
       statusUpd: 'تم تغيير الحالة',
@@ -454,6 +467,11 @@
       projectDeactivate: 'إيقاف المشروع',
       projectActive: 'نشط',
       projectInactive: 'غير نشط',
+      projectVisibility: 'ظهور المشروع',
+      projectVisibilityPublic: 'كل المشاريع',
+      projectVisibilityPersonal: 'في البروفايل فقط',
+      projectVisibilityConfirmPublic: 'هل تريد عرض هذا المشروع ضمن كل المشاريع؟',
+      projectVisibilityConfirmPersonal: 'هل تريد قصر ظهور هذا المشروع على بروفايل صاحبه؟',
       backupReady: 'تم تنزيل النسخة الاحتياطية',
       mUser: 'بيانات المستخدم',
       mTrainer: 'بيانات المدرب',
@@ -896,8 +914,8 @@
       trainerDeactivate: 'Pause trainer',
       trainerContentAllowed: 'Publishing allowed',
       trainerContentDenied: 'Publishing disabled',
-      trainerAllowContent: 'Allow this trainer to create and publish courses and projects',
-      trainerDenyContent: 'Disable this trainer’s ability to create and publish courses and projects',
+      trainerAllowContent: 'Allow this trainer to publish courses and projects publicly',
+      trainerDenyContent: 'Stop this trainer from publishing courses and projects publicly',
       studentActivate: 'Reactivate student',
       studentSuspend: 'Suspend student',
       statusUpd: 'Status changed',
@@ -1045,6 +1063,19 @@
       trainerRequired: 'Select a valid trainer for this course',
       courseActivate: 'Activate course',
       courseDeactivate: 'Deactivate course',
+      courseVisibility: 'Course visibility',
+      courseVisibilityPlatform: 'Visible on platform',
+      courseVisibilityProfile: 'Profile only',
+      courseVisibilityShow: 'Show course on platform',
+      courseVisibilityHide: 'Show course on profile only',
+      courseVisibilityConfirmShow: 'Show this course on the platform?',
+      courseVisibilityConfirmHide: 'Hide this course from the platform and show it on the profile only?',
+      courseVisibilityTrainerDisabled: 'Allow this trainer to publish before showing the course on the platform.',
+      courseHomepageVisibility: 'Homepage visibility',
+      courseHomepageVisible: 'Shown on homepage',
+      courseHomepageHidden: 'Trainer profile only',
+      courseHomepageConfirmShow: 'Show this in-person course on the homepage?',
+      courseHomepageConfirmHide: 'Show this in-person course only on the trainer profile?',
       courseCohorts: 'Cohorts & applications',
       courseCohortsTitle: 'Course cohorts',
       courseCohort: 'Cohort',
@@ -1095,6 +1126,11 @@
       projectDeactivate: 'Deactivate project',
       projectActive: 'Active',
       projectInactive: 'Inactive',
+      projectVisibility: 'Project visibility',
+      projectVisibilityPublic: 'All projects',
+      projectVisibilityPersonal: 'Profile only',
+      projectVisibilityConfirmPublic: 'Show this project in the public projects listing?',
+      projectVisibilityConfirmPersonal: 'Show this project only on its owner’s profile?',
       backupReady: 'Backup downloaded',
       mUser: 'User details',
       mTrainer: 'Trainer details',
@@ -2311,9 +2347,12 @@
     });
     html += '</nav>';
     var prof = Store.state.profile;
+    var currentAdminName = JSON.parse(
+      document.getElementById('admin-current-user-name').textContent
+    );
     html += '<div class="adm-side-foot">' +
       UI.avatarOf(prof, 38) +
-      '<span class="who"><b>' + e(prof.name) + '</b><span>' + e(t('adminRole')) + '</span></span>' +
+      '<span class="who"><b>' + e(currentAdminName) + '</b><span>' + e(t('adminRole')) + '</span></span>' +
       '</div>';
     return html;
   }

@@ -212,6 +212,7 @@ class Course(models.Model):
             'verifyUrl': self.verify_url,
             'status': self.status,
             'courseType': self.course_type,
+            'profileOnly': self.profile_only,
             'comingSoon': self.is_coming_soon,
             'handle': owner.handle if owner else '',
             'trainerId': str(owner.pk) if owner else '',

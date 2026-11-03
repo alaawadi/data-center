@@ -1014,7 +1014,10 @@
     var visibilityField = document.getElementById('edVisibilityField');
     var isTrainerUser = !!(window.Store && Store.state.profile &&
       (Store.state.profile.isTrainer || Store.state.profile.roleKey === 'trainer'));
+    var isTrainerUser = !!(window.Store && Store.state.profile &&
+      (Store.state.profile.isTrainer || Store.state.profile.roleKey === 'trainer'));
     if (!isCourse && visibilityEl) {
+      if (!existing && isTrainerUser) p.visibility = 'personal';
       visibilityEl.value = ['courses', 'personal'].indexOf(p.visibility) >= 0
         ? p.visibility
         : 'public';

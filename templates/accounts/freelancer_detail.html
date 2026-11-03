@@ -2,7 +2,8 @@
 {% load static_v %}
 {% load static %}
 
-{% block title %}{{ profile.user.display_name }} — مركز داتا{% endblock %}
+{% block title %}{{ seo_title }}{% endblock %}
+{% block description %}{{ seo_description }}{% endblock %}
 {% block body_attrs %}data-page="user-profile"{% endblock %}
 
 {% block content %}

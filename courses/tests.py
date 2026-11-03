@@ -132,7 +132,7 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(res.json()['error'], 'not_trainer')
         self.assertEqual(Course.objects.count(), 0)
 
-    def test_trainer_without_content_permission_cannot_create_or_publish_courses(self):
+    def test_trainer_without_content_permission_can_create_profile_only_courses(self):
         self.trainer.can_publish_content = False
         self.trainer.save(update_fields=['can_publish_content'])
         self.client.force_login(self.trainer)
@@ -142,37 +142,34 @@ class CoursePermissionsTests(TestCase):
             data=json.dumps(_payload()),
             content_type='application/json',
         )
-        self.assertEqual(create_response.status_code, 403)
-        self.assertEqual(create_response.json()['error'], 'content_creation_disabled')
-        self.assertFalse(Course.objects.filter(owner=self.trainer).exists())
-        self.assertEqual(self.client.get(reverse('courses:create')).status_code, 403)
-
-        draft = Course.objects.create(owner=self.trainer, title='مسودة قائمة')
-        publish_response = self.client.post(
-            self.save_url,
-            data=json.dumps(_payload(id=draft.slug)),
-            content_type='application/json',
-        )
-        self.assertEqual(publish_response.status_code, 403)
-        self.assertEqual(publish_response.json()['error'], 'content_creation_disabled')
+        self.assertEqual(create_response.status_code, 200, create_response.content)
+        course = Course.objects.get(owner=self.trainer)
+        self.assertEqual(course.status, CourseStatus.PUBLISHED)
+        self.assertTrue(course.profile_only)
+        self.assertEqual(self.client.get(reverse('courses:create')).status_code, 200)
         self.assertEqual(
-            self.client.get(reverse('courses:edit', kwargs={'pk': draft.slug})).status_code,
-            403,
+            self.client.get(reverse('courses:edit', kwargs={'pk': course.slug})).status_code,
+            200,
         )
-        discard_response = self.client.post(
-            reverse('courses:discard-changes'),
-            data=json.dumps({'id': draft.slug}),
+
+        public_courses = self.client.get(reverse('courses:list')).context['courses_json']
+        self.assertNotIn(course.slug, [item['id'] for item in public_courses])
+        profile_courses = self.client.get(reverse('portfolio:home')).context['my_courses_json']
+        self.assertIn(course.slug, [item['id'] for item in profile_courses])
+
+        existing_public_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة منشورة قبل إيقاف صلاحية النشر',
+            status=CourseStatus.PUBLISHED,
+        )
+        update_response = self.client.post(
+            self.save_url,
+            data=json.dumps(_payload(id=existing_public_course.slug)),
             content_type='application/json',
         )
-        self.assertEqual(discard_response.status_code, 403)
-        delete_response = self.client.post(
-            self.delete_url,
-            data=json.dumps({'id': draft.slug}),
-            content_type='application/json',
-        )
-        self.assertEqual(delete_response.status_code, 403)
-        draft.refresh_from_db()
-        self.assertEqual(draft.status, CourseStatus.DRAFT)
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        existing_public_course.refresh_from_db()
+        self.assertTrue(existing_public_course.profile_only)
 
     def test_course_save_rejects_categories_not_in_training_fields(self):
         for category in ('', 'فئة غير مسجلة'):
@@ -218,6 +215,7 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(data['status'], CourseStatus.PUBLISHED)
 
         course = Course.objects.get(owner=self.trainer)
+        self.assertTrue(course.profile_only)
         self.assertEqual(course.slug, data['id'])
         self.assertEqual(course.title_en, 'Python for Beginners')
         self.assertEqual(course.duration, '20 ساعة')
@@ -247,6 +245,16 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(course.course_type, CourseType.IN_PERSON)
         self.assertTrue(course.profile_only)
         self.assertEqual(course.to_public_dict()['courseType'], CourseType.IN_PERSON)
+
+    def test_trainer_online_course_defaults_to_profile_only(self):
+        response = self._post(
+            _payload(courseType=CourseType.ONLINE),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertTrue(course.profile_only)
 
     def test_course_currency_is_saved_and_formatted(self):
         response = self._post(
@@ -978,6 +986,22 @@ class CoursePageTests(TestCase):
         ]
         self.assertEqual(profile_queries, [])
 
+    def test_list_page_hides_published_profile_only_courses(self):
+        profile_only = Course.objects.create(
+            owner=self.trainer,
+            title='دورة بروفايل فقط',
+            status=CourseStatus.PUBLISHED,
+            profile_only=True,
+        )
+
+        response = self.client.get(reverse('courses:list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(
+            profile_only.slug,
+            [course['id'] for course in response.context['courses_json']],
+        )
+
     def test_list_page_hides_drafts_even_from_their_owner(self):
         self.client.force_login(self.trainer)
         res = self.client.get(reverse('courses:list'))
@@ -1129,12 +1153,18 @@ class CoursePageTests(TestCase):
         response = self.client.get(reverse('courses:create'))
 
         self.assertEqual(response.status_code, 200)
-        sheet_courses = response.context['courses_sheet_json']
-        self.assertEqual(len(sheet_courses), 1)
-        self.assertEqual(sheet_courses[0]['id'], self.published.slug)
-        self.assertEqual(sheet_courses[0]['title'], self.published.title)
-        self.assertNotIn('syllabus', sheet_courses[0])
-        self.assertContains(response, 'id="courses-sheet-data"')
+        self.assertNotContains(response, 'id="courses-sheet-data"')
+        sheet_response = self.client.get(reverse('courses:sheet-data'))
+        self.assertEqual(sheet_response.status_code, 200)
+        self.assertEqual(len(sheet_response.json()), 1)
+        self.assertEqual(sheet_response.json()[0]['id'], self.published.slug)
+        self.assertEqual(sheet_response.json()[0]['title'], self.published.title)
+        self.assertNotIn('syllabus', sheet_response.json()[0])
+
+    def test_course_sheet_data_requires_get(self):
+        response = self.client.post(reverse('courses:sheet-data'))
+
+        self.assertEqual(response.status_code, 405)
 
     def test_detail_page_payload_shape(self):
         self.published.content = '<p>وصف الدورة الكامل</p>'
