@@ -8,6 +8,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.forms import inlineformset_factory
 
 from .models import (
+    FreelancerCategory,
     Interest,
     Language,
     LanguageLevel,
@@ -16,10 +17,11 @@ from .models import (
     ProfileSkill,
     Skill,
     SocialLink,
-    phone_validator,
+    SocialPlatform,
     validate_arabic_three_part_name,
     validate_english_three_part_name,
 )
+from .security import phone_lookup_values
 
 User = get_user_model()
 
@@ -37,12 +39,76 @@ PHONE_WIDGET_ATTRS = {
     'id': 'suPhone',
     'type': 'tel',
     'inputmode': 'numeric',
-    'maxlength': '10',
-    'placeholder': '10 أرقام',
+    'maxlength': '14',
+    'placeholder': 'رقمك المحلي',
     'autocomplete': 'tel-national',
     'autocapitalize': 'off',
     'spellcheck': 'false',
 }
+
+COUNTRY_CALLING_CODES = (
+    '970 1 7 20 27 30 31 32 33 34 36 39 40 41 43 44 45 46 47 48 49 '
+    '51 52 53 54 55 56 57 58 60 61 62 63 64 65 66 81 82 84 86 '
+    '90 91 92 93 94 95 98 211 212 213 216 218 '
+    '220 221 222 223 224 225 226 227 228 229 230 231 232 233 234 '
+    '235 236 237 238 239 240 241 242 243 244 245 246 247 248 249 '
+    '250 251 252 253 254 255 256 257 258 260 261 262 263 264 265 '
+    '266 267 268 269 290 291 297 298 299 '
+    '350 351 352 353 354 355 356 357 358 359 '
+    '370 371 372 373 374 375 376 377 378 380 381 382 383 385 '
+    '386 387 389 420 421 423 '
+    '500 501 502 503 504 505 506 507 508 509 '
+    '590 591 592 593 594 595 596 597 598 599 '
+    '670 672 673 674 675 676 677 678 679 680 681 682 683 685 686 '
+    '687 688 689 690 691 692 850 852 853 855 856 880 886 '
+    '960 961 962 963 964 965 966 967 968 971 972 973 974 975 976 '
+    '977 992 993 994 995 996 998'
+).split()
+
+_COUNTRY_CALLING_CODE_REGIONS = dict(
+    item.split(':')
+    for item in (
+        '970:PS 1:US 7:RU 20:EG 27:ZA 30:GR 31:NL 32:BE 33:FR 34:ES '
+        '36:HU 39:IT 40:RO 41:CH 43:AT 44:GB 45:DK 46:SE 47:NO 48:PL '
+        '49:DE 51:PE 52:MX 53:CU 54:AR 55:BR 56:CL 57:CO 58:VE 60:MY '
+        '61:AU 62:ID 63:PH 64:NZ 65:SG 66:TH 81:JP 82:KR 84:VN 86:CN '
+        '90:TR 91:IN 92:PK 93:AF 94:LK 95:MM 98:IR '
+        '211:SS 212:MA 213:DZ 216:TN 218:LY 220:GM 221:SN 222:MR 223:ML '
+        '224:GN 225:CI 226:BF 227:NE 228:TG 229:BJ 230:MU 231:LR 232:SL '
+        '233:GH 234:NG 235:TD 236:CF 237:CM 238:CV 239:ST 240:GQ 241:GA '
+        '242:CG 243:CD 244:AO 245:GW 246:IO 247:SH 248:SC 249:SD 250:RW '
+        '251:ET 252:SO 253:DJ 254:KE 255:TZ 256:UG 257:BI 258:MZ 260:ZM '
+        '261:MG 262:RE 263:ZW 264:NA 265:MW 266:LS 267:BW 268:SZ 269:KM '
+        '290:SH 291:ER 297:AW 298:FO 299:GL '
+        '350:GI 351:PT 352:LU 353:IE 354:IS 355:AL 356:MT 357:CY 358:FI '
+        '359:BG 370:LT 371:LV 372:EE 373:MD 374:AM 375:BY 376:AD 377:MC '
+        '378:SM 380:UA 381:RS 382:ME 383:XK 385:HR 386:SI 387:BA 389:MK '
+        '420:CZ 421:SK 423:LI '
+        '500:FK 501:BZ 502:GT 503:SV 504:HN 505:NI 506:CR 507:PA 508:PM '
+        '509:HT 590:GP 591:BO 592:GY 593:EC 594:GF 595:PY 596:MQ 597:SR '
+        '598:UY 599:CW '
+        '670:TL 672:NF 673:BN 674:NR 675:PG 676:TO 677:SB 678:VU 679:FJ '
+        '680:PW 681:WF 682:CK 683:NU 685:WS 686:KI 687:NC 688:TV 689:PF '
+        '690:TK 691:FM 692:MH 850:KP 852:HK 853:MO 855:KH 856:LA 880:BD '
+        '886:TW 960:MV 961:LB 962:JO 963:SY 964:IQ 965:KW 966:SA 967:YE '
+        '968:OM 971:AE 972:IL 973:BH 974:QA 975:BT 976:MN 977:NP 992:TJ '
+        '993:TM 994:AZ 995:GE 996:KG 998:UZ'
+    ).split()
+)
+
+
+def _country_flag(region):
+    """Build a regional-indicator flag emoji from a two-letter region code."""
+    return ''.join(chr(127397 + ord(letter)) for letter in region)
+
+
+COUNTRY_CALLING_CODE_CHOICES = tuple(
+    (
+        f'+{code}',
+        f'{_country_flag(_COUNTRY_CALLING_CODE_REGIONS[code])} +{code}',
+    )
+    for code in COUNTRY_CALLING_CODES
+)
 
 EMAIL_WIDGET_ATTRS = {
     'class': 'input',
@@ -90,10 +156,16 @@ class SignupForm(FullNameWordsMixin, forms.Form):
     full_name = forms.CharField(
         label='الاسم الكامل', max_length=150, widget=forms.TextInput(attrs=FULL_NAME_WIDGET_ATTRS)
     )
+    country_code = forms.ChoiceField(
+        label='مقدمة الدولة',
+        choices=COUNTRY_CALLING_CODE_CHOICES,
+        required=False,
+        initial='+970',
+        widget=forms.Select(attrs={'class': 'input select', 'id': 'suCountryCode'}),
+    )
     phone = forms.CharField(
-        label='رقم الجوال',
-        max_length=10,
-        validators=[phone_validator],
+        label='رقم الهاتف',
+        max_length=14,
         widget=forms.TextInput(attrs=PHONE_WIDGET_ATTRS),
     )
     email = forms.EmailField(
@@ -111,8 +183,22 @@ class SignupForm(FullNameWordsMixin, forms.Form):
     )
 
     def clean_phone(self):
-        phone = (self.cleaned_data.get('phone') or '').strip()
-        if User.objects.filter(phone=phone).exists():
+        raw_phone = (self.cleaned_data.get('phone') or '').strip()
+        country_code = self.cleaned_data.get('country_code') or ''
+        if not country_code and re.fullmatch(r'0(?:59|56)\d{7}', raw_phone):
+            phone = raw_phone
+        else:
+            country_code = country_code or '+970'
+            if not raw_phone.isdigit():
+                raise forms.ValidationError('أدخل رقم الجوال بالأرقام فقط.')
+            national_number = raw_phone.lstrip('0')
+            full_number = country_code[1:] + national_number
+            if not 7 <= len(full_number) <= 15:
+                raise forms.ValidationError(
+                    'رقم الجوال غير صحيح. يجب أن يكون طول الرقم الدولي بين 7 و15 رقماً.'
+                )
+            phone = '+' + full_number
+        if User.objects.filter(phone__in=phone_lookup_values(phone)).exists():
             raise forms.ValidationError('مستخدم بهذا الرقم موجود بالفعل.')
         return phone
 
@@ -162,16 +248,23 @@ class VerifyCodeForm(forms.Form):
 class LoginForm(AuthenticationForm):
     """Login with phone number and password."""
 
+    country_code = forms.ChoiceField(
+        label='مقدمة الدولة',
+        choices=(('', 'اختر مقدمة الدولة'), *COUNTRY_CALLING_CODE_CHOICES),
+        required=False,
+        initial='+970',
+        widget=forms.Select(attrs={'class': 'input select', 'id': 'liCountryCode'}),
+    )
     username = forms.CharField(
-        label='رقم الجوال',
+        label='رقم الهاتف',
         widget=forms.TextInput(
             attrs={
                 'class': 'input',
                 'id': 'liPhone',
                 'type': 'tel',
-                'inputmode': 'numeric',
-                'maxlength': '10',
-                'placeholder': '10 أرقام',
+                'inputmode': 'tel',
+                'maxlength': '14',
+                'placeholder': 'رقمك المحلي بدون المقدمة',
                 'autocomplete': 'tel-national',
                 'autofocus': True,
             }
@@ -191,6 +284,11 @@ class LoginForm(AuthenticationForm):
     )
 
     def clean(self):
+        phone = (self.cleaned_data.get('username') or '').strip()
+        for candidate in phone_lookup_values(phone):
+            if User.objects.filter(phone=candidate).exists():
+                self.cleaned_data['username'] = candidate
+                break
         try:
             return super().clean()
         except forms.ValidationError:
@@ -252,8 +350,6 @@ class ProfileEditForm(forms.ModelForm):
             'placeholder': 'Example: Ahmad Khaled',
         }),
     )
-    email = forms.EmailField(label='البريد الإلكتروني', required=False)
-
     skills_count = forms.IntegerField(widget=forms.HiddenInput(), initial=0, min_value=0, max_value=8)
 
     class Meta:
@@ -261,9 +357,9 @@ class ProfileEditForm(forms.ModelForm):
         fields = (
             'avatar', 'cover', 'headline', 'bio',
             'city', 'country', 'date_of_birth', 'gender',
-            'whatsapp', 'website',
+            'whatsapp',
             'specialization', 'experience_years', 'hourly_rate', 'availability', 'intro_video',
-            'education_stage', 'school', 'grade', 'learning_goals',
+            'student_specialization', 'education_stage', 'school', 'grade', 'learning_goals',
             'is_public',
         )
         widgets = {
@@ -274,6 +370,21 @@ class ProfileEditForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.freelancer_category_names = list(
+            FreelancerCategory.objects.filter(is_active=True)
+            .order_by('display_order', 'name')
+            .values_list('name', flat=True)
+        )
+        self.fields['headline'].label = 'المسمى المهني'
+        self.fields['headline'].help_text = 'اكتب للبحث، ثم اختر فئة نشطة من القائمة.'
+        self.fields['headline'].widget.attrs.update({
+            'autocomplete': 'off',
+            'data-freelancer-category-combobox': 'true',
+            'role': 'combobox',
+            'aria-autocomplete': 'list',
+            'aria-expanded': 'false',
+            'placeholder': 'ابحث عن فئة المستقل',
+        })
         for name, field in self.fields.items():
             widget = field.widget
             if isinstance(widget, forms.CheckboxInput) or isinstance(widget, forms.HiddenInput):
@@ -288,6 +399,13 @@ class ProfileEditForm(forms.ModelForm):
             widget.attrs.setdefault('class', css)
 
         profile = self.instance
+        if profile and profile.pk and profile.user.is_student:
+            self.fields['student_specialization'].widget.attrs.update({
+                'maxlength': 30,
+                'data-specialization-maxlength': '30',
+            })
+        elif profile and profile.pk:
+            self.fields.pop('student_specialization')
         existing = list(profile.profile_skills.select_related('skill')[:8]) if profile and profile.pk else []
 
         # determine how many slots are needed: existing skills, or the count submitted on a bound form
@@ -323,6 +441,14 @@ class ProfileEditForm(forms.ModelForm):
                 widget=forms.TextInput(attrs={'class': 'input', 'placeholder': 'مثال: تصميم UI/UX'}),
             )
         if profile and profile.pk:
+            category_value = next(
+                (
+                    value for value in (profile.specialization, profile.headline)
+                    if value in self.freelancer_category_names
+                ),
+                '',
+            )
+            self.fields['headline'].initial = category_value
             self.fields['full_name'].initial = profile.user.full_name
             if profile.user.is_trainer:
                 self.fields.pop('full_name_ar')
@@ -341,13 +467,26 @@ class ProfileEditForm(forms.ModelForm):
                     self.fields['full_name_ar'].disabled = True
                 if profile.user.full_name_en:
                     self.fields['full_name_en'].disabled = True
-            self.fields['email'].initial = profile.user.email
         else:
             self.fields.pop('trainer_name_en')
         self.fields['skills_count'].initial = wanted
 
+    def clean_headline(self):
+        headline = (self.cleaned_data.get('headline') or '').strip()
+        if headline and headline not in self.freelancer_category_names:
+            raise forms.ValidationError('اختر المسمى المهني من فئات المستقلين النشطة.')
+        return headline
+
+    def clean_student_specialization(self):
+        specialization = (self.cleaned_data.get('student_specialization') or '').strip()
+        if self.instance.user.is_student and len(specialization) > 30:
+            raise forms.ValidationError('يجب ألا يتجاوز التخصص 30 حرفاً.')
+        return specialization
+
     def clean(self):
         cleaned = super().clean()
+        if 'headline' in cleaned:
+            cleaned['specialization'] = cleaned['headline']
         name_ar = (cleaned.get('full_name_ar') or '').strip()
         name_en = (cleaned.get('full_name_en') or '').strip()
         if bool(name_ar) != bool(name_en):
@@ -386,8 +525,7 @@ class ProfileEditForm(forms.ModelForm):
         profile = super().save(commit=commit)
         user = profile.user
         user.full_name = self.cleaned_data.get('full_name', '').strip()
-        user.email = self.cleaned_data.get('email', '').strip()
-        update_fields = ['full_name', 'email']
+        update_fields = ['full_name']
         if user.is_trainer:
             user.trainer_name_en = self.cleaned_data.get('trainer_name_en', '').strip()
             update_fields.append('trainer_name_en')
@@ -400,10 +538,29 @@ class ProfileEditForm(forms.ModelForm):
         return profile
 
 
+class SocialLinkForm(forms.ModelForm):
+    class Meta:
+        model = SocialLink
+        fields = ('platform', 'url')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = [
+            choice for choice in SocialPlatform.choices
+            if choice[0] != SocialPlatform.WEBSITE
+        ]
+        if self.instance.pk and self.instance.platform == SocialPlatform.WEBSITE:
+            choices.insert(0, next(
+                choice for choice in SocialPlatform.choices
+                if choice[0] == SocialPlatform.WEBSITE
+            ))
+        self.fields['platform'].choices = choices
+
+
 SocialLinkFormSet = inlineformset_factory(
     Profile,
     SocialLink,
-    fields=('platform', 'url'),
+    form=SocialLinkForm,
     extra=2,
     can_delete=True,
 )

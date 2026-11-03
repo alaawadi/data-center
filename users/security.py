@@ -15,7 +15,45 @@ from django.utils import timezone
 
 from .models import DeviceSession, LoginAttempt
 
-PHONE_RE = re.compile(r'^0(?:59|56)\d{7}$')
+PHONE_RE = re.compile(r'^(?:0(?:59|56)\d{7}|\+[1-9]\d{6,14})$')
+
+
+def normalize_palestinian_phone(phone):
+    """Drop a redundant leading zero after the Palestinian country code."""
+    phone = (phone or '').strip()
+    match = re.fullmatch(r'(\+?97[02])0(5\d{8})', phone)
+    return ''.join(match.groups()) if match else phone
+
+
+def phone_lookup_values(phone):
+    """Include equivalent Palestinian country codes and the legacy local format."""
+    phone = (phone or '').strip()
+    values = [phone]
+    if phone.startswith(('+970', '+972')):
+        national = phone[4:]
+        if len(national) == 9 and national.startswith(('59', '56')):
+            values.append('0' + national)
+            alternate_code = '+972' if phone.startswith('+970') else '+970'
+            values.append(alternate_code + national)
+    elif re.fullmatch(r'0(?:59|56)\d{7}', phone):
+        national = phone[1:]
+        values.append('+970' + national)
+        values.append('+972' + national)
+    return values
+
+
+def login_phone_key(phone):
+    """Use one lockout key for local and international Palestinian numbers."""
+    phone = (phone or '').strip()
+    if phone.startswith(('+970', '+972')):
+        values = phone_lookup_values(phone)
+        local_number = next(
+            (value for value in values if re.fullmatch(r'0(?:59|56)\d{7}', value)),
+            None,
+        )
+        if local_number:
+            return local_number
+    return phone
 
 
 def _cfg(name, default):
@@ -67,7 +105,7 @@ def login_lock_status(phone, ip):
 def record_failed_login(phone, ip):
     """Store a failed attempt and prune history older than a day."""
     LoginAttempt.objects.create(
-        phone=(phone or '')[:10],
+        phone=(phone or '')[:16],
         ip=ip,
         successful=False,
     )
@@ -78,7 +116,7 @@ def clear_failed_logins(phone):
     """A successful login resets the account's counters."""
     phone = (phone or '').strip()
     if phone:
-        LoginAttempt.objects.filter(phone=phone).delete()
+        LoginAttempt.objects.filter(phone__in=phone_lookup_values(phone)).delete()
 
 
 def _valid_session_keys(keys):

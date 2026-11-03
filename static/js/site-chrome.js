@@ -132,7 +132,7 @@
       '<a href="tel:' + String(siteSettings().phone || '0594810786').replace(/[^0-9+]/g, '') + '" rel="noopener" aria-label="الهاتف">' + IC.phone + '</a>' +
       (siteSettings().website ? '<a href="' + esc(siteSettings().website) + '" target="_blank" rel="noopener noreferrer" aria-label="الموقع الإلكتروني">' + IC.website + '</a>' : '') +
       '</div>' +
-      '<div class="credit">created by <span>Alaa Wadi</span> | all rights reserved.</div>';
+      '<div class="credit"><span>Data Center</span> | all rights reserved.</div>';
   }
 
   /* مزامنة متغيّر ارتفاع الشريط مع الهيدر الفعلي (يستخدمه شريط المحرر واللوحات الجانبية الثابتة) */

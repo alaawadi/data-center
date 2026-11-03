@@ -1,7 +1,7 @@
 {% extends editor_base_template|default:"editor_base.html" %}
 
 {% block title %}محرر المشروع — مركز داتا{% endblock %}
-{% block body_attrs %}data-page="edit-project"{% if admin_dashboard_project_editor %} data-admin-project-editor="true" data-admin-dashboard-editor="true"{% endif %}{% endblock %}
+{% block body_attrs %}data-page="edit-project" data-personal-project-only="{{ personal_project_only|yesno:'true,false' }}"{% if admin_dashboard_project_editor %} data-admin-project-editor="true" data-admin-dashboard-editor="true"{% endif %}{% endblock %}
 {% block back_section %}#projects{% endblock %}
 
 {% block editor_main %}
@@ -76,6 +76,7 @@
             <select class="input" id="edVisibility">
               <option value="public"></option>
               <option value="courses"></option>
+              <option value="personal"></option>
             </select>
             <span class="tiny muted" id="edVisibilityHint"></span>
           </div>

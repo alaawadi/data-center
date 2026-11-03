@@ -246,6 +246,22 @@ section { padding: 3rem 9%; }
   transition: transform .18s ease, border-color .2s ease;
 }
 .header .icons .i-account:hover .account-av { transform: scale(1.06); border-color: #fff; }
+.header .icons .i-account .account-initial {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--main-soft-2);
+  color: var(--main);
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.header .icons .i-account:hover .account-initial {
+  background: var(--main);
+  color: #fff;
+}
 
 /* ============================================================
    HERO — بانر الهيرو المشترك (hero.css) بنفس تصميم صفحة الدورات

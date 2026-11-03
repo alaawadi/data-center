@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var PHONE_RE = /^0(59|56)\d{7}$/;
+  var PHONE_RE = /^(?:0(?:59|56)\d{7}|\+[1-9]\d{6,14})$/;
   var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
   /* ---------- أدوات ---------- */
@@ -33,13 +33,14 @@
     }, 2600);
   }
 
-  function digitsOnly(input, max) {
+  function digitsOnly(input, max, allowPlus) {
     if (!input) return;
     var cap = max || 10;
     input.addEventListener('input', function () {
       var pos = input.selectionStart === input.selectionEnd;
       var before = input.value;
-      var v = before.replace(/\D/g, '').slice(0, cap);
+      var digits = before.replace(/\D/g, '').slice(0, allowPlus ? cap - 1 : cap);
+      var v = (allowPlus && before.charAt(0) === '+' ? '+' : '') + digits;
       if (v !== before) {
         var at = input.selectionStart || v.length;
         input.value = v;
@@ -47,7 +48,7 @@
       }
     });
     input.addEventListener('keydown', function (ev) {
-      if (!/^[0-9]$/.test(ev.key) && !ev.ctrlKey && !ev.metaKey && !['Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) {
+      if (!/^[0-9]$/.test(ev.key) && !(allowPlus && ev.key === '+' && input.selectionStart === 0 && input.value.indexOf('+') < 0) && !ev.ctrlKey && !ev.metaKey && !['Backspace', 'Delete', 'Tab', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) {
         ev.preventDefault();
       }
     });
@@ -87,8 +88,11 @@
     var txt = meter.querySelector('.strength-txt');
     function update() {
       var s = strengthOf(pwInput.value);
-      meter.className = 'strength s' + s;
-      txt.textContent = s ? 'قوة كلمة المرور: ' + STRENGTH_LABELS[s] : 'استخدم 8 أحرف على الأقل مع أرقام ورموز';
+      var displayStrength = pwInput.value ? Math.max(1, s) : 0;
+      meter.className = 'strength s' + displayStrength;
+      txt.textContent = displayStrength
+        ? 'قوة كلمة المرور: ' + STRENGTH_LABELS[displayStrength]
+        : 'استخدم 8 أحرف على الأقل مع أرقام ورموز';
     }
     pwInput.addEventListener('input', update);
     update();
@@ -109,6 +113,10 @@
     });
   }
 
+  function mountCountryCodePicker(countryCodePicker) {
+    if (window.mountCountryCodePicker) window.mountCountryCodePicker(countryCodePicker);
+  }
+
   /* ---------- المظهر ---------- */
   (function initTheme() {
     var t = 'light';
@@ -127,11 +135,60 @@
   if (signupForm) {
     var nameInput = document.getElementById('suName');
     var phoneInput = document.getElementById('suPhone');
-    digitsOnly(phoneInput);
+    var countryCodeInput = document.getElementById('suCountryCode');
+    var countryCodePicker = document.getElementById('countryCodePicker');
+    mountCountryCodePicker(countryCodePicker);
+    digitsOnly(phoneInput, 14);
+    function syncSignupPhoneMaxLength() {
+      if (!phoneInput) return;
+      var isPalestinianPrefix = countryCodeInput &&
+        (countryCodeInput.value === '+970' || countryCodeInput.value === '+972');
+      var firstDigit = phoneInput.value.replace(/\D/g, '').charAt(0);
+      var maxLength = isPalestinianPrefix
+        ? firstDigit === '5' ? 9 : firstDigit === '0' || !firstDigit ? 10 : 14
+        : 14;
+      phoneInput.maxLength = maxLength;
+      if (phoneInput.value.length > maxLength) {
+        phoneInput.value = phoneInput.value.slice(0, maxLength);
+      }
+    }
+    syncSignupPhoneMaxLength();
+    if (phoneInput) phoneInput.addEventListener('input', syncSignupPhoneMaxLength);
+    if (countryCodeInput) countryCodeInput.addEventListener('change', syncSignupPhoneMaxLength);
     var emailInput = document.getElementById('suEmail');
     var pwInput = document.getElementById('suPassword');
     var pw2Input = document.getElementById('suPassword2');
     mountStrength(pwInput);
+
+    var pw2Hint = document.getElementById('suPassword2Hint');
+    function checkPasswordMatch() {
+      if (!pwInput || !pw2Input || !pw2Hint) return true;
+      pw2Input.classList.remove('password-match-input', 'is-match', 'is-mismatch');
+      if (!pw2Input.value) {
+        pw2Hint.textContent = '';
+        pw2Hint.classList.remove('error', 'ok');
+        return false;
+      }
+      pw2Input.classList.add('password-match-input');
+      if (pwInput.value && pwInput.value.indexOf(pw2Input.value) === 0) {
+        var passwordsMatch = pwInput.value === pw2Input.value;
+        pw2Hint.textContent = passwordsMatch
+          ? 'كلمتا المرور متطابقتان ✓'
+          : 'التأكيد متوافق حتى الآن';
+        pw2Hint.classList.remove('error');
+        pw2Hint.classList.add('ok');
+        pw2Input.classList.add('is-match');
+        return true;
+      }
+      pw2Hint.textContent = 'كلمتا المرور غير متطابقتين';
+      pw2Hint.classList.remove('ok');
+      pw2Hint.classList.add('error');
+      pw2Input.classList.add('is-mismatch');
+      return false;
+    }
+
+    if (pwInput) pwInput.addEventListener('input', checkPasswordMatch);
+    if (pw2Input) pw2Input.addEventListener('input', checkPasswordMatch);
 
     var phoneTaken = false;
     var phoneReqId = 0;
@@ -143,6 +200,14 @@
       hint.textContent = text;
       hint.classList.remove('error', 'ok');
       if (cls) hint.classList.add(cls);
+    }
+
+    function signupPhoneValue() {
+      if (!phoneInput || !countryCodeInput || !countryCodeInput.value) return '';
+      var national = phoneInput.value.replace(/\D/g, '').replace(/^0+/, '');
+      var digits = countryCodeInput.value.slice(1) + national;
+      if (digits.length < 7 || digits.length > 15) return '';
+      return '+' + digits;
     }
 
     function nameWords() {
@@ -173,10 +238,10 @@
       if (!phoneInput) return true;
       var box = phoneInput.closest('.phone-box');
       var v = phoneInput.value;
-      if (!v) { box.classList.remove('bad'); setPhoneHint('يبدأ بـ 059 أو 056 — 10 أرقام'); return true; }
-      if (!validPhone(v)) {
+      if (!v) { box.classList.remove('bad'); setPhoneHint('اختر مقدمة الدولة، ثم أدخل رقمك المحلي بدون المقدمة.'); return true; }
+      if (!signupPhoneValue()) {
         box.classList.add('bad');
-        setPhoneHint('الرقم غير صحيح — يجب أن يبدأ بـ 059 أو 056 ويتكوّن من 10 أرقام', 'error');
+        setPhoneHint('رقم الجوال غير صحيح. أدخل رقماً محلياً بطول مناسب بعد اختيار المقدمة.', 'error');
         return false;
       }
       box.classList.remove('bad');
@@ -185,8 +250,8 @@
 
     function lookupPhone() {
       if (!phoneInput) return;
-      var v = phoneInput.value.trim();
-      if (!validPhone(v)) return;
+      var v = signupPhoneValue();
+      if (!v) return;
       var id = ++phoneReqId;
       var base = (window.SITE_URLS && SITE_URLS.phoneCheck) || '/phone-available/';
       setPhoneHint('جارٍ التحقق من الرقم...');
@@ -207,16 +272,18 @@
         .catch(function () { if (id === phoneReqId) setPhoneHint(''); });
     }
 
-    if (phoneInput) phoneInput.addEventListener('input', function () {
+    function onSignupPhoneChange() {
       checkPhoneLive();
       phoneTaken = false;
       phoneReqId++;
       if (phoneTimer) clearTimeout(phoneTimer);
-      if (validPhone(phoneInput.value.trim())) phoneTimer = setTimeout(lookupPhone, 350);
-    });
+      if (signupPhoneValue()) phoneTimer = setTimeout(lookupPhone, 350);
+    }
+    if (phoneInput) phoneInput.addEventListener('input', onSignupPhoneChange);
+    if (countryCodeInput) countryCodeInput.addEventListener('change', onSignupPhoneChange);
 
     signupForm.addEventListener('submit', function (ev) {
-      var phone = phoneInput ? phoneInput.value.trim() : '';
+      var phone = signupPhoneValue();
       var email = emailInput ? emailInput.value.trim() : '';
       var pw = pwInput ? pwInput.value : '';
       var pw2 = pw2Input ? pw2Input.value : '';
@@ -225,12 +292,12 @@
       if (!words) { ev.preventDefault(); toast('أدخل اسمك الكامل', 'error'); if (nameInput) nameInput.focus(); return; }
       if (words < 2) { ev.preventDefault(); checkNameLive(); toast('الاسم الكامل يجب أن يتكوّن من كلمتين على الأقل', 'error'); if (nameInput) nameInput.focus(); return; }
       if (words > 3) { ev.preventDefault(); checkNameLive(); toast('الاسم الكامل يجب ألا يزيد عن ثلاث كلمات', 'error'); if (nameInput) nameInput.focus(); return; }
-      if (!validPhone(phone)) { ev.preventDefault(); checkPhoneLive(); toast('رقم الجوال غير صحيح', 'error'); if (phoneInput) phoneInput.focus(); return; }
+      if (!phone) { ev.preventDefault(); checkPhoneLive(); toast('رقم الجوال غير صحيح', 'error'); if (phoneInput) phoneInput.focus(); return; }
       if (phoneTaken) { ev.preventDefault(); toast('هذا الرقم مستخدم بالفعل', 'error'); if (phoneInput) phoneInput.focus(); return; }
       if (!validEmail(email)) { ev.preventDefault(); toast('أدخل بريداً إلكترونياً صحيحاً', 'error'); if (emailInput) emailInput.focus(); return; }
       if (!validPassword(pw)) { ev.preventDefault(); toast('كلمة المرور يجب ألا تقل عن 8 أحرف', 'error'); if (pwInput) pwInput.focus(); return; }
       if (strengthOf(pw) < 2) { ev.preventDefault(); toast('كلمة المرور ضعيفة — أضف أرقاماً ورموزاً', 'error'); if (pwInput) pwInput.focus(); return; }
-      if (pw !== pw2) { ev.preventDefault(); toast('كلمتا المرور غير متطابقتين', 'error'); if (pw2Input) pw2Input.focus(); return; }
+      if (!checkPasswordMatch() || pw !== pw2) { ev.preventDefault(); toast('كلمتا المرور غير متطابقتين', 'error'); if (pw2Input) pw2Input.focus(); return; }
 
       setLoading(signupForm.querySelector('button[type="submit"]'));
     });
@@ -259,16 +326,57 @@
   var loginForm = document.getElementById('loginForm');
   if (loginForm) {
     var lPhone = document.getElementById('liPhone');
-    digitsOnly(lPhone);
+    var lPhoneValue = document.getElementById('liPhoneValue');
+    var loginCountryCode = document.getElementById('liCountryCode');
+    mountCountryCodePicker(document.getElementById('loginCountryCodePicker'));
+    var postedPhone = lPhoneValue ? lPhoneValue.value.trim() : '';
+    if (lPhone && loginCountryCode && postedPhone.charAt(0) === '+' &&
+        postedPhone.indexOf(loginCountryCode.value) === 0) {
+      lPhone.value = postedPhone.slice(loginCountryCode.value.length);
+    }
+    digitsOnly(lPhone, 14);
+    function syncLoginPhoneMaxLength() {
+      if (!lPhone) return;
+      var isPalestinianPrefix = loginCountryCode &&
+        (loginCountryCode.value === '+970' || loginCountryCode.value === '+972');
+      var firstDigit = lPhone.value.replace(/\D/g, '').charAt(0);
+      var maxLength = isPalestinianPrefix
+        ? firstDigit === '5' ? 9 : firstDigit === '0' || !firstDigit ? 10 : 14
+        : 14;
+      lPhone.maxLength = maxLength;
+      if (lPhone.value.length > maxLength) {
+        lPhone.value = lPhone.value.slice(0, maxLength);
+      }
+    }
+    syncLoginPhoneMaxLength();
+    if (lPhone) lPhone.addEventListener('input', syncLoginPhoneMaxLength);
+    if (loginCountryCode) loginCountryCode.addEventListener('change', syncLoginPhoneMaxLength);
     var lPw = document.getElementById('liPassword');
 
+    function loginPhoneValue() {
+      if (!lPhone || !loginCountryCode || !loginCountryCode.value) return '';
+      var national = lPhone.value.replace(/\D/g, '').replace(/^0+/, '');
+      var digits = loginCountryCode.value.slice(1) + national;
+      if (digits.length < 7 || digits.length > 15) return '';
+      return '+' + digits;
+    }
+
+    function updateLoginPhoneValue() {
+      if (lPhoneValue) lPhoneValue.value = loginPhoneValue();
+    }
+
+    if (lPhone) lPhone.addEventListener('input', updateLoginPhoneValue);
+    if (loginCountryCode) loginCountryCode.addEventListener('change', updateLoginPhoneValue);
+    updateLoginPhoneValue();
+
     loginForm.addEventListener('submit', function (ev) {
-      var phone = lPhone ? lPhone.value.trim() : '';
+      var phone = loginPhoneValue();
       var pw = lPw ? lPw.value : '';
 
-      if (!validPhone(phone)) { ev.preventDefault(); toast('رقم الجوال غير صحيح — 059 أو 056 و10 أرقام', 'error'); if (lPhone) lPhone.focus(); return; }
+      if (!validPhone(phone)) { ev.preventDefault(); toast('رقم الهاتف غير صحيح. تحقق من مقدمة الدولة والرقم المحلي.', 'error'); if (lPhone) lPhone.focus(); return; }
       if (!pw) { ev.preventDefault(); toast('أدخل كلمة المرور', 'error'); if (lPw) lPw.focus(); return; }
 
+      if (lPhoneValue) lPhoneValue.value = phone;
       setLoading(loginForm.querySelector('button[type="submit"]'));
     });
   }

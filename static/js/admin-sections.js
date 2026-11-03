@@ -271,6 +271,20 @@
 
   Admin.register('users', {
     render: function () {
+      var inPersonStudentIds = {};
+      var activeCohortIds = {};
+      AdminData.inPersonCohorts().forEach(function (cohort) {
+        if (cohort.active) activeCohortIds[String(cohort.id)] = true;
+      });
+      AdminData.courseRegistrationRequests().forEach(function (request) {
+        if (
+          request.status === 'accepted' &&
+          request.studentId &&
+          activeCohortIds[String(request.cohortId || '')]
+        ) {
+          inPersonStudentIds[String(request.studentId)] = true;
+        }
+      });
       return Admin.table({
         key: 'users',
         id: function (u) { return u.databaseId || u.id; },
@@ -280,7 +294,20 @@
         pageSize: 12,
         search: function (u) { return [u.name, u.handle, u.email, u.phone].join(' '); },
         filters: [
-          { k: 'status', label: t('allStatus'), val: function (u) { return u.status; }, options: stOpts(['active', 'suspended']) }
+          { k: 'status', label: t('allStatus'), val: function (u) { return u.status; }, options: stOpts(['active', 'suspended']) },
+          {
+            k: 'studentType',
+            label: t('studentTypeFilter'),
+            filterRow: function (user, studentType) {
+              var studentId = String(user.databaseId || user.id || '').replace(/^db-user-/, '');
+              var isInPerson = !!inPersonStudentIds[studentId];
+              return (studentType === 'in_person') === isInPerson ? user : null;
+            },
+            options: [
+              { v: 'online', l: t('studentTypeOnline') },
+              { v: 'in_person', l: t('studentTypeInPerson') }
+            ]
+          }
         ],
         add: { label: t('uAdd'), act: 'user-add', icon: 'user' },
         bulk: [
@@ -344,11 +371,6 @@
             k: 'joined', label: t('colJoined'), sortVal: function (u) { return u.joined; },
             render: function (u) { return '<span class="tiny muted">' + e(UI.formatDate(u.joined)) + '</span>'; },
             csv: function (u) { return u.joined; }
-          },
-          {
-            k: 'last', label: t('colActivity'), sortVal: function (u) { return u.lastActive; },
-            render: function (u) { return '<span class="tiny muted">' + e(UI.timeAgo(u.lastActive)) + '</span>'; },
-            csv: function (u) { return u.lastActive; }
           },
           {
             k: 'activeDevices', label: t('colRegisteredDevices'),
@@ -434,20 +456,88 @@
   }
 
   function studentActiveCourses(user) {
-    return AdminData.enrollments().filter(function (enrollment) {
+    var onlineCourses = AdminData.enrollments().filter(function (enrollment) {
       var progress = Number(enrollment.progress) || 0;
       return String(enrollment.userId) === String(user.id) &&
         enrollment.status === 'active' &&
         !enrollment.completed &&
-        progress < 100;
+        progress < 100 &&
+        (!enrollment.expiresAt ||
+          new Date(enrollment.expiresAt).getTime() > Date.now());
     }).map(function (enrollment) {
       return {
         enrollment: enrollment,
         course: Store.find('certificates', enrollment.courseId)
       };
     }).filter(function (item) {
-      return !!item.course;
+      return !!item.course && item.course.courseType === 'online';
     });
+    var studentId = String(user.databaseId || '').replace(/^db-user-/, '');
+    var cohorts = AdminData.inPersonCohorts();
+    var inPersonCourses = [];
+    var seenCohorts = {};
+    AdminData.courseRegistrationRequests().forEach(function (request) {
+      if (request.status !== 'accepted' ||
+          String(request.studentId || '') !== studentId ||
+          !request.cohortId || seenCohorts[String(request.cohortId)]) return;
+      var cohort = cohorts.find(function (item) {
+        return String(item.id) === String(request.cohortId);
+      });
+      if (!cohort || !cohort.active) return;
+      var course = Store.find('certificates', cohort.courseId);
+      if (!course) return;
+      seenCohorts[String(cohort.id)] = true;
+      inPersonCourses.push({
+        enrollment: { cohortId: cohort.id, cohortName: cohort.name },
+        course: course
+      });
+    });
+    return onlineCourses.concat(inPersonCourses);
+  }
+
+  function studentCourseHistory(user) {
+    var studentId = String(user.databaseId || '').replace(/^db-user-/, '');
+    var cohorts = AdminData.inPersonCohorts();
+    var inPersonCourses = {};
+    AdminData.courseRegistrationRequests().forEach(function (request) {
+      if (request.status !== 'accepted' ||
+          String(request.studentId || '') !== studentId ||
+          !request.cohortId) return;
+      var cohort = cohorts.find(function (item) {
+        return String(item.id) === String(request.cohortId);
+      });
+      if (!cohort) return;
+      var isCompleted = !cohort.active && cohorts.some(function (item) {
+        return String(item.courseId) === String(cohort.courseId) &&
+          item.active && Number(item.number) > Number(cohort.number);
+      });
+      if (!cohort.active && !isCompleted) return;
+      var course = Store.find('certificates', cohort.courseId);
+      var key = String(cohort.id);
+      if (course && !inPersonCourses[key]) inPersonCourses[key] = {
+        course: course,
+        cohortName: cohort.name,
+        completed: isCompleted
+      };
+    });
+
+    var onlineCourses = AdminData.courseProgressHistory().filter(function (progress) {
+      return String(progress.userId) === studentId;
+    }).map(function (progress) {
+      return {
+        enrollment: progress,
+        course: Store.find('certificates', progress.courseId)
+      };
+    }).filter(function (item) {
+      return !!item.course && item.course.courseType === 'online';
+    });
+
+    return {
+      inPerson: Object.keys(inPersonCourses).map(function (courseId) {
+        return inPersonCourses[courseId];
+      }),
+      online: onlineCourses
+    };
   }
 
   function userModal(id) {
@@ -507,7 +597,7 @@
         [t('uSource'), u.source || '—']
       ], enrolled.slice(0, 8))));
     }
-    Admin.formModal({
+    var modal = Admin.formModal({
       title: u ? t('mUser') : t('uAdd'),
       size: 'lg',
       fields: fields,
@@ -1246,26 +1336,49 @@
           {
             k: 'courses', label: t('secCourses'), cls: 'num',
             sortVal: function (category) { return category.courses; },
-            render: function (category) { return category.courses || 0; },
+            render: function (category) {
+              return '<button type="button" class="chip neutral linkish" data-act="training-category-members" data-kind="courses" data-id="' +
+                e(category.id) + '">' + (category.courses || 0) + '</button>';
+            },
             csv: function (category) { return category.courses || 0; }
           },
           {
             k: 'projects', label: t('secProjects'), cls: 'num',
             sortVal: function (category) { return category.projects; },
-            render: function (category) { return category.projects || 0; },
+            render: function (category) {
+              return '<button type="button" class="chip neutral linkish" data-act="training-category-members" data-kind="projects" data-id="' +
+                e(category.id) + '">' + (category.projects || 0) + '</button>';
+            },
             csv: function (category) { return category.projects || 0; }
           },
           {
             k: 'trainers', label: t('trainingCategoryTrainers'), cls: 'num',
             sortVal: function (category) { return category.trainers; },
-            render: function (category) { return category.trainers || 0; },
+            render: function (category) {
+              return '<button type="button" class="chip neutral linkish" data-act="training-category-members" data-kind="trainers" data-id="' +
+                e(category.id) + '">' + (category.trainers || 0) + '</button>';
+            },
             csv: function (category) { return category.trainers || 0; }
           },
           {
             k: 'students', label: t('trainingCategoryStudents'), cls: 'num',
             sortVal: function (category) { return category.students; },
-            render: function (category) { return category.students || 0; },
+            render: function (category) {
+              return '<button type="button" class="chip neutral linkish" data-act="training-category-members" data-kind="students" data-id="' +
+                e(category.id) + '">' + (category.students || 0) + '</button>';
+            },
             csv: function (category) { return category.students || 0; }
+          },
+          {
+            k: 'status', label: t('status'), sortVal: function (category) { return category.is_active ? 1 : 0; },
+            render: function (category) {
+              var active = category.is_active !== false;
+              return '<button type="button" class="st st-toggle ' +
+                (active ? 'st-ok' : 'st-mute') +
+                '" data-act="training-category-toggle" data-id="' + e(category.id) + '">' +
+                e(t(active ? 'stActive' : 'stInactive')) + '</button>';
+            },
+            csv: function (category) { return category.is_active !== false ? t('stActive') : t('stInactive'); }
           },
           {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
@@ -1338,6 +1451,79 @@
     })[0];
     if (category) trainingCategoryModal(category);
   });
+  Admin.on('training-category-members', function (el) {
+    var category = AdminData.trainingCategories().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!category) return;
+    var kind = el.getAttribute('data-kind');
+    var collection = kind === 'courses'
+      ? 'certificates'
+      : kind === 'projects'
+        ? 'projects'
+        : 'users';
+    var records = Store.collection(collection).filter(function (item) {
+      if (kind === 'courses' || kind === 'projects') return item.category === category.name;
+      if (kind === 'trainers') return item.role === 'trainer' && item.specialty === category.name;
+      if (kind === 'students') return item.role === 'student' && item.specialization === category.name;
+      return false;
+    });
+    var title = t(kind === 'courses' ? 'secCourses'
+      : kind === 'projects' ? 'secProjects'
+        : kind === 'trainers' ? 'trainingCategoryTrainers' : 'trainingCategoryStudents');
+    var body = records.length
+      ? '<div class="enroll-list">' + records.map(function (item) {
+        var name = item.title || item.name || item.fullNameArabic || item.handle || '';
+        return '<div class="enroll-row">' +
+          '<span class="lr-av">' + UI.icon(kind === 'courses' ? 'graduation-cap'
+            : kind === 'projects' ? 'folder' : 'user', 16) + '</span>' +
+          '<span class="er-b"><b>' + e(name) + '</b>' +
+          (item.handle ? '<span dir="ltr">@' + e(item.handle) + '</span>' : '') +
+          '</span></div>';
+      }).join('') + '</div>'
+      : '<p class="tiny muted">' + e(t('emptyTitle')) + '</p>';
+    UI.modal({
+      title: title + ' — ' + category.name,
+      size: 'md',
+      body: body
+    });
+  });
+  Admin.on('training-category-toggle', function (el) {
+    var category = AdminData.trainingCategories().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!category) return;
+    var active = category.is_active === false;
+    el.disabled = true;
+    fetch(SITE.u('trainingCategories'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({
+        action: 'set_active',
+        id: category.id,
+        active: active
+      })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+        var categories = AdminData.trainingCategories();
+        var index = categories.findIndex(function (item) {
+          return String(item.id) === String(data.category.id);
+        });
+        if (index !== -1) categories[index] = data.category;
+        AdminData.setTrainingCategories(categories);
+        Admin.renderAll();
+        UI.toast(t('statusUpd'), 'success');
+      });
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('saveError'), 'error');
+    });
+  });
   Admin.on('training-category-delete', function (el) {
     UI.confirm(t('trainingCategoryDeleteConfirm')).then(function (confirmed) {
       if (!confirmed) return;
@@ -1354,6 +1540,365 @@
           if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
           AdminData.setTrainingCategories(AdminData.trainingCategories().filter(function (category) {
             return String(category.id) !== String(data.id);
+          }));
+          Admin.renderAll();
+          UI.toast(t('deleted'), 'success');
+        });
+      }).catch(function (error) {
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  });
+
+  var freelancerCategoryDrag = null;
+  var freelancerCategoryReorderSaving = false;
+
+  function freelancerCategoryOrder() {
+    return AdminData.freelancerCategories().slice().sort(function (left, right) {
+      var leftOrder = left.display_order == null ? Number.MAX_SAFE_INTEGER : left.display_order;
+      var rightOrder = right.display_order == null ? Number.MAX_SAFE_INTEGER : right.display_order;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return String(left.name || '').localeCompare(
+        String(right.name || ''),
+        I18n.getLang() === 'en' ? 'en' : 'ar'
+      );
+    }).map(function (category) {
+      return String(category.id);
+    });
+  }
+
+  function setFreelancerCategoryRowOrder(tbody, ids) {
+    var rows = trainingCategoryRows(tbody);
+    var rowsById = new Map();
+    rows.forEach(function (row) {
+      rowsById.set(row.getAttribute('data-row-id'), row);
+    });
+    animateTrainingCategoryRows(tbody, function () {
+      ids.forEach(function (id) {
+        var row = rowsById.get(String(id));
+        if (row) tbody.appendChild(row);
+      });
+    });
+  }
+
+  function persistFreelancerCategoryOrder(ids, tbody, previousIds) {
+    if (freelancerCategoryReorderSaving) return;
+    freelancerCategoryReorderSaving = true;
+    var table = tbody.closest('[data-table-key="freelancer-categories"]');
+    if (table) table.classList.add('is-saving-order');
+    fetch(SITE.u('freelancerCategories'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ action: 'reorder', order: ids })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+        AdminData.setFreelancerCategories(
+          Array.isArray(data.categories) ? data.categories : []
+        );
+        UI.toast(t('updated'), 'success');
+      });
+    }).catch(function (error) {
+      setFreelancerCategoryRowOrder(tbody, previousIds);
+      UI.toast(error.message || t('saveError'), 'error');
+    }).then(function () {
+      freelancerCategoryReorderSaving = false;
+      if (table) table.classList.remove('is-saving-order');
+    });
+  }
+
+  document.addEventListener('dragstart', function (event) {
+    var row = event.target.closest && event.target.closest(
+      'table[data-table-key="freelancer-categories"] tbody tr[data-row-id]'
+    );
+    if (!row) return;
+    if (freelancerCategoryReorderSaving) {
+      event.preventDefault();
+      return;
+    }
+    var tbody = row.parentElement;
+    freelancerCategoryDrag = {
+      row: row,
+      tbody: tbody,
+      originalIds: trainingCategoryRows(tbody).map(function (item) {
+        return item.getAttribute('data-row-id');
+      })
+    };
+    row.classList.add('is-dragging');
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', row.getAttribute('data-row-id'));
+    }
+  });
+
+  document.addEventListener('dragover', function (event) {
+    if (!freelancerCategoryDrag) return;
+    var target = event.target.closest && event.target.closest(
+      'table[data-table-key="freelancer-categories"] tbody tr[data-row-id]'
+    );
+    if (!target || target.parentElement !== freelancerCategoryDrag.tbody) return;
+    event.preventDefault();
+    if (target === freelancerCategoryDrag.row) return;
+    var bounds = target.getBoundingClientRect();
+    var after = event.clientY > bounds.top + bounds.height / 2;
+    animateTrainingCategoryRows(freelancerCategoryDrag.tbody, function () {
+      freelancerCategoryDrag.tbody.insertBefore(
+        freelancerCategoryDrag.row,
+        after ? target.nextElementSibling : target
+      );
+    });
+  });
+
+  document.addEventListener('drop', function (event) {
+    if (!freelancerCategoryDrag) return;
+    var targetTable = event.target.closest && event.target.closest(
+      'table[data-table-key="freelancer-categories"]'
+    );
+    if (!targetTable || targetTable.querySelector('tbody') !== freelancerCategoryDrag.tbody) return;
+    event.preventDefault();
+    var drag = freelancerCategoryDrag;
+    freelancerCategoryDrag = null;
+    drag.row.classList.remove('is-dragging');
+    var ids = trainingCategoryRows(drag.tbody).map(function (row) {
+      return row.getAttribute('data-row-id');
+    });
+    if (ids.join(',') !== drag.originalIds.join(',')) {
+      var fullOrder = freelancerCategoryOrder();
+      var page = Admin.ts('freelancer-categories').page || 1;
+      var pageStart = (page - 1) * 10;
+      fullOrder.splice.apply(fullOrder, [pageStart, ids.length].concat(ids));
+      persistFreelancerCategoryOrder(fullOrder, drag.tbody, drag.originalIds);
+    }
+  });
+
+  document.addEventListener('dragend', function () {
+    if (!freelancerCategoryDrag) return;
+    var drag = freelancerCategoryDrag;
+    freelancerCategoryDrag = null;
+    drag.row.classList.remove('is-dragging');
+    setFreelancerCategoryRowOrder(drag.tbody, drag.originalIds);
+  });
+
+  Admin.register('freelancer-categories', {
+    render: function () {
+      var categories = AdminData.freelancerCategories().slice().sort(function (left, right) {
+        var leftOrder = left.display_order == null ? Number.MAX_SAFE_INTEGER : left.display_order;
+        var rightOrder = right.display_order == null ? Number.MAX_SAFE_INTEGER : right.display_order;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return String(left.name || '').localeCompare(
+          String(right.name || ''),
+          I18n.getLang() === 'en' ? 'en' : 'ar'
+        );
+      });
+      return Admin.table({
+        key: 'freelancer-categories',
+        id: function (category) { return category.id; },
+        rows: categories,
+        draggableRows: true,
+        pageSize: Math.max(categories.length, 20),
+        search: function (category) { return category.name; },
+        add: { act: 'freelancer-category-add', label: t('trainingCategoryAdd'), icon: 'plus' },
+        empty: {
+          icon: 'users',
+          title: t('emptyTitle'),
+          sub: t('subFreelancerCategories')
+        },
+        columns: [
+          {
+            k: 'name',
+            label: t('trainingCategoryName'),
+            sortVal: function (category) { return category.name; },
+            render: function (category) { return '<b>' + e(category.name) + '</b>'; },
+            csv: function (category) { return category.name; }
+          },
+          {
+            k: 'trainers',
+            label: t('trainingCategoryTrainers'),
+            cls: 'num',
+            sortVal: function (category) { return category.trainers || 0; },
+            render: function (category) {
+              return '<button type="button" class="chip neutral linkish" data-act="freelancer-category-members" data-role="trainer" data-id="' +
+                e(category.id) + '">' + (category.trainers || 0) + '</button>';
+            },
+            csv: function (category) { return category.trainers || 0; }
+          },
+          {
+            k: 'students',
+            label: t('trainingCategoryStudents'),
+            cls: 'num',
+            sortVal: function (category) { return category.students || 0; },
+            render: function (category) {
+              return '<button type="button" class="chip neutral linkish" data-act="freelancer-category-members" data-role="student" data-id="' +
+                e(category.id) + '">' + (category.students || 0) + '</button>';
+            },
+            csv: function (category) { return category.students || 0; }
+          },
+          {
+            k: 'status',
+            label: t('status'),
+            sortVal: function (category) { return category.is_active ? 1 : 0; },
+            render: function (category) {
+              var active = category.is_active !== false;
+              return '<button type="button" class="st st-toggle ' +
+                (active ? 'st-ok' : 'st-mute') +
+                '" data-act="freelancer-category-toggle" data-id="' + e(category.id) + '">' +
+                e(t(active ? 'stActive' : 'stInactive')) + '</button>';
+            },
+            csv: function (category) {
+              return category.is_active !== false ? t('stActive') : t('stInactive');
+            }
+          },
+          {
+            k: 'actions',
+            label: t('colActions'),
+            cls: 'acts',
+            noCsv: true,
+            render: function (category) {
+              return '<span class="training-category-drag-handle" aria-label="' + e(t('trainingCategoryDrag')) + '" title="' + e(t('trainingCategoryDrag')) + '">⠿</span>' +
+                iconBtn('freelancer-category-edit', category.id, 'pencil', t('edit')) +
+                iconBtn('freelancer-category-delete', category.id, 'trash', t('delete'), 'danger');
+            }
+          }
+        ]
+      });
+    }
+  });
+
+  function freelancerCategoryModal(category) {
+    Admin.formModal({
+      title: category ? t('trainingCategoryEdit') : t('trainingCategoryAdd'),
+      fields: [{
+        k: 'name',
+        label: t('trainingCategoryName'),
+        type: 'text',
+        required: true,
+        maxLength: 120,
+        value: category ? category.name : ''
+      }],
+      onSubmit: function (values, modal) {
+        var saveButton = modal.el.querySelector('[data-fm="save"]');
+        saveButton.disabled = true;
+        fetch(SITE.u('freelancerCategories'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify({
+            action: category ? 'update' : 'create',
+            id: category ? category.id : '',
+            name: values.name
+          })
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+            var categories = AdminData.freelancerCategories();
+            var index = categories.findIndex(function (item) {
+              return String(item.id) === String(data.category.id);
+            });
+            if (index === -1) categories.unshift(data.category);
+            else categories[index] = data.category;
+            AdminData.setFreelancerCategories(categories);
+            modal.close();
+            Admin.renderAll();
+            UI.toast(t(category ? 'updated' : 'created'), 'success');
+          });
+        }).catch(function (error) {
+          saveButton.disabled = false;
+          UI.toast(error.message || t('saveError'), 'error');
+        });
+        return false;
+      }
+    });
+  }
+
+  function freelancerCategoryById(id) {
+    return AdminData.freelancerCategories().filter(function (category) {
+      return String(category.id) === String(id);
+    })[0];
+  }
+
+  Admin.on('freelancer-category-add', function () { freelancerCategoryModal(null); });
+  Admin.on('freelancer-category-edit', function (el) {
+    var category = freelancerCategoryById(el.getAttribute('data-id'));
+    if (category) freelancerCategoryModal(category);
+  });
+  Admin.on('freelancer-category-members', function (el) {
+    var category = freelancerCategoryById(el.getAttribute('data-id'));
+    if (!category) return;
+    var role = el.getAttribute('data-role');
+    var isTrainer = role === 'trainer';
+    var records = Store.collection(isTrainer ? 'trainers' : 'users').filter(function (item) {
+      return (isTrainer || item.role === role) &&
+        (isTrainer ? item.specialty : item.specialization) === category.name;
+    });
+    var title = role === 'trainer' ? t('trainingCategoryTrainers') : t('trainingCategoryStudents');
+    var body = records.length
+      ? '<div class="enroll-list">' + records.map(function (item) {
+        return '<div class="enroll-row"><span class="lr-av">' + UI.icon('user', 16) +
+          '</span><span class="er-b"><b>' + e(item.name || item.handle) + '</b>' +
+          (item.handle ? '<span dir="ltr">@' + e(item.handle) + '</span>' : '') +
+          '</span></div>';
+      }).join('') + '</div>'
+      : '<p class="tiny muted">' + e(t('emptyTitle')) + '</p>';
+    UI.modal({ title: title + ' — ' + category.name, size: 'md', body: body });
+  });
+  Admin.on('freelancer-category-toggle', function (el) {
+    var category = freelancerCategoryById(el.getAttribute('data-id'));
+    if (!category) return;
+    el.disabled = true;
+    fetch(SITE.u('freelancerCategories'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({
+        action: 'set_active',
+        id: category.id,
+        active: category.is_active === false
+      })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+        var categories = AdminData.freelancerCategories();
+        var index = categories.findIndex(function (item) {
+          return String(item.id) === String(data.category.id);
+        });
+        if (index !== -1) categories[index] = data.category;
+        AdminData.setFreelancerCategories(categories);
+        Admin.renderAll();
+        UI.toast(t('statusUpd'), 'success');
+      });
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('saveError'), 'error');
+    });
+  });
+  Admin.on('freelancer-category-delete', function (el) {
+    var category = freelancerCategoryById(el.getAttribute('data-id'));
+    if (!category) return;
+    UI.confirm(t('freelancerCategoryDeleteConfirm')).then(function (confirmed) {
+      if (!confirmed) return;
+      fetch(SITE.u('freelancerCategories'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({ action: 'delete', id: category.id })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          AdminData.setFreelancerCategories(AdminData.freelancerCategories().filter(function (item) {
+            return String(item.id) !== String(data.id);
           }));
           Admin.renderAll();
           UI.toast(t('deleted'), 'success');
@@ -1392,7 +1937,7 @@
         filters: [
           { k: 'category', label: t('fCat'), val: function (c) { return c.category || ''; }, options: cats.map(function (x) { return { v: x, l: x }; }) },
           { k: 'trainer', label: t('fTrainer'), val: function (c) { return c.trainerId || ''; }, options: trainerOpts().filter(function (o) { return o.v; }) },
-          { k: 'status', label: t('allStatus'), val: function (c) { return c.status || 'published'; }, options: stOpts(['published', 'draft', 'archived']) }
+          { k: 'status', label: t('allStatus'), val: function (c) { return c.status || 'draft'; }, options: stOpts(['published', 'draft', 'archived']) }
         ],
         add: { label: t('cAdd'), url: editorRoute('course'), icon: 'plus' },
         bulk: bulkActions,
@@ -1440,15 +1985,15 @@
             csv: function (c) { return AdminData.enrolledCount(c.id); }
           },
           {
-            k: 'status', label: t('colStatus'), sortVal: function (c) { return c.status || 'published'; },
+            k: 'status', label: t('colStatus'), sortVal: function (c) { return c.status || 'draft'; },
             render: function (c) {
-              var active = (c.status || 'published') === 'published';
+              var active = (c.status || 'draft') === 'published';
               return '<button type="button" class="st st-toggle ' + (active ? 'st-ok' : 'st-mute') +
                 '" data-act="course-toggle" data-id="' + e(c.pk || c.id) + '" aria-label="' +
                 e(t(active ? 'courseDeactivate' : 'courseActivate')) + '">' +
                 e(t(active ? 'courseActive' : 'courseInactive')) + '</button>';
             },
-            csv: function (c) { return (c.status || 'published') === 'published' ? t('courseActive') : t('courseInactive'); }
+            csv: function (c) { return (c.status || 'draft') === 'published' ? t('courseActive') : t('courseInactive'); }
           },
           {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
@@ -1546,7 +2091,564 @@
     }
   });
 
-  function courseRegistrationPaymentCell(request) {
+  Admin.register('in-person-payment-invoices', {
+    render: function () {
+      var subscriptions = AdminData.inPersonSubscriptions();
+      function money(amount, currency) {
+        return e(amount || '—') + ' ' + (currency === 'USD' ? '$' : '₪');
+      }
+      return '<div class="course-cohort-page in-person-subscriptions-page">' +
+        '<section class="course-cohort-page-section"><h3>' +
+        e(t('secInPersonPaymentInvoices')) + '</h3>' +
+        Admin.table({
+          key: 'in-person-payment-invoices',
+          id: function (request) { return request.id; },
+          rows: subscriptions,
+          pageSize: 12,
+          add: {
+            label: t('registrationRequestAdd'),
+            act: 'course-registration-request-add',
+            icon: 'plus'
+          },
+          search: function (request) {
+            return [
+              request.fullName,
+              request.phone,
+              request.courseTitle,
+              request.cohortName,
+              request.coursePriceAmount,
+              request.paidAmount,
+              request.remainingAmount,
+              (request.payments || []).map(function (payment) { return payment.amount; }).join(' ')
+            ].join(' ');
+          },
+          empty: {
+            icon: 'users',
+            title: t('inPersonPaymentInvoicesEmpty'),
+            sub: t('subInPersonPaymentInvoices')
+          },
+          columns: [
+            {
+              k: 'student',
+              label: t('registrationRequestName'),
+              width: '12%',
+              sortVal: function (request) { return request.fullName; },
+              render: function (request) { return '<b>' + e(request.fullName) + '</b>'; },
+              csv: function (request) { return request.fullName; }
+            },
+            {
+              k: 'phone',
+              label: t('registrationRequestPhone'),
+              width: '12%',
+              sortVal: function (request) { return request.phone; },
+              render: function (request) {
+                return '<span dir="ltr">' + e(request.phone) + '</span>';
+              },
+              csv: function (request) { return request.phone; }
+            },
+            {
+              k: 'course',
+              label: t('registrationRequestCourse'),
+              width: '15%',
+              sortVal: function (request) { return request.courseTitle; },
+              render: function (request) { return e(request.courseTitle); },
+              csv: function (request) { return request.courseTitle; }
+            },
+            {
+              k: 'cohort',
+              label: t('courseCohort'),
+              width: '8%',
+              sortVal: function (request) { return request.cohortName || ''; },
+              render: function (request) {
+                return request.cohortName ? e(request.cohortName) : '<span class="tiny muted">—</span>';
+              },
+              csv: function (request) { return request.cohortName || ''; }
+            },
+            {
+              k: 'subscription',
+              label: t('inPersonPaymentAmount'),
+              width: '9%',
+              sortVal: function (request) { return Number(request.coursePriceAmount) || 0; },
+              render: function (request) {
+                return '<b>' + money(request.coursePriceAmount, request.currency) + '</b>';
+              },
+              csv: function (request) {
+                return (request.coursePriceAmount || '') + ' ' + (request.currency === 'USD' ? 'USD' : 'ILS');
+              }
+            },
+            {
+              k: 'paid',
+              label: t('courseRegistrationPaidAmount'),
+              width: '9%',
+              sortVal: function (request) { return Number(request.paidAmount) || 0; },
+              render: function (request) {
+                return '<span class="chip ok">' + money(request.paidAmount || '0.00', request.currency) + '</span>';
+              },
+              csv: function (request) {
+                return (request.paidAmount || '0.00') + ' ' + (request.currency === 'USD' ? 'USD' : 'ILS');
+              }
+            },
+            {
+              k: 'remaining',
+              label: t('courseRegistrationRemaining'),
+              width: '9%',
+              sortVal: function (request) { return Number(request.remainingAmount) || 0; },
+              render: function (request) {
+                var paid = Number(request.remainingAmount) <= 0;
+                return '<span class="chip ' + (paid ? 'ok' : 'warn') + '">' +
+                  money(request.remainingAmount, request.currency) + '</span>';
+              },
+              csv: function (request) {
+                return (request.remainingAmount || '') + ' ' + (request.currency === 'USD' ? 'USD' : 'ILS');
+              }
+            },
+            {
+              k: 'payments',
+              label: t('courseRegistrationPaymentDetails'),
+              width: '16%',
+              render: function (request) { return courseRegistrationPaymentCell(request, false); },
+              csv: function (request) {
+                return (request.payments || []).map(function (payment) {
+                  return payment.amount + ' ' + UI.formatDate(payment.createdAt);
+                }).join('; ');
+              }
+            },
+            {
+              k: 'actions',
+              label: t('colActions'),
+              width: '10%',
+              cls: 'acts',
+              noCsv: true,
+              render: function (request) {
+                return inPersonStudentSetupActions(request);
+              }
+            }
+          ]
+        }) +
+        '</section></div>';
+    },
+    wire: wireInPersonStudentPayments
+  });
+
+  Admin.register('online-course-invoices', {
+    render: function () {
+      var invoices = AdminData.onlineCourseInvoices();
+      function money(amount, currency) {
+        return e(amount || '—') + ' ' + (currency === 'USD' ? '$' : '₪');
+      }
+      return '<div class="course-cohort-page online-subscriptions-page"><section class="course-cohort-page-section"><h3>' +
+        e(t('secOnlineCourseInvoices')) + '</h3>' +
+        Admin.table({
+          key: 'online-course-invoices',
+          id: function (invoice) { return invoice.id; },
+          rows: invoices,
+          pageSize: 12,
+          add: {
+            label: t('onlineCourseInvoiceAdd'),
+            act: 'online-course-invoice-add',
+            icon: 'plus'
+          },
+          search: function (invoice) {
+            return [
+              invoice.studentName,
+              invoice.studentPhone,
+              invoice.courseTitle,
+              invoice.coursePrice,
+              invoice.discountValue,
+              invoice.totalAmount,
+              invoice.paidAmount,
+              invoice.remainingAmount,
+              (invoice.payments || []).map(function (payment) { return payment.amount; }).join(' ')
+            ].join(' ');
+          },
+          empty: {
+            icon: 'file-text',
+            title: t('onlineCourseInvoiceEmpty'),
+            sub: t('subOnlineCourseInvoices')
+          },
+          columns: [
+            {
+              k: 'student',
+              label: t('onlineCourseInvoiceStudent'),
+              width: '13%',
+              sortVal: function (invoice) { return invoice.studentName; },
+              render: function (invoice) { return '<b>' + e(invoice.studentName) + '</b>'; },
+              csv: function (invoice) { return invoice.studentName; }
+            },
+            {
+              k: 'phone',
+              label: t('registrationRequestPhone'),
+              width: '12%',
+              sortVal: function (invoice) { return invoice.studentPhone; },
+              render: function (invoice) { return '<span dir="ltr">' + e(invoice.studentPhone) + '</span>'; },
+              csv: function (invoice) { return invoice.studentPhone; }
+            },
+            {
+              k: 'course',
+              label: t('onlineCourseInvoiceCourse'),
+              width: '16%',
+              sortVal: function (invoice) { return invoice.courseTitle; },
+              render: function (invoice) { return e(invoice.courseTitle); },
+              csv: function (invoice) { return invoice.courseTitle; }
+            },
+            {
+              k: 'coursePrice',
+              label: t('courseRegistrationAmountOfCourse'),
+              width: '10%',
+              sortVal: function (invoice) { return Number(invoice.coursePrice) || 0; },
+              render: function (invoice) { return money(invoice.coursePrice, invoice.currency); },
+              csv: function (invoice) { return invoice.coursePrice + ' ' + invoice.currency; }
+            },
+            {
+              k: 'discount',
+              label: t('onlineCourseInvoiceDiscount'),
+              width: '9%',
+              sortVal: function (invoice) { return Number(invoice.discountValue) || 0; },
+              render: function (invoice) {
+                if (Number(invoice.discountValue) <= 0) return '<span class="tiny muted">—</span>';
+                return invoice.discountType === 'percentage'
+                  ? e(invoice.discountValue) + '%'
+                  : money(invoice.discountValue, invoice.currency);
+              },
+              csv: function (invoice) {
+                return Number(invoice.discountValue) > 0
+                  ? invoice.discountValue + (invoice.discountType === 'percentage' ? '%' : ' ' + invoice.currency)
+                  : '';
+              }
+            },
+            {
+              k: 'subscription',
+              label: t('inPersonPaymentAmount'),
+              width: '10%',
+              sortVal: function (invoice) { return Number(invoice.totalAmount) || 0; },
+              render: function (invoice) { return '<b>' + money(invoice.totalAmount, invoice.currency) + '</b>'; },
+              csv: function (invoice) { return invoice.totalAmount + ' ' + invoice.currency; }
+            },
+            {
+              k: 'paid',
+              label: t('courseRegistrationPaidAmount'),
+              width: '9%',
+              sortVal: function (invoice) { return Number(invoice.paidAmount) || 0; },
+              render: function (invoice) {
+                return '<span class="chip ok">' + money(invoice.paidAmount || '0.00', invoice.currency) + '</span>';
+              },
+              csv: function (invoice) { return invoice.paidAmount + ' ' + invoice.currency; }
+            },
+            {
+              k: 'remaining',
+              label: t('courseRegistrationRemaining'),
+              width: '9%',
+              sortVal: function (invoice) { return Number(invoice.remainingAmount) || 0; },
+              render: function (invoice) {
+                return '<span class="chip ' + (Number(invoice.remainingAmount) <= 0 ? 'ok' : 'warn') + '">' +
+                  money(invoice.remainingAmount, invoice.currency) + '</span>';
+              },
+              csv: function (invoice) { return invoice.remainingAmount + ' ' + invoice.currency; }
+            },
+            {
+              k: 'payments',
+              label: t('courseRegistrationPaymentDetails'),
+              width: '12%',
+              render: function (invoice) { return onlineCourseInvoicePaymentCell(invoice); },
+              csv: function (invoice) {
+                return (invoice.payments || []).map(function (payment) {
+                  return payment.amount + ' ' + UI.formatDate(payment.createdAt);
+                }).join('; ');
+              }
+            }
+          ]
+        }) +
+        '</section></div>';
+    },
+    wire: wireOnlineCourseInvoicePayments
+  });
+
+  function onlineCourseInvoicePaymentCell(invoice) {
+    var payments = (invoice.payments || []).map(function (payment) {
+      return '<li><span>' + e(payment.amount) + ' ' +
+        (invoice.currency === 'USD' ? '$' : '₪') +
+        '</span><time>' + e(UI.formatDate(payment.createdAt)) + '</time></li>';
+    }).join('');
+    var noBalance = Number(invoice.remainingAmount) <= 0;
+    return '<div class="course-cohort-paid-editor">' +
+      '<div class="course-cohort-paid-input"><input class="input" type="number" min="0.01" step="0.01"' +
+      ' data-online-invoice-payment="' + e(invoice.id) + '" aria-label="' +
+      e(t('courseRegistrationNewPayment')) + '" placeholder="' +
+      e(t('courseRegistrationNewPayment')) + '"' +
+      (noBalance ? ' disabled' : ' max="' + e(invoice.remainingAmount) + '"') +
+      ' required>' +
+      '<button type="button" class="btn-icon sm course-cohort-payment-confirm" data-act="online-course-invoice-payment-save" data-id="' +
+      e(invoice.id) + '" aria-label="' + e(t('courseRegistrationConfirmPayment')) + '" disabled>' +
+      UI.icon('check', 15) + '</button></div>' +
+      '<small class="online-invoice-payment-feedback" role="alert" hidden></small>' +
+      (payments ? '<ul class="course-cohort-payment-list">' + payments + '</ul>' : '') +
+      '</div>';
+  }
+
+  function wireOnlineCourseInvoicePayments(host) {
+    host.querySelectorAll('[data-online-invoice-payment]').forEach(function (input) {
+      var button = input.parentElement.querySelector('[data-act="online-course-invoice-payment-save"]');
+      function validate() {
+        var amount = input.value.trim();
+        var invalid = !amount || !/^\d+(?:\.\d{1,2})?$/.test(amount) ||
+          !Number.isFinite(Number(amount)) || Number(amount) <= 0 ||
+          Number(amount) > Number(input.max);
+        input.setCustomValidity(invalid ? t('courseRegistrationPaymentFormatInvalid') : '');
+        var feedback = input.closest('.course-cohort-paid-editor').querySelector('.online-invoice-payment-feedback');
+        if (feedback) {
+          feedback.textContent = invalid ? t('courseRegistrationPaymentFormatInvalid') : '';
+          feedback.hidden = !invalid;
+        }
+        if (button) button.disabled = invalid;
+        return !invalid;
+      }
+      input.addEventListener('input', validate);
+      input.addEventListener('change', validate);
+    });
+  }
+
+  function onlineCourseInvoiceCreateForm() {
+    var students = Store.collection('users').filter(function (student) {
+      return student.role === 'student' && student.databaseId;
+    });
+    var courses = Store.collection('certificates').filter(function (course) {
+      return course.courseType === 'online' && course.status === 'published' && course.pk;
+    });
+    if (!students.length) {
+      UI.toast(t('onlineCourseInvoiceNoStudents'), 'error');
+      return;
+    }
+    if (!courses.length) {
+      UI.toast(t('onlineCourseInvoiceNoCourses'), 'error');
+      return;
+    }
+
+    var modal = Admin.formModal({
+      title: t('onlineCourseInvoiceAddTitle'),
+      size: 'md',
+      fields: [
+        {
+          k: 'studentId',
+          label: t('onlineCourseInvoiceStudent'),
+          type: 'invoice-search',
+          required: true,
+          placeholder: t('onlineCourseInvoiceStudentSearch')
+        },
+        {
+          k: 'courseId',
+          label: t('onlineCourseInvoiceCourse'),
+          type: 'invoice-search',
+          required: true,
+          placeholder: t('onlineCourseInvoiceCourseSearch')
+        },
+        {
+          k: 'discountType',
+          label: t('onlineCourseInvoiceDiscountType'),
+          type: 'select',
+          value: 'fixed',
+          options: [
+            { v: 'fixed', l: t('onlineCourseInvoiceDiscountFixed') },
+            { v: 'percentage', l: t('onlineCourseInvoiceDiscountPercentage') }
+          ]
+        },
+        {
+          k: 'discountValue',
+          label: t('onlineCourseInvoiceDiscountValue'),
+          type: 'number',
+          min: 0,
+          step: '0.01',
+          value: '',
+          hint: t('onlineCourseInvoiceDiscountHint'),
+          validate: function (value) {
+            return !value || /^\d+(?:\.\d{1,2})?$/.test(value)
+              ? '' : t('onlineCourseInvoiceDiscountInvalid');
+          }
+        }
+      ],
+      submit: t('onlineCourseInvoiceCreateButton'),
+      onSubmit: function (values, modal) {
+        if (values.discountValue === '') values.discountValue = 0;
+        var saveButton = modal.el.querySelector('[data-fm="save"]');
+        saveButton.disabled = true;
+        fetch(SITE.u('onlineCourseInvoiceCreate'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify(values)
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) throw new Error(data.message || t('onlineCourseInvoiceCreateFailed'));
+            return data;
+          });
+        }).then(function (data) {
+          AdminData.addOnlineCourseInvoice(data.invoice);
+          if (data.enrollmentCreated) {
+            if (!Array.isArray(Store.state.enrollments)) Store.state.enrollments = [];
+            Store.state.enrollments.push({
+              id: 'db-enrollment-' + data.invoice.progressId,
+              databaseProgressId: data.invoice.progressId,
+              courseId: data.invoice.courseId,
+              userId: 'db-user-' + data.invoice.studentId,
+              joinedAt: data.invoice.createdAt,
+              progress: 0,
+              completed: false,
+              status: 'active'
+            });
+            AdminData.updateCourseProgressHistory({
+              id: String(data.invoice.progressId),
+              courseId: data.invoice.courseId,
+              userId: String(data.invoice.studentId),
+              joinedAt: data.invoice.createdAt,
+              expiresAt: '',
+              progress: 0,
+              completed: false
+            });
+            var course = Store.find('certificates', data.invoice.courseId);
+            if (course) course.enrollmentCount = (Number(course.enrollmentCount) || 0) + 1;
+          }
+          modal.close();
+          Admin.renderAll();
+          UI.toast(t('onlineCourseInvoiceCreateSuccess'), 'success');
+        }).catch(function (error) {
+          saveButton.disabled = false;
+          UI.toast(error.message || t('onlineCourseInvoiceCreateFailed'), 'error');
+        });
+        return false;
+      }
+    });
+    function bindInvoiceSearch(key, records, searchText, getLabel, emptyMessage) {
+      var input = modal.body.querySelector('[data-fk-search="' + key + '"]');
+      var value = modal.body.querySelector('[data-fk="' + key + '"]');
+      var results = modal.body.querySelector('#' + key + '-results');
+
+      function closeResults() {
+        results.hidden = true;
+        input.setAttribute('aria-expanded', 'false');
+      }
+
+      function renderResults(query) {
+        var normalizedQuery = query.trim().toLocaleLowerCase();
+        if (!normalizedQuery) {
+          closeResults();
+          return;
+        }
+        var matches = records.filter(function (record) {
+          return searchText(record).toLocaleLowerCase().indexOf(normalizedQuery) !== -1;
+        }).slice(0, 10);
+        results.innerHTML = matches.length
+          ? matches.map(function (record) {
+            var label = getLabel(record);
+            return '<button class="online-invoice-search-option" type="button" role="option"' +
+              ' aria-selected="false" data-invoice-search-option="' + e(key) +
+              '" data-option-value="' + e(record.databaseId || record.pk) +
+              '" data-option-label="' + e(label) + '">' + e(label) + '</button>';
+          }).join('')
+          : '<div class="online-invoice-search-empty" role="presentation">' +
+            e(emptyMessage) + '</div>';
+        results.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+      }
+
+      input.addEventListener('input', function () {
+        if (value.value) {
+          value.value = '';
+          value.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        renderResults(input.value);
+      });
+      input.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape') {
+          closeResults();
+        } else if (event.key === 'ArrowDown' && !results.hidden) {
+          var firstOption = results.querySelector('[data-invoice-search-option]');
+          if (firstOption) {
+            event.preventDefault();
+            firstOption.focus();
+          }
+        }
+      });
+      results.addEventListener('click', function (event) {
+        var option = event.target.closest('[data-invoice-search-option]');
+        if (!option) return;
+        value.value = option.getAttribute('data-option-value');
+        input.value = option.getAttribute('data-option-label');
+        value.dispatchEvent(new Event('input', { bubbles: true }));
+        closeResults();
+        input.focus();
+      });
+      modal.body.addEventListener('click', function (event) {
+        if (!event.target.closest('.online-invoice-search-picker')) closeResults();
+      });
+    }
+
+    bindInvoiceSearch(
+      'studentId',
+      students,
+      function (student) {
+        return [student.name, student.phone, student.email].filter(Boolean).join(' ');
+      },
+      function (student) {
+        return [student.name, student.phone || student.email].filter(Boolean).join(' — ');
+      },
+      t('onlineCourseInvoiceStudentNoMatches')
+    );
+    bindInvoiceSearch(
+      'courseId',
+      courses,
+      function (course) { return course.title || ''; },
+      function (course) { return course.title || ''; },
+      t('onlineCourseInvoiceCourseNoMatches')
+    );
+  }
+
+  Admin.on('online-course-invoice-add', function () {
+    onlineCourseInvoiceCreateForm();
+  });
+
+  Admin.on('online-course-invoice-payment-save', function (button) {
+    var invoiceId = button.getAttribute('data-id');
+    var input = document.querySelector('[data-online-invoice-payment="' + invoiceId + '"]');
+    if (!input) return;
+    if (!input.value.trim() || !/^\d+(?:\.\d{1,2})?$/.test(input.value.trim()) ||
+        !Number.isFinite(Number(input.value)) || Number(input.value) <= 0 ||
+        Number(input.value) > Number(input.max)) {
+      input.setCustomValidity(t('courseRegistrationPaymentFormatInvalid'));
+      input.reportValidity();
+      return;
+    }
+
+    button.disabled = true;
+    input.disabled = true;
+    fetch(SITE.u('onlineCourseInvoicePayment', invoiceId), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ amount: input.value })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('onlineCourseInvoicePaymentFailed'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateOnlineCourseInvoice(data.invoice);
+      Admin.renderAll();
+      UI.toast(t('onlineCourseInvoicePaymentSaved'), 'success');
+    }).catch(function (error) {
+      button.disabled = false;
+      input.disabled = false;
+      UI.toast(error.message || t('onlineCourseInvoicePaymentFailed'), 'error');
+    });
+  });
+
+  function courseRegistrationPaymentCell(request, showTotals) {
     var currencySymbol = request.currency === 'USD' ? '$' : '₪';
     var payments = (request.payments || []).map(function (payment) {
       return '<li><span>' + e(payment.amount) + ' ' + currencySymbol +
@@ -1569,19 +2671,24 @@
       '>' + UI.icon('check', 15) + '</button></div>' +
       '<small class="course-cohort-payment-feedback" id="course-payment-feedback-' +
       e(request.id) + '" role="alert" hidden></small>' +
-      '<small>' + e(t('courseRegistrationAmountOfCourse')) + ': ' +
-      e(request.coursePriceAmount || '—') + ' ' + currencySymbol + '</small>' +
-      '<small>' + e(t('courseRegistrationPaidAmount')) + ': ' +
-      e(request.paidAmount || '0.00') + ' ' + currencySymbol + '</small>' +
-      '<small class="course-cohort-remaining">' + e(t('courseRegistrationRemaining')) + ': ' +
-      e(request.remainingAmount || '—') + ' ' + currencySymbol + '</small>' +
+      (showTotals === false ? '' :
+        '<small>' + e(t('courseRegistrationAmountOfCourse')) + ': ' +
+        e(request.coursePriceAmount || '—') + ' ' + currencySymbol + '</small>' +
+        '<small>' + e(t('courseRegistrationPaidAmount')) + ': ' +
+        e(request.paidAmount || '0.00') + ' ' + currencySymbol + '</small>' +
+        '<small class="course-cohort-remaining">' + e(t('courseRegistrationRemaining')) + ': ' +
+        e(request.remainingAmount || '—') + ' ' + currencySymbol + '</small>') +
       (payments ? '<ul class="course-cohort-payment-list">' + payments + '</ul>' : '') +
       '</div>';
   }
 
   function inPersonStudentSetupActions(request, includeEdit) {
     var linkAvailable = isStudentSetupLinkAvailable(request);
-    var actions = includeEdit === false ? '' :
+    var actions = request.studentId
+      ? '<small class="chip ok">' + UI.icon('check-circle', 13) +
+        e(t(request.hasLoggedIn ? 'studentHasOnlineAccount' : 'studentAccountCreatedLabel')) + '</small>'
+      : '';
+    actions += includeEdit === false ? '' :
       '<button type="button" class="btn-icon" data-act="in-person-student-edit" data-id="' +
       e(request.id) + '" title="' + e(t('studentEdit')) + '" aria-label="' +
       e(t('studentEdit')) + '">' + UI.icon('pencil', 15) + '</button>';
@@ -1639,90 +2746,160 @@
     return !!request.setupUrl && Number.isFinite(expires) && expires > Date.now();
   }
 
-  function inPersonStudentEditForm(request) {
+  function showStudentAccountCreatedModal(request) {
+    var accountReady = !!request.accountReady;
+    var hasLoggedIn = !!request.hasLoggedIn;
+    var hasSetupLink = !accountReady && request.setupUrl && request.setupQrImage;
+    UI.modal({
+      title: t('studentAccountCreated'),
+      size: 'sm',
+      body: hasLoggedIn
+        ? '<p class="chip ok">' + UI.icon('check-circle', 16) +
+          e(t('studentAccountAlreadyReady')) + '</p>'
+        : hasSetupLink
+        ? '<div class="workshop-qr-preview"><img src="' + e(request.setupQrImage) +
+          '" alt="' + e(t('studentSetupLinkQrTitle')) + '">' +
+          '<p class="tiny muted">' + e(t('studentSetupLinkExpires')) + ': ' +
+          e(UI.formatDate(request.setupLinkExpiresAt)) + '</p>' +
+          '<button type="button" class="btn btn-primary btn-sm" data-act="student-setup-link-copy" data-id="' +
+          e(request.id) + '">' + UI.icon('copy', 14) + e(t('studentSetupLinkCopy')) + '</button>' +
+          '<code dir="ltr" style="overflow-wrap:anywhere">' +
+          e(request.setupUrl) + '</code></div>'
+        : '<p class="chip ok">' + UI.icon('check-circle', 16) +
+          e(t('studentAccountCreatedLabel')) + '</p>'
+    });
+  }
+
+  function showAcceptedStudentAccount(request) {
+    if (request.setupUrl && request.setupQrImage) {
+      showStudentAccountCreatedModal(request);
+      return;
+    }
+    if (request.accountReady) {
+      showStudentAccountCreatedModal(request);
+      return;
+    }
+
+    fetch(SITE.u('courseRegistrationRequestSetupLink', request.id), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': window.CSRF_TOKEN || '' }
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('saveError'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      AdminData.updateCourseRegistrationRequest(data.request);
+      Admin.renderAll();
+      showStudentAccountCreatedModal(data.request);
+    }).catch(function (error) {
+      UI.toast(error.message || t('saveError'), 'error');
+    });
+  }
+
+  function inPersonStudentEditForm(request, includeRequestStatus) {
+    var fields = [
+      {
+        k: 'fullName',
+        label: t('registrationRequestName'),
+        value: request.fullName || '',
+        required: true,
+        maxLength: 200,
+        validate: function (value) {
+          var words = value.trim().split(/\s+/);
+          return value && words.length >= 3 && words.length <= 6 &&
+            words.every(function (word) { return /^[\p{L}\p{M}]+$/u.test(word); })
+            ? '' : t('registrationRequestNameInvalid');
+        }
+      },
+      {
+        k: 'phone',
+        label: t('registrationRequestPhone'),
+        value: request.phone || '',
+        required: true,
+        maxLength: 13,
+        dir: 'ltr',
+        inputMode: 'tel',
+        placeholder: '+970xxxxxxxxx أو +972xxxxxxxxx',
+        validate: function (value) {
+          return /^\+97(?:0|2)(?:59|56)\d{7}$/.test(value)
+            ? '' : t('registrationRequestPhoneInvalid');
+        }
+      },
+      {
+        k: 'address',
+        label: t('registrationRequestAddress'),
+        value: request.address || '',
+        required: true,
+        maxLength: 255
+      },
+      {
+        k: 'specialty',
+        label: t('registrationRequestSpecialty'),
+        value: request.specialty || '',
+        required: true,
+        maxLength: 150
+      },
+      {
+        k: 'governorate',
+        label: t('registrationRequestGovernorate'),
+        type: 'select',
+        value: request.governorate || '',
+        required: true,
+        options: [
+          { v: '', l: '—' },
+          { v: 'gaza', l: t('registrationRequestGovernorateGaza') },
+          { v: 'central', l: t('registrationRequestGovernorateCentral') }
+        ]
+      },
+      {
+        k: 'studyYear',
+        label: t('registrationRequestStudyYear'),
+        type: 'number',
+        value: request.studyYear || '',
+        min: 1,
+        max: 4294967295,
+        step: 1,
+        required: true,
+        validate: function (value) {
+          return /^[1-9]\d*$/.test(value) && Number(value) <= 4294967295
+            ? '' : t('registrationRequestStudyYearInvalid');
+        }
+      },
+      {
+        k: 'studentStatus',
+        label: t('registrationRequestStatus'),
+        type: 'select',
+        value: request.studentStatus || '',
+        options: [
+          { v: '', l: '—' },
+          { v: 'student', l: t('registrationRequestStudent') },
+          { v: 'graduate', l: t('registrationRequestGraduate') }
+        ]
+      }
+    ];
+    if (includeRequestStatus) {
+      fields.push({
+        k: 'status',
+        label: t('courseRegistrationStatus'),
+        type: 'select',
+        value: request.status || 'new',
+        required: true,
+        options: [
+          { v: 'new', l: t('registrationRequestNew') },
+          { v: 'contacted', l: t('registrationRequestContacted') },
+          { v: 'accepted', l: t('registrationRequestAccepted') },
+          { v: 'rejected', l: t('registrationRequestRejected') }
+        ]
+      });
+    }
     var modal = Admin.formModal({
       title: t('studentEdit') + ' — ' + request.fullName,
       submit: t('saveChanges'),
-      fields: [
-        {
-          k: 'fullName',
-          label: t('registrationRequestName'),
-          value: request.fullName || '',
-          required: true,
-          maxLength: 200,
-          validate: function (value) {
-            var words = value.trim().split(/\s+/);
-            return value && words.length >= 3 && words.length <= 6 &&
-              words.every(function (word) { return /^[\p{L}\p{M}]+$/u.test(word); })
-              ? '' : t('registrationRequestNameInvalid');
-          }
-        },
-        {
-          k: 'phone',
-          label: t('registrationRequestPhone'),
-          value: request.phone || '',
-          required: true,
-          maxLength: 13,
-          dir: 'ltr',
-          inputMode: 'tel',
-          placeholder: '+970xxxxxxxxx أو +972xxxxxxxxx',
-          validate: function (value) {
-            return /^\+97(?:0|2)(?:59|56)\d{7}$/.test(value)
-              ? '' : t('registrationRequestPhoneInvalid');
-          }
-        },
-        {
-          k: 'address',
-          label: t('registrationRequestAddress'),
-          value: request.address || '',
-          required: true,
-          maxLength: 255
-        },
-        {
-          k: 'specialty',
-          label: t('registrationRequestSpecialty'),
-          value: request.specialty || '',
-          required: true,
-          maxLength: 150
-        },
-        {
-          k: 'governorate',
-          label: t('registrationRequestGovernorate'),
-          type: 'select',
-          value: request.governorate || '',
-          required: true,
-          options: [
-            { v: '', l: '—' },
-            { v: 'gaza', l: t('registrationRequestGovernorateGaza') },
-            { v: 'central', l: t('registrationRequestGovernorateCentral') }
-          ]
-        },
-        {
-          k: 'studyYear',
-          label: t('registrationRequestStudyYear'),
-          type: 'number',
-          value: request.studyYear || '',
-          min: 1,
-          max: 4294967295,
-          step: 1,
-          required: true,
-          validate: function (value) {
-            return /^[1-9]\d*$/.test(value) && Number(value) <= 4294967295
-              ? '' : t('registrationRequestStudyYearInvalid');
-          }
-        },
-        {
-          k: 'studentStatus',
-          label: t('registrationRequestStatus'),
-          type: 'select',
-          value: request.studentStatus || '',
-          options: [
-            { v: '', l: '—' },
-            { v: 'student', l: t('registrationRequestStudent') },
-            { v: 'graduate', l: t('registrationRequestGraduate') }
-          ]
-        }
-      ],
+      fields: fields,
       onSubmit: function (values, formModal) {
         var saveButton = formModal.el.querySelector('[data-fm="save"]');
         saveButton.disabled = true;
@@ -1758,6 +2935,18 @@
 
   Admin.register('in-person-students', {
     render: function () {
+      var historyRoute = (location.hash || '').replace(/^#\/?/, '')
+        .match(/^in-person-students\/(.+)$/);
+      if (historyRoute) {
+        var registrationId;
+        try {
+          registrationId = decodeURIComponent(historyRoute[1]);
+        } catch (error) {
+          registrationId = historyRoute[1];
+        }
+        return renderInPersonStudentHistory(registrationId);
+      }
+
       var students = AdminData.courseRegistrationRequests().filter(function (request) {
         return request.status === 'accepted';
       });
@@ -1786,27 +2975,11 @@
         },
         columns: [
           {
-            k: 'course',
-            label: t('registrationRequestCourse'),
-            sortVal: function (request) { return request.courseTitle; },
-            render: function (request) { return '<b>' + e(request.courseTitle) + '</b>'; },
-            csv: function (request) { return request.courseTitle; }
-          },
-          {
-            k: 'cohort',
-            label: t('courseCohort'),
-            sortVal: function (request) { return request.cohortName || ''; },
-            render: function (request) {
-              return request.cohortName ? e(request.cohortName) : '<span class="tiny muted">—</span>';
-            },
-            csv: function (request) { return request.cohortName || ''; }
-          },
-          {
             k: 'name',
             label: t('registrationRequestName'),
             sortVal: function (request) { return request.fullName; },
             render: function (request) {
-              return '<button type="button" class="course-cohort-request-name" data-act="course-registration-details" data-id="' +
+              return '<button type="button" class="course-cohort-request-name" data-act="in-person-student-history" data-id="' +
                 e(request.id) + '">' + e(request.fullName) + '</button>';
             },
             csv: function (request) { return request.fullName; }
@@ -1820,13 +2993,6 @@
                 '" target="_blank" rel="noopener noreferrer" dir="ltr">' + e(request.phone) + '</a>';
             },
             csv: function (request) { return request.phone; }
-          },
-          {
-            k: 'specialty',
-            label: t('registrationRequestSpecialty'),
-            sortVal: function (request) { return request.specialty; },
-            render: function (request) { return e(request.specialty); },
-            csv: function (request) { return request.specialty; }
           },
           {
             k: 'governorate',
@@ -1847,25 +3013,31 @@
             }
           },
           {
-            k: 'studyYear',
-            label: t('registrationRequestStudyYear'),
-            sortVal: function (request) { return Number(request.studyYear) || 0; },
-            render: function (request) {
-              return request.studyYear
-                ? e(request.studyYear)
-                : '<span class="tiny muted">—</span>';
-            },
-            csv: function (request) { return request.studyYear || ''; }
+            k: 'course',
+            label: t('registrationRequestCourse'),
+            sortVal: function (request) { return request.courseTitle; },
+            render: function (request) { return '<b>' + e(request.courseTitle) + '</b>'; },
+            csv: function (request) { return request.courseTitle; }
           },
           {
-            k: 'paidAmount',
-            label: t('courseRegistrationPaymentDetails'),
-            sortVal: function (request) { return Number(request.paidAmount || 0); },
+            k: 'cohort',
+            label: t('courseCohort'),
+            sortVal: function (request) { return request.cohortName || ''; },
             render: function (request) {
-              return courseRegistrationPaymentCell(request);
+              return request.cohortName
+                ? e(request.cohortName)
+                : '<span class="tiny muted">—</span>';
+            },
+            csv: function (request) { return request.cohortName || ''; }
+          },
+          {
+            k: 'payment',
+            label: t('courseRegistrationNewPayment'),
+            render: function (request) {
+              return courseRegistrationPaymentCell(request, false);
             },
             csv: function (request) {
-              return (request.paidAmount || '0.00') + ' ' + (request.currency === 'USD' ? '$' : '₪');
+              return (request.paidAmount || '0.00') + ' ' + (request.currency === 'USD' ? 'USD' : 'ILS');
             }
           },
           {
@@ -1885,7 +3057,7 @@
           },
           {
             k: 'account',
-            label: t('inPersonStudentAccount'),
+            label: t('colActions'),
             sortVal: function (request) { return request.studentId || ''; },
             render: function (request) {
               return inPersonStudentSetupActions(request);
@@ -1896,6 +3068,895 @@
       });
     },
     wire: wireInPersonStudentPayments
+  });
+
+  Admin.register('subscriptions', {
+    render: function () {
+      var grouped = {};
+      AdminData.subscriptions().forEach(function (subscription) {
+        var studentId = String(subscription.studentId || '');
+        var studentPhone = String(subscription.studentPhone || '');
+        var key = studentId
+          ? 'student-' + studentId
+          : studentPhone
+            ? 'unlinked-phone-' + studentPhone.replace(/\D/g, '')
+            : 'unlinked-subscription-' + String(subscription.id);
+        var row = grouped[key];
+        if (!row) {
+          row = grouped[key] = {
+            id: key,
+            studentId: studentId,
+            studentName: subscription.studentName || '',
+            studentPhone: studentPhone,
+            subscriptions: [],
+            courseTypes: [],
+            totals: {}
+          };
+        }
+        row.subscriptions.push(subscription);
+        if (row.courseTypes.indexOf(subscription.courseType) === -1) {
+          row.courseTypes.push(subscription.courseType);
+        }
+        var currency = subscription.currency || 'ILS';
+        var totals = row.totals[currency] || (row.totals[currency] = {
+          paid: 0,
+          amount: 0,
+          remaining: 0
+        });
+        totals.paid += Number(subscription.paidAmount) || 0;
+        var amount = subscription.totalAmount != null && subscription.totalAmount !== ''
+          ? subscription.totalAmount : subscription.coursePrice;
+        totals.amount += Number(amount) || 0;
+        totals.remaining += Number(subscription.remainingAmount) || 0;
+      });
+
+      var students = Object.keys(grouped).map(function (key) {
+        var row = grouped[key];
+        row.subscriptions.sort(function (left, right) {
+          return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+        });
+        row.latestSubscription = row.subscriptions[0];
+        row.courseNames = row.subscriptions.map(function (subscription) {
+          return subscription.courseTitle;
+        });
+        row.latestCohortName = row.latestSubscription &&
+          row.latestSubscription.courseType === 'in_person'
+          ? row.latestSubscription.cohortName : '';
+        return row;
+      });
+
+      function moneyByCurrency(row, field) {
+        return Object.keys(row.totals).sort().map(function (currency) {
+          var symbol = currency === 'USD' ? '$' : '₪';
+          var amount = row.totals[currency][field];
+          return '<span class="subscription-total-item">' +
+            e(amount.toFixed(2)) + ' ' + symbol + '</span>';
+        }).join('');
+      }
+
+      return '<div class="course-cohort-page"><section class="course-cohort-page-section">' +
+        '<h3>' + e(t('secSubscriptions')) + '</h3>' +
+        Admin.table({
+          key: 'subscriptions',
+          id: function (student) { return student.id; },
+          rows: students,
+          pageSize: 12,
+          add: { label: t('subscriptionAdd'), act: 'subscription-add', icon: 'plus' },
+          search: function (student) {
+            return [
+              student.studentName,
+              student.studentPhone,
+              student.courseNames.join(' '),
+              student.latestCohortName,
+              student.subscriptions.map(function (subscription) {
+                return [
+                  subscription.courseType,
+                  subscription.paidAmount,
+                  subscription.totalAmount,
+                  subscription.remainingAmount
+                ].join(' ');
+              }).join(' ')
+            ].join(' ');
+          },
+          filters: [
+            {
+              k: 'courseType',
+              label: t('subscriptionFilterType'),
+              val: function (student) { return student.courseTypes; },
+              filterRow: function (student, courseType) {
+                var matchingSubscriptions = student.subscriptions.filter(function (subscription) {
+                  return subscription.courseType === courseType;
+                });
+                if (!matchingSubscriptions.length) return null;
+                var totals = {};
+                matchingSubscriptions.forEach(function (subscription) {
+                  var currency = subscription.currency || 'ILS';
+                  var currencyTotals = totals[currency] || (totals[currency] = {
+                    paid: 0,
+                    amount: 0,
+                    remaining: 0
+                  });
+                  currencyTotals.paid += Number(subscription.paidAmount) || 0;
+                  var amount = subscription.totalAmount != null && subscription.totalAmount !== ''
+                    ? subscription.totalAmount : subscription.coursePrice;
+                  currencyTotals.amount += Number(amount) || 0;
+                  currencyTotals.remaining += Number(subscription.remainingAmount) || 0;
+                });
+                var latest = matchingSubscriptions[0];
+                return Object.assign({}, student, {
+                  subscriptions: matchingSubscriptions,
+                  courseTypes: [courseType],
+                  totals: totals,
+                  latestSubscription: latest,
+                  courseNames: matchingSubscriptions.map(function (subscription) {
+                    return subscription.courseTitle;
+                  }),
+                  latestCohortName: latest.courseType === 'in_person' ? latest.cohortName : ''
+                });
+              },
+              options: [
+                { v: 'online', l: t('subscriptionTypeOnline') },
+                { v: 'in_person', l: t('subscriptionTypeInPerson') }
+              ]
+            },
+            {
+              k: 'hasBalance',
+              label: t('subscriptionFilterBalance'),
+              filterRow: function (student) {
+                var hasBalance = Object.keys(student.totals).some(function (currency) {
+                  return student.totals[currency].remaining > 0;
+                });
+                return hasBalance ? student : null;
+              },
+              options: [
+                { v: 'yes', l: t('subscriptionHasBalance') }
+              ]
+            }
+          ],
+          empty: {
+            icon: 'file-text',
+            title: t('subscriptionEmpty'),
+            sub: t('subSubscriptions')
+          },
+          columns: [
+            {
+              k: 'student',
+              label: t('onlineCourseInvoiceStudent'),
+              width: '17%',
+              sortVal: function (student) { return student.studentName; },
+              render: function (student) {
+                return '<button type="button" class="course-cohort-request-name" data-act="subscription-history" data-id="' +
+                  e(student.studentId) + '"><b>' + e(student.studentName) + '</b></button>' +
+                  (student.studentPhone
+                    ? '<div class="tiny muted" dir="ltr">' + e(student.studentPhone) + '</div>' : '');
+              },
+              csv: function (student) { return student.studentName; }
+            },
+            {
+              k: 'courses',
+              label: t('onlineCourseInvoiceCourse'),
+              width: '28%',
+              sortVal: function (student) {
+                return student.latestSubscription ? student.latestSubscription.courseTitle : '';
+              },
+              render: function (student) {
+                var latest = student.latestSubscription;
+                if (!latest) return '<span class="tiny muted">—</span>';
+                return '<div class="subscription-course-list"><span>' +
+                  e(latest.courseTitle) + '</span><small>' +
+                  e(t(latest.courseType === 'online'
+                    ? 'subscriptionTypeOnline' : 'subscriptionTypeInPerson')) +
+                  '</small></div>';
+              },
+              csv: function (student) {
+                return student.latestSubscription ? student.latestSubscription.courseTitle : '';
+              }
+            },
+            {
+              k: 'cohort',
+              label: t('courseCohort'),
+              width: '12%',
+              render: function (student) {
+                return e(student.latestCohortName || '—');
+              },
+              csv: function (student) { return student.latestCohortName || ''; }
+            },
+            {
+              k: 'paid',
+              label: t('courseRegistrationPaidAmount'),
+              width: '12%',
+              render: function (student) {
+                return '<div class="subscription-totals">' + moneyByCurrency(student, 'paid') + '</div>';
+              },
+              csv: function (student) {
+                return Object.keys(student.totals).map(function (currency) {
+                  return student.totals[currency].paid.toFixed(2) + ' ' + currency;
+                }).join('; ');
+              }
+            },
+            {
+              k: 'amount',
+              label: t('subscriptionPrice'),
+              width: '12%',
+              render: function (student) {
+                return '<div class="subscription-totals">' + moneyByCurrency(student, 'amount') + '</div>';
+              },
+              csv: function (student) {
+                return Object.keys(student.totals).map(function (currency) {
+                  return student.totals[currency].amount.toFixed(2) + ' ' + currency;
+                }).join('; ');
+              }
+            },
+            {
+              k: 'remaining',
+              label: t('courseRegistrationRemaining'),
+              width: '12%',
+              render: function (student) {
+                return '<div class="subscription-totals">' + moneyByCurrency(student, 'remaining') + '</div>';
+              },
+              csv: function (student) {
+                return Object.keys(student.totals).map(function (currency) {
+                  return student.totals[currency].remaining.toFixed(2) + ' ' + currency;
+                }).join('; ');
+              }
+            },
+            {
+              k: 'actions',
+              label: t('colActions'),
+              width: '7%',
+              cls: 'acts',
+              noCsv: true,
+              render: function (student) {
+                return '<button type="button" class="btn-icon sm" data-act="subscription-history" data-id="' +
+                  e(student.studentId) + '" aria-label="' + e(t('subscriptionHistoryOpen')) + '"' +
+                  (student.studentId ? '' : ' disabled') + '>' +
+                  UI.icon('clock', 15) + '</button>';
+              }
+            }
+          ]
+        }) +
+        '</section></div>';
+    }
+  });
+
+  function normalizeSubscriptionSearch(value) {
+    return String(value || '')
+      .toLocaleLowerCase()
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+      .replace(/[أإآ]/g, 'ا')
+      .replace(/ى/g, 'ي')
+      .replace(/ة/g, 'ه')
+      .trim();
+  }
+
+  function bindSubscriptionSearch(modal, key, getRecords, searchText, getLabel, emptyMessage, onSelect) {
+    var input = modal.body.querySelector('[data-fk-search="' + key + '"]');
+    var value = modal.body.querySelector('[data-fk="' + key + '"]');
+    var results = modal.body.querySelector('#' + key + '-results');
+
+    function closeResults() {
+      results.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+    }
+
+    function renderResults(query) {
+      var normalizedQuery = normalizeSubscriptionSearch(query);
+      if (!normalizedQuery) {
+        closeResults();
+        return;
+      }
+      var queryWords = normalizedQuery.split(/\s+/);
+      var matches = getRecords().filter(function (record) {
+        var searchable = normalizeSubscriptionSearch(searchText(record));
+        return queryWords.every(function (word) {
+          return searchable.indexOf(word) !== -1;
+        });
+      }).slice(0, 10);
+      results.innerHTML = matches.length
+        ? matches.map(function (record) {
+          var label = getLabel(record);
+          return '<button class="online-invoice-search-option" type="button" role="option"' +
+            ' aria-selected="false" data-subscription-search-option="' + e(key) +
+            '" data-option-value="' + e(record.databaseId || record.pk) +
+            '" data-option-label="' + e(label) + '">' + e(label) + '</button>';
+        }).join('')
+        : '<div class="online-invoice-search-empty" role="presentation">' +
+          e(emptyMessage) + '</div>';
+      results.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+
+    input.addEventListener('input', function () {
+      value.value = '';
+      value.dispatchEvent(new Event('input', { bubbles: true }));
+      if (onSelect) onSelect(null);
+      renderResults(input.value);
+    });
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeResults();
+      else if (event.key === 'ArrowDown' && !results.hidden) {
+        var firstOption = results.querySelector('[data-subscription-search-option]');
+        if (firstOption) {
+          event.preventDefault();
+          firstOption.focus();
+        }
+      }
+    });
+    results.addEventListener('click', function (event) {
+      var option = event.target.closest('[data-subscription-search-option]');
+      if (!option) return;
+      value.value = option.getAttribute('data-option-value');
+      input.value = option.getAttribute('data-option-label');
+      value.dispatchEvent(new Event('input', { bubbles: true }));
+      closeResults();
+      input.focus();
+      if (onSelect) onSelect(getRecords().find(function (record) {
+        return String(record.databaseId || record.pk) === String(value.value);
+      }) || null);
+    });
+    modal.body.addEventListener('click', function (event) {
+      if (!event.target.closest('.online-invoice-search-picker')) closeResults();
+    });
+  }
+
+  function subscriptionCreateForm() {
+    var students = Store.collection('users').filter(function (student) {
+      return student.role === 'student' && student.databaseId;
+    });
+    var courses = Store.collection('certificates').filter(function (course) {
+      return course.status === 'published' && course.pk;
+    });
+    var modal = Admin.formModal({
+      title: t('subscriptionAddTitle'),
+      size: 'md',
+      fields: [
+        {
+          k: 'studentId',
+          label: t('onlineCourseInvoiceStudent'),
+          type: 'invoice-search',
+          required: true,
+          placeholder: t('onlineCourseInvoiceStudentSearch')
+        },
+        {
+          k: 'courseType',
+          label: t('subscriptionType'),
+          type: 'select',
+          value: 'online',
+          options: [
+            { v: 'online', l: t('subscriptionTypeOnline') },
+            { v: 'in_person', l: t('subscriptionTypeInPerson') }
+          ]
+        },
+        {
+          k: 'courseId',
+          label: t('subscriptionCourse'),
+          type: 'invoice-search',
+          required: true,
+          placeholder: t('subscriptionCourseSearch')
+        },
+        {
+          k: 'cohortId',
+          label: t('subscriptionCohort'),
+          type: 'select',
+          value: '',
+          options: [{ v: '', l: t('subscriptionCohortChoose') }]
+        },
+        {
+          k: 'coursePrice',
+          label: t('subscriptionPrice'),
+          type: 'number',
+          value: '',
+          min: 0,
+          step: '0.01',
+          hint: t('subscriptionPriceHint'),
+          readonly: true
+        },
+        {
+          k: 'discountAmount',
+          label: t('subscriptionDiscount'),
+          type: 'number',
+          min: 0,
+          step: '0.01',
+          value: '',
+          hint: t('subscriptionDiscountHint'),
+          validate: function (value) {
+            var price = Number(priceInput && priceInput.value);
+            return !value || /^\d+(?:\.\d{1,2})?$/.test(value) &&
+              Number(value) >= 0 && Number(value) <= price
+              ? '' : t('subscriptionDiscountInvalid');
+          }
+        },
+        {
+          k: 'paymentAmount',
+          label: t('subscriptionInitialPayment'),
+          type: 'number',
+          min: 0,
+          step: '0.01',
+          value: '',
+          validate: function (value) {
+            return !value || /^\d+(?:\.\d{1,2})?$/.test(value) && Number(value) >= 0
+              ? '' : t('courseRegistrationPaymentFormatInvalid');
+          }
+        }
+      ],
+      submit: t('subscriptionCreateButton'),
+      onSubmit: function (values, formModal) {
+        var type = values.courseType;
+        if (type !== 'online' && type !== 'in_person') {
+          UI.toast(t('subscriptionCreateFailed'), 'error');
+          return false;
+        }
+        if (type === 'in_person' && !values.cohortId) {
+          UI.toast(t('subscriptionCohortChoose'), 'error');
+          return false;
+        }
+        delete values.coursePrice;
+        values.paymentAmount = values.paymentAmount || '';
+        values.discountAmount = values.discountAmount || '';
+        values.cohortId = type === 'in_person' ? values.cohortId : '';
+        var saveButton = formModal.el.querySelector('[data-fm="save"]');
+        saveButton.disabled = true;
+        fetch(SITE.u('subscriptionCreate'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': window.CSRF_TOKEN || ''
+          },
+          body: JSON.stringify(values)
+        }).then(function (response) {
+          return response.json().then(function (data) {
+            if (!response.ok || !data.ok) {
+              throw new Error(data.message || t('subscriptionCreateFailed'));
+            }
+            return data;
+          });
+        }).then(function (data) {
+          if (data.invoice) AdminData.addOnlineCourseInvoice(data.invoice);
+          if (data.registration) AdminData.updateCourseRegistrationRequest(data.registration);
+          AdminData.addSubscription(data.subscription);
+          AdminData.updateCourseProgressHistory({
+            id: String(data.progress.id),
+            courseId: data.progress.courseId,
+            userId: String(data.progress.studentId),
+            joinedAt: data.progress.joinedAt,
+            expiresAt: data.progress.expiresAt || '',
+            progress: data.progress.progress || 0,
+            completed: !!data.progress.completed
+          });
+          if (!Array.isArray(Store.state.enrollments)) Store.state.enrollments = [];
+          var alreadyEnrolled = Store.state.enrollments.some(function (enrollment) {
+            return String(enrollment.databaseProgressId) === String(data.progress.id) ||
+              String(enrollment.courseId) === String(data.progress.courseId) &&
+              String(enrollment.userId) === 'db-user-' + String(data.progress.studentId);
+          });
+          if (!alreadyEnrolled) {
+            Store.state.enrollments.push({
+              id: 'db-enrollment-' + data.progress.id,
+              databaseProgressId: String(data.progress.id),
+              courseId: data.progress.courseId,
+              userId: 'db-user-' + data.progress.studentId,
+              joinedAt: data.progress.joinedAt,
+              expiresAt: data.progress.expiresAt || '',
+              progress: data.progress.progress || 0,
+              completed: !!data.progress.completed,
+              status: 'active'
+            });
+            var course = Store.find('certificates', data.progress.courseId);
+            if (course) course.enrollmentCount = (Number(course.enrollmentCount) || 0) + 1;
+          }
+          formModal.close();
+          Admin.renderAll();
+          UI.toast(t('subscriptionCreateSuccess'), 'success');
+        }).catch(function (error) {
+          saveButton.disabled = false;
+          UI.toast(error.message || t('subscriptionCreateFailed'), 'error');
+        });
+        return false;
+      }
+    });
+
+    var typeSelect = modal.body.querySelector('[data-fk="courseType"]');
+    var courseInput = modal.body.querySelector('[data-fk-search="courseId"]');
+    var courseValue = modal.body.querySelector('[data-fk="courseId"]');
+    var priceInput = modal.body.querySelector('[data-fk="coursePrice"]');
+    var discountInput = modal.body.querySelector('[data-fk="discountAmount"]');
+    var priceHint = priceInput.closest('.field').querySelector('.hint');
+    var cohortSelect = modal.body.querySelector('[data-fk="cohortId"]');
+
+    priceInput.readOnly = true;
+    priceInput.setAttribute('aria-readonly', 'true');
+    priceInput.closest('.field').classList.add('subscription-price-field');
+
+    var typeField = typeSelect.closest('.field');
+    var typeGroup = document.createElement('div');
+    typeGroup.className = 'subscription-type-options';
+    typeGroup.setAttribute('role', 'group');
+    typeGroup.setAttribute('aria-label', t('subscriptionType'));
+    Array.prototype.forEach.call(typeSelect.options, function (option) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'subscription-type-option';
+      button.textContent = option.textContent;
+      button.setAttribute('aria-pressed', String(option.value === typeSelect.value));
+      button.addEventListener('click', function () {
+        typeSelect.value = option.value;
+        typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      typeGroup.appendChild(button);
+    });
+    typeSelect.hidden = true;
+    typeField.appendChild(typeGroup);
+
+    typeSelect.addEventListener('change', function () {
+      Array.prototype.forEach.call(typeGroup.children, function (button, index) {
+        button.setAttribute('aria-pressed', String(typeSelect.options[index].value === typeSelect.value));
+      });
+    });
+
+    function resetCourseSelection() {
+      courseInput.value = '';
+      courseValue.value = '';
+      priceInput.value = '';
+      priceHint.textContent = t('subscriptionPriceHint');
+      discountInput.value = '';
+      discountInput.max = '';
+      cohortSelect.innerHTML = '<option value="">' + e(t('subscriptionCohortChoose')) + '</option>';
+      cohortSelect.disabled = true;
+      cohortSelect.closest('.field').hidden = typeSelect.value !== 'in_person';
+    }
+
+    typeSelect.addEventListener('change', resetCourseSelection);
+    resetCourseSelection();
+    bindSubscriptionSearch(
+      modal,
+      'studentId',
+      function () { return students; },
+      function (student) {
+        return [
+          student.name,
+          student.fullNameArabic,
+          student.fullNameEnglish,
+          student.handle,
+          student.phone,
+          student.email
+        ].filter(Boolean).join(' ');
+      },
+      function (student) {
+        return [student.name, student.phone || student.email].filter(Boolean).join(' — ');
+      },
+      t('subscriptionStudentNoMatches')
+    );
+    bindSubscriptionSearch(
+      modal,
+      'courseId',
+      function () {
+        return courses.filter(function (course) {
+          return course.courseType === typeSelect.value;
+        });
+      },
+      function (course) { return course.title || ''; },
+      function (course) { return course.title || ''; },
+      t('subscriptionCourseNoMatches'),
+      function (course) {
+        priceInput.value = '';
+        priceHint.textContent = t('subscriptionPriceHint');
+        discountInput.value = '';
+        discountInput.max = '';
+        cohortSelect.innerHTML = '<option value="">' + e(t('subscriptionCohortChoose')) + '</option>';
+        cohortSelect.disabled = true;
+        if (!course) return;
+        var rawPrice = String(course.price || '')
+          .replace(/[٠-٩۰-۹]/g, function (digit) {
+            return String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10);
+          })
+          .replace(/[^\d,.]/g, '');
+        if (rawPrice.indexOf(',') !== -1) {
+          rawPrice = rawPrice.indexOf('.') !== -1 || /^\d{1,3}(?:,\d{3})+$/.test(rawPrice)
+            ? rawPrice.replace(/,/g, '')
+            : rawPrice.replace(',', '.').replace(/,/g, '');
+        }
+        priceInput.value = rawPrice;
+        priceHint.textContent = t('subscriptionPriceHint') + ' ' +
+          (course.currency === 'USD' ? '$' : '₪');
+        discountInput.max = rawPrice || '';
+        if (typeSelect.value !== 'in_person') return;
+        var cohorts = AdminData.inPersonCohorts().filter(function (cohort) {
+          return cohort.active && String(cohort.courseId) === String(course.id);
+        });
+        cohorts.forEach(function (cohort) {
+          var option = document.createElement('option');
+          option.value = cohort.id;
+          option.textContent = cohort.name;
+          cohortSelect.appendChild(option);
+        });
+        cohortSelect.disabled = !cohorts.length;
+      }
+    );
+  }
+
+  function showSubscriptionHistory(studentId) {
+    var history = AdminData.subscriptions().filter(function (subscription) {
+      return String(subscription.studentId) === String(studentId);
+    }).sort(function (left, right) {
+      return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+    });
+    var student = Store.collection('users').find(function (user) {
+      return String(user.databaseId || '') === String(studentId);
+    });
+    var rows = history.map(function (subscription) {
+      var symbol = subscription.currency === 'USD' ? '$' : '₪';
+      var payments = (subscription.payments || []).map(function (payment) {
+        return '<li><span>' + e(payment.amount) + ' ' + symbol + '</span> <time>' +
+          e(UI.formatDate(payment.createdAt)) + '</time></li>';
+      }).join('');
+      var discount = subscription.discountAmount || subscription.discountValue || '0.00';
+      return '<tr><td><b>' + e(subscription.courseTitle) + '</b><div class="tiny muted">' +
+        e(t(subscription.courseType === 'online' ? 'subscriptionTypeOnline' : 'subscriptionTypeInPerson')) +
+        '</div></td><td>' + e(subscription.cohortName || '—') + '</td><td>' +
+        (Number(discount) > 0
+          ? '<div class="tiny muted">' + e(subscription.coursePrice || '—') + ' ' + symbol +
+            ' − ' + e(discount) + ' ' + symbol + '</div>' : '') +
+        '<b>' + e(subscription.totalAmount || subscription.coursePrice || '—') + ' ' + symbol + '</b></td><td>' +
+        e(subscription.paidAmount || '0.00') + ' ' + symbol +
+        (payments ? '<ul class="course-cohort-payment-list">' + payments + '</ul>' : '') +
+        '</td><td>' + e(subscription.remainingAmount || '0.00') + ' ' + symbol +
+        '</td><td>' + subscriptionPaymentInput(subscription) + '</td></tr>';
+    }).join('');
+    var historyModal = UI.modal({
+      title: t('subscriptionHistory'),
+      size: 'lg',
+      body: '<div class="course-cohort-page subscription-history-content"><div class="subscription-history-student">' +
+        '<b>' + e(student ? student.name : '') + '</b><span dir="ltr">' +
+        e(student ? student.phone || '' : '') + '</span></div>' +
+        (history.length
+          ? '<div class="tbl-wrap subscription-history-table-wrap"><table class="adm-table subscription-history-table"><colgroup>' +
+            '<col class="subscription-history-course"><col class="subscription-history-cohort">' +
+            '<col class="subscription-history-total"><col class="subscription-history-paid">' +
+            '<col class="subscription-history-remaining"><col class="subscription-history-actions"></colgroup><thead><tr>' +
+            '<th>' + e(t('onlineCourseInvoiceCourse')) + '</th><th>' + e(t('courseCohort')) +
+            '</th><th>' + e(t('inPersonPaymentAmount')) + '</th><th>' +
+            e(t('courseRegistrationPaidAmount')) + '</th><th>' +
+            e(t('courseRegistrationRemaining')) + '</th><th>' +
+            e(t('subscriptionHistoryAddPayment')) + '</th></tr></thead><tbody>' + rows +
+            '</tbody></table></div>'
+          : '<p class="tiny muted">' + e(t('subscriptionHistoryEmpty')) + '</p>') +
+        '</div>',
+      footer: '<button class="btn btn-ghost" data-modal-close>' + e(t('close')) + '</button>'
+    });
+    historyModal.el.classList.add('subscription-history-modal');
+    historyModal.body.querySelectorAll('[data-subscription-payment]').forEach(function (input) {
+      var button = input.parentElement.querySelector('[data-act="subscription-history-payment-save"]');
+      var feedback = input.parentElement.querySelector('.subscription-history-payment-feedback');
+      function validate() {
+        var amount = input.value.trim();
+        var invalid = !amount || !/^\d+(?:\.\d{1,2})?$/.test(amount) ||
+          !Number.isFinite(Number(amount)) || Number(amount) <= 0 ||
+          Number(amount) > Number(input.max);
+        input.setCustomValidity(invalid ? t('courseRegistrationPaymentFormatInvalid') : '');
+        if (feedback) {
+          feedback.textContent = invalid ? t('courseRegistrationPaymentFormatInvalid') : '';
+          feedback.hidden = !invalid;
+        }
+        if (button) button.disabled = invalid;
+      }
+      input.addEventListener('input', validate);
+      input.addEventListener('change', validate);
+    });
+  }
+
+  function subscriptionPaymentInput(subscription) {
+    var remaining = Number(subscription.remainingAmount) || 0;
+    var kind = subscription.courseType === 'online' ? 'online' : 'inperson';
+    var targetId = kind === 'online'
+      ? String(subscription.id).replace(/^online-/, '')
+      : String(subscription.id).replace(/^inperson-/, '');
+    if (remaining <= 0) {
+      return '<span class="tiny muted">—</span>';
+    }
+    return '<div class="subscription-history-payment">' +
+      '<input class="input" type="number" min="0.01" step="0.01" max="' +
+      e(subscription.remainingAmount) + '" data-subscription-payment="' + e(kind) +
+      '-' + e(targetId) + '" aria-label="' + e(t('courseRegistrationNewPayment')) +
+      '" placeholder="' + e(t('courseRegistrationNewPayment')) + '">' +
+      '<button type="button" class="btn-icon sm course-cohort-payment-confirm" data-act="subscription-history-payment-save"' +
+      ' data-kind="' + e(kind) + '" data-id="' + e(targetId) + '"' +
+      ' aria-label="' + e(t('courseRegistrationConfirmPayment')) + '" disabled>' +
+      UI.icon('check', 15) + '</button>' +
+      '<small class="subscription-history-payment-feedback" role="alert" hidden></small></div>';
+  }
+
+  function subscriptionAfterPayment(subscription, paymentResult, kind) {
+    if (kind === 'online') {
+      return {
+        id: 'online-' + paymentResult.id,
+        studentId: paymentResult.studentId,
+        studentName: paymentResult.studentName,
+        studentPhone: paymentResult.studentPhone,
+        courseType: 'online',
+        courseId: paymentResult.courseId,
+        courseTitle: paymentResult.courseTitle,
+        cohortName: '',
+        coursePrice: paymentResult.coursePrice,
+        discountAmount: paymentResult.discountValue,
+        totalAmount: paymentResult.totalAmount,
+        paidAmount: paymentResult.paidAmount,
+        remainingAmount: paymentResult.remainingAmount,
+        currency: paymentResult.currency,
+        payments: paymentResult.payments,
+        createdAt: paymentResult.createdAt
+      };
+    }
+    return {
+      id: 'inperson-' + paymentResult.id,
+      studentId: paymentResult.studentId || subscription.studentId,
+      studentName: paymentResult.fullName || subscription.studentName,
+      studentPhone: paymentResult.phone || subscription.studentPhone,
+      courseType: 'in_person',
+      courseId: paymentResult.courseId,
+      courseTitle: paymentResult.courseTitle,
+      cohortName: paymentResult.cohortName,
+      coursePrice: paymentResult.coursePriceAmount,
+      discountAmount: paymentResult.discountAmount || '0.00',
+      totalAmount: paymentResult.totalAmount,
+      paidAmount: paymentResult.paidAmount,
+      remainingAmount: paymentResult.remainingAmount,
+      currency: paymentResult.currency,
+      payments: paymentResult.payments,
+      createdAt: paymentResult.createdAt
+    };
+  }
+
+  Admin.on('subscription-history-payment-save', function (button) {
+    var kind = button.getAttribute('data-kind');
+    var targetId = button.getAttribute('data-id');
+    var input = document.querySelector(
+      '[data-subscription-payment="' + kind + '-' + targetId + '"]'
+    );
+    if (!input) return;
+    var amount = input.value.trim();
+    if (!amount || !/^\d+(?:\.\d{1,2})?$/.test(amount) ||
+        !Number.isFinite(Number(amount)) || Number(amount) <= 0 ||
+        Number(amount) > Number(input.max)) {
+      input.setCustomValidity(t('courseRegistrationPaymentFormatInvalid'));
+      input.reportValidity();
+      return;
+    }
+
+    var endpoint = kind === 'online'
+      ? SITE.u('onlineCourseInvoicePayment', targetId)
+      : SITE.u('courseRegistrationRequestPaidAmount', targetId);
+    button.disabled = true;
+    input.disabled = true;
+    fetch(endpoint, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({ amount: amount })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || t('subscriptionHistoryPaymentFailed'));
+        }
+        return data;
+      });
+    }).then(function (data) {
+      var current = AdminData.subscriptions().find(function (item) {
+        return item.courseType === (kind === 'online' ? 'online' : 'in_person') &&
+          String(item.id).replace(/^(online|inperson)-/, '') === String(targetId);
+      });
+      var updatedSubscription = subscriptionAfterPayment(
+        current || {},
+        kind === 'online' ? data.invoice : data.request,
+        kind
+      );
+      if (kind === 'online') AdminData.updateOnlineCourseInvoice(data.invoice);
+      else AdminData.updateCourseRegistrationRequest(data.request);
+      AdminData.addSubscription(updatedSubscription);
+      var modal = button.closest('.modal-wrap');
+      var closeButton = modal && modal.querySelector('.modal-x');
+      if (closeButton) closeButton.click();
+      showSubscriptionHistory(updatedSubscription.studentId);
+      UI.toast(t('subscriptionHistoryPaymentSaved'), 'success');
+    }).catch(function (error) {
+      button.disabled = false;
+      input.disabled = false;
+      UI.toast(error.message || t('subscriptionHistoryPaymentFailed'), 'error');
+    });
+  });
+
+  Admin.on('subscription-add', function () {
+    subscriptionCreateForm();
+  });
+  Admin.on('subscription-history', function (button) {
+    var studentId = button.getAttribute('data-id');
+    if (studentId) showSubscriptionHistory(studentId);
+  });
+
+  function renderInPersonStudentHistory(registrationId) {
+    var requests = AdminData.courseRegistrationRequests();
+    var selectedRequest = requests.find(function (request) {
+      return String(request.id) === String(registrationId);
+    });
+    if (!selectedRequest) {
+      return '<div class="course-cohort-page"><button type="button" class="btn btn-soft btn-sm" data-act="in-person-student-history-back">' +
+        UI.icon('arrow-right', 15) + e(t('courseCohortBack')) + '</button>' +
+        '<p class="tiny muted">' + e(t('inPersonStudentsEmpty')) + '</p></div>';
+    }
+
+    var studentRequests = selectedRequest.studentId
+      ? requests.filter(function (request) {
+        return String(request.studentId) === String(selectedRequest.studentId);
+      })
+      : [selectedRequest];
+    studentRequests = studentRequests.filter(function (request) {
+      return request.status === 'accepted' || Number(request.paidAmount) > 0;
+    }).sort(function (left, right) {
+      return new Date(left.createdAt || 0) - new Date(right.createdAt || 0);
+    });
+
+    var statusKeys = {
+      new: 'registrationRequestNew',
+      contacted: 'registrationRequestContacted',
+      accepted: 'registrationRequestAccepted',
+      rejected: 'registrationRequestRejected'
+    };
+    var rows = studentRequests.map(function (request) {
+      var currencySymbol = request.currency === 'USD' ? '$' : '₪';
+      var payments = (request.payments || []).map(function (payment) {
+        return '<li><span>' + e(payment.amount) + ' ' + currencySymbol +
+          '</span> <time>' + e(UI.formatDate(payment.createdAt)) + '</time></li>';
+      }).join('');
+      return '<tr>' +
+        '<td data-label="' + e(t('registrationRequestCourse')) + '"><b>' +
+        e(request.courseTitle || '—') + '</b></td>' +
+        '<td data-label="' + e(t('courseCohort')) + '">' +
+        e(request.cohortName || '—') + '</td>' +
+        '<td data-label="' + e(t('courseRegistrationAmountOfCourse')) + '">' +
+        e(request.coursePriceAmount || '—') + ' ' + currencySymbol + '</td>' +
+        '<td data-label="' + e(t('courseRegistrationPaidAmount')) + '">' +
+        e(request.paidAmount || '0.00') + ' ' + currencySymbol +
+        (payments ? '<ul class="course-cohort-payment-list">' + payments + '</ul>' : '') +
+        '</td>' +
+        '<td data-label="' + e(t('courseRegistrationRemaining')) + '">' +
+        (request.remainingAmount === ''
+          ? '—'
+          : e(request.remainingAmount || '0.00') + ' ' + currencySymbol) + '</td>' +
+        '<td data-label="' + e(t('registrationRequestStatus')) + '">' +
+        e(t(statusKeys[request.status] || 'registrationRequestNew')) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    return '<div class="course-cohort-page in-person-student-history">' +
+      '<button type="button" class="btn btn-soft btn-sm" data-act="in-person-student-history-back">' +
+      UI.icon('arrow-right', 15) + e(t('courseCohortBack')) + '</button>' +
+      '<section class="course-cohort-page-section"><h3>' +
+      e(t('inPersonStudentHistoryTitle')) + '</h3>' +
+      '<p><b>' + e(selectedRequest.fullName) + '</b> · <span dir="ltr">' +
+      e(selectedRequest.phone) + '</span></p>' +
+      (studentRequests.length
+        ? '<div class="tbl-wrap course-cohort-table-wrap"><table class="adm-table">' +
+          '<thead><tr>' +
+          '<th scope="col">' + e(t('registrationRequestCourse')) + '</th>' +
+          '<th scope="col">' + e(t('courseCohort')) + '</th>' +
+          '<th scope="col">' + e(t('courseRegistrationAmountOfCourse')) + '</th>' +
+          '<th scope="col">' + e(t('courseRegistrationPaidAmount')) + '</th>' +
+          '<th scope="col">' + e(t('courseRegistrationRemaining')) + '</th>' +
+          '<th scope="col">' + e(t('registrationRequestStatus')) + '</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : '<p class="tiny muted">' + e(t('inPersonStudentHistoryEmpty')) + '</p>') +
+      '</section></div>';
+  }
+
+  Admin.on('in-person-student-history', function (el) {
+    Admin.navigate('in-person-students/' + encodeURIComponent(el.getAttribute('data-id')));
+  });
+
+  Admin.on('in-person-student-history-back', function () {
+    Admin.navigate('in-person-students');
   });
 
   function validateInPersonStudentPayment(input) {
@@ -1942,6 +4003,7 @@
   var expandedHistoricalCohorts = {};
   var courseRegistrationRequestCourseFilter = '';
   var courseRegistrationRequestCohortFilter = '';
+  var courseRegistrationRequestStatusFilter = '';
 
   function getCourseCohortRoute() {
     var match = (location.hash || '').replace(/^#\/?/, '').match(/^in-person-course-cohorts\/(.+)$/);
@@ -1954,6 +4016,7 @@
   }
 
   function courseCohortRequestRow(request, includeCourse, editing) {
+    editing = includeCourse ? false : !!editing;
     var status = request.status || 'new';
     var statusOptions = [
       { value: 'new', label: 'registrationRequestNew', cls: 'st-warn' },
@@ -2002,15 +4065,15 @@
         : '<button type="button" class="course-cohort-request-name" data-act="course-registration-details" data-id="' +
           e(request.id) + '" aria-label="' + e(t('courseCohortRequestDetails') + ' — ' + request.fullName) +
           '">' + e(request.fullName) + '</button>') + '</td>' +
-      '<td data-label="' + e(t('registrationRequestAddress')) + '">' + (editing
+      (includeCourse ? '' : '<td data-label="' + e(t('registrationRequestAddress')) + '">' + (editing
         ? '<input class="input course-request-inline-control" type="text" maxlength="255" data-registration-field="address" value="' +
           e(request.address || '') + '" aria-label="' + e(t('registrationRequestAddress')) + '">'
-        : e(request.address || '—')) + '</td>' +
-      '<td data-label="' + e(t('registrationRequestSpecialty')) + '">' + (editing
+        : e(request.address || '—')) + '</td>') +
+      (includeCourse ? '' : '<td data-label="' + e(t('registrationRequestSpecialty')) + '">' + (editing
         ? '<input class="input course-request-inline-control" type="text" maxlength="150" data-registration-field="specialty" value="' +
           e(request.specialty || '') + '" aria-label="' + e(t('registrationRequestSpecialty')) + '">'
-        : e(request.specialty || '—')) + '</td>' +
-      '<td data-label="' + e(t('registrationRequestStudentStatus')) + '">' + (editing
+        : e(request.specialty || '—')) + '</td>') +
+      (includeCourse ? '' : '<td data-label="' + e(t('registrationRequestStudentStatus')) + '">' + (editing
         ? '<select class="input course-request-inline-control" data-registration-field="studentStatus" aria-label="' +
           e(t('registrationRequestStudentStatus')) + '">' +
           '<option value=""' + (!request.studentStatus ? ' selected' : '') + '>—</option>' +
@@ -2021,13 +4084,13 @@
         : request.studentStatus === 'student'
           ? e(t('registrationRequestStudent'))
           : request.studentStatus === 'graduate'
-            ? e(t('registrationRequestGraduate')) : '<span class="tiny muted">—</span>') + '</td>' +
-      '<td data-label="' + e(labels.studyYear) + '">' + (editing
+            ? e(t('registrationRequestGraduate')) : '<span class="tiny muted">—</span>') + '</td>') +
+      (includeCourse ? '' : '<td data-label="' + e(labels.studyYear) + '">' + (editing
             ? '<input class="input course-request-inline-control" type="number" min="1" max="4294967295" step="1" data-registration-field="studyYear" value="' +
               e(request.studyYear || '') + '" aria-label="' + e(labels.studyYear) + '">'
             : request.studyYear
           ? e(request.studyYear)
-          : '<span class="tiny muted">—</span>') + '</td>' +
+          : '<span class="tiny muted">—</span>') + '</td>') +
       '<td data-label="' + e(labels.governorate) + '">' + (editing
         ? '<select class="input course-request-inline-control" data-registration-field="governorate" aria-label="' +
           e(labels.governorate) + '">' +
@@ -2048,7 +4111,7 @@
           '" target="_blank" rel="noopener noreferrer" dir="ltr">' + e(request.phone || '—') + '</a>') +
       '</td>' +
       '<td data-label="' + e(labels.source) + '">' + e(source) + '</td>' +
-      '<td data-label="' + e(labels.status) + '">' + (editing
+      '<td data-label="' + e(labels.status) + '">' + (editing && !includeCourse
         ? '<select class="input course-request-inline-control course-request-inline-status" data-registration-field="status" aria-label="' +
           e(labels.status) + '">' +
           statusOptions.map(function (option) {
@@ -2072,13 +4135,15 @@
       (includeCourse ? '' : '<td data-label="' + e(labels.account) + '">' + (status === 'accepted'
         ? inPersonStudentSetupActions(request, false)
         : '<span class="tiny muted">—</span>') + '</td>') +
-      '<td class="course-request-row-actions" data-label="' + e(t('edit')) + '"><div class="course-request-row-actions-inner">' +
+      '<td class="course-request-row-actions" data-label="' + e(t('colActions')) + '"><div class="course-request-row-actions-inner">' +
+      ((includeCourse && status === 'accepted') ? inPersonStudentSetupActions(request, false) : '') +
       (editing
         ? '<button type="button" class="btn btn-primary btn-sm" data-act="course-registration-row-save" data-id="' +
           e(request.id) + '">' + UI.icon('check', 14) + e(t('save')) + '</button>' +
           '<button type="button" class="btn btn-ghost btn-sm" data-act="course-registration-row-cancel" data-id="' +
           e(request.id) + '">' + UI.icon('x', 14) + e(t('cancel')) + '</button>'
-        : '<button type="button" class="btn-icon" data-act="course-registration-row-edit" data-id="' +
+        : '<button type="button" class="btn-icon" data-act="' + (includeCourse
+          ? 'course-registration-request-edit' : 'course-registration-row-edit') + '" data-id="' +
           e(request.id) + '" title="' + e(t('studentEdit')) + '" aria-label="' +
           e(t('studentEdit')) + '">' + UI.icon('pencil', 15) + '</button>') +
       '</div></td>' +
@@ -2126,6 +4191,12 @@
     cohortOptions.sort(function (left, right) {
       return left.name.localeCompare(right.name);
     });
+    var requestStatusOptions = [
+      { value: 'new', label: 'registrationRequestNew' },
+      { value: 'contacted', label: 'registrationRequestContacted' },
+      { value: 'accepted', label: 'registrationRequestAccepted' },
+      { value: 'rejected', label: 'registrationRequestRejected' }
+    ];
     return '<div class="course-cohort-filters' +
       (includeCourse ? ' course-registration-request-filters' : '') + '">' +
       (includeCourse
@@ -2146,6 +4217,15 @@
             return '<option value="' + e(cohort.id) + '"' +
               (courseRegistrationRequestCohortFilter === cohort.id ? ' selected' : '') + '>' +
               e(cohort.name) + '</option>';
+          }).join('') + '</select></label>' +
+          '<label class="course-cohort-filter"><span>' +
+          e(t('registrationRequestStatus')) + '</span>' +
+          '<select class="input" data-registration-status-filter>' +
+          '<option value="">' + e(t('allStatus')) + '</option>' +
+          requestStatusOptions.map(function (option) {
+            return '<option value="' + e(option.value) + '"' +
+              (courseRegistrationRequestStatusFilter === option.value ? ' selected' : '') + '>' +
+              e(t(option.label)) + '</option>';
           }).join('') + '</select></label>'
         : '') +
       '<label class="course-cohort-filter">' +
@@ -2171,10 +4251,10 @@
       '"><table class="adm-table"><thead><tr>' +
       (includeCourse ? '<th scope="col">' + e(t('registrationRequestCourse')) + '</th>' : '') +
       '<th scope="col">' + e(t('registrationRequestName')) + '</th>' +
-      '<th scope="col">' + e(t('registrationRequestAddress')) + '</th>' +
-      '<th scope="col">' + e(t('registrationRequestSpecialty')) + '</th>' +
-      '<th scope="col">' + e(t('registrationRequestStudentStatus')) + '</th>' +
-      '<th scope="col">' + e(t('registrationRequestStudyYear')) + '</th>' +
+      (includeCourse ? '' : '<th scope="col">' + e(t('registrationRequestAddress')) + '</th>') +
+      (includeCourse ? '' : '<th scope="col">' + e(t('registrationRequestSpecialty')) + '</th>') +
+      (includeCourse ? '' : '<th scope="col">' + e(t('registrationRequestStudentStatus')) + '</th>') +
+      (includeCourse ? '' : '<th scope="col">' + e(t('registrationRequestStudyYear')) + '</th>') +
       '<th scope="col">' + e(t('registrationRequestGovernorate')) + '</th>' +
       '<th scope="col">' + e(t('registrationRequestPhone')) + '</th>' +
       '<th scope="col">' + e(t('registrationRequestSource')) + '</th>' +
@@ -2182,7 +4262,7 @@
       (includeCourse ? '' : '<th scope="col">' + e(t('registrationRequestDate')) + '</th>') +
       (includeCourse ? '' : '<th scope="col">' + e(t('courseRegistrationPaidAmount')) + '</th>') +
       (includeCourse ? '' : '<th scope="col">' + e(t('inPersonStudentAccount')) + '</th>') +
-      '<th scope="col">' + e(t('edit')) + '</th>' +
+      '<th scope="col">' + e(t('colActions')) + '</th>' +
       '</tr></thead><tbody>' + cohortRequests.map(function (request) {
         return courseCohortRequestRow(request, includeCourse);
       }).join('') +
@@ -2269,6 +4349,7 @@
     function filterRequests(cohortId, card) {
       var query = (courseCohortApplicantQueries[cohortId] || '').trim().toLocaleLowerCase();
       var selectedSource = courseCohortSourceQueries[cohortId] || '';
+      var selectedStatus = courseRegistrationRequestStatusFilter;
       var rows = card.querySelectorAll('.course-cohort-applicant-row');
       var visibleCount = 0;
       rows.forEach(function (row) {
@@ -2282,7 +4363,9 @@
         var matchesCohort = cohortId !== 'all' ||
           !courseRegistrationRequestCohortFilter ||
           row.getAttribute('data-request-cohort') === courseRegistrationRequestCohortFilter;
-        var matches = matchesApplicant && matchesSource && matchesCourse && matchesCohort;
+        var matchesStatus = !selectedStatus ||
+          (row.getAttribute('data-request-status') || '') === selectedStatus;
+        var matches = matchesApplicant && matchesSource && matchesCourse && matchesCohort && matchesStatus;
         row.hidden = !matches;
         if (matches) visibleCount += 1;
       });
@@ -2319,6 +4402,7 @@
       allRequestsSearch.getAttribute('data-cohort-applicant-search');
     var courseFilter = host.querySelector('[data-registration-course-filter]');
     var cohortFilter = host.querySelector('[data-registration-cohort-filter]');
+    var statusFilter = host.querySelector('[data-registration-status-filter]');
     if (allRequestsCard && allRequestsCohortId) {
       function applyRegistrationRequestFilters() {
         filterRequests(allRequestsCohortId, allRequestsCard);
@@ -2360,9 +4444,16 @@
           applyRegistrationRequestFilters();
         });
       }
+      if (statusFilter) {
+        statusFilter.addEventListener('change', function () {
+          courseRegistrationRequestStatusFilter = statusFilter.value;
+          applyRegistrationRequestFilters();
+        });
+      }
       if (
         courseRegistrationRequestCourseFilter ||
-        courseRegistrationRequestCohortFilter
+        courseRegistrationRequestCohortFilter ||
+        courseRegistrationRequestStatusFilter
       ) {
         applyRegistrationRequestFilters();
       }
@@ -2601,7 +4692,11 @@
           }
         }
       );
-      UI.toast(t('courseRegistrationStatusUpdated'), 'success');
+      if (nextStatus === 'accepted') {
+        showAcceptedStudentAccount(data.request);
+      } else {
+        UI.toast(t('courseRegistrationStatusUpdated'), 'success');
+      }
     }).catch(function (error) {
       el.disabled = false;
       el.classList.remove('is-updating');
@@ -2662,6 +4757,13 @@
       return String(item.id) === String(el.getAttribute('data-id'));
     })[0];
     if (request) inPersonStudentEditForm(request);
+  });
+
+  Admin.on('course-registration-request-edit', function (el) {
+    var request = AdminData.courseRegistrationRequests().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (request) inPersonStudentEditForm(request, true);
   });
 
   Admin.on('student-setup-link-copy', function (el) {
@@ -2748,7 +4850,7 @@
       return String(item.pk || item.id) === String(el.getAttribute('data-id'));
     })[0];
     if (!course) return;
-    var active = (course.status || 'published') !== 'published';
+    var active = (course.status || 'draft') !== 'published';
     UI.confirm(t(active ? 'courseActivate' : 'courseDeactivate') + '?').then(function (confirmed) {
       if (!confirmed) return;
       el.disabled = true;
@@ -3469,8 +5571,9 @@
           min: 1,
           max: 4294967295,
           step: 1,
-          required: true,
+          required: false,
           validate: function (value) {
+            if (studentStatusInput && studentStatusInput.value === 'graduate') return '';
             return /^[1-9]\d*$/.test(value) && Number(value) <= 4294967295
               ? '' : t('registrationRequestStudyYearInvalid');
           }
@@ -3487,6 +5590,8 @@
         }
       ],
       onSubmit: function (values, modal) {
+        values.studyYear = values.studentStatus === 'graduate'
+          ? null : Number(values.studyYear);
         var saveButton = modal.el.querySelector('[data-fm="save"]');
         saveButton.disabled = true;
         fetch(SITE.u('courseRegistrationRequestSave'), {
@@ -3512,6 +5617,15 @@
         return false;
       }
     });
+    var studentStatusInput = modal.body.querySelector('[data-fk="studentStatus"]');
+    var studyYearInput = modal.body.querySelector('[data-fk="studyYear"]');
+    function syncStudyYearAvailability() {
+      var isGraduate = studentStatusInput.value === 'graduate';
+      studyYearInput.disabled = isGraduate;
+      if (isGraduate) studyYearInput.value = '';
+    }
+    studentStatusInput.addEventListener('change', syncStudyYearAvailability);
+    syncStudyYearAvailability();
   }
 
   Admin.on('course-registration-request-add', function () {
@@ -3630,7 +5744,9 @@
       return Admin.table({
         key: 'student-certificates',
         id: function (certificate) { return certificate.id; },
-        rows: AdminData.studentCertificates(),
+        rows: AdminData.studentCertificates().filter(function (certificate) {
+          return certificate.type === 'manual';
+        }),
         pageSize: 12,
         add: { label: t('certificateAdd'), act: 'certificate-add', icon: 'plus' },
         search: function (certificate) {
@@ -3643,18 +5759,6 @@
             certificate.code
           ].join(' ');
         },
-        filters: [
-          {
-            k: 'type',
-            label: t('certificateType'),
-            val: function (certificate) { return certificate.type; },
-            options: [
-              { v: 'course', l: t('certificateCourse') },
-              { v: 'manual', l: t('certificateExternal') },
-              { v: 'workshop', l: t('certificateWorkshop') }
-            ]
-          }
-        ],
         empty: {
           icon: 'award',
           title: t('emptyCertificates'),
@@ -3693,18 +5797,11 @@
           },
           {
             k: 'course', label: t('certificateCourseTitle'),
-            sortVal: function (certificate) { return certificate.courseTitle || ''; },
+            sortVal: function (certificate) { return certificate.title; },
             render: function (certificate) {
-              return '<span class="tiny muted">' +
-                e(certificate.type === 'workshop'
-                  ? certificate.title
-                  : certificate.courseTitle || '—') + '</span>';
+              return '<span class="tiny muted">' + e(certificate.title) + '</span>';
             },
-            csv: function (certificate) {
-              return certificate.type === 'workshop'
-                ? certificate.title
-                : certificate.courseTitle || '';
-            }
+            csv: function (certificate) { return certificate.title; }
           },
           {
             k: 'review', label: t('certificateReviewStatus'),
@@ -3726,8 +5823,12 @@
             k: 'active', label: t('colStatus'),
             sortVal: function (certificate) { return certificate.active ? 1 : 0; },
             render: function (certificate) {
-              return '<span class="st ' + (certificate.active ? 'st-ok' : 'st-mute') + '">' +
-                e(t(certificate.active ? 'certificateVisible' : 'certificateHidden')) + '</span>';
+              return '<button type="button" class="st st-toggle ' +
+                (certificate.active ? 'st-ok' : 'st-mute') +
+                '" data-act="certificate-toggle" data-id="' + e(certificate.id) +
+                '" aria-label="' + e(t(certificate.active ? 'certificateDeactivate' : 'certificateActivate')) +
+                '" title="' + e(t(certificate.active ? 'certificateDeactivate' : 'certificateActivate')) + '">' +
+                e(t(certificate.active ? 'certificateVisible' : 'certificateHidden')) + '</button>';
             },
             csv: function (certificate) { return t(certificate.active ? 'certificateVisible' : 'certificateHidden'); }
           },
@@ -3740,13 +5841,7 @@
           {
             k: 'actions', label: t('colActions'), cls: 'acts', noCsv: true,
             render: function (certificate) {
-              return iconBtn('certificate-details', certificate.id, 'eye', t('certificateViewDetails')) +
-                (certificate.type === 'workshop' ? '' : iconBtn(
-                'certificate-toggle',
-                certificate.id,
-                certificate.active ? 'eye-off' : 'eye',
-                t(certificate.active ? 'certificateDeactivate' : 'certificateActivate')
-              ));
+              return iconBtn('certificate-details', certificate.id, 'eye', t('certificateViewDetails'));
             }
           }
         ]
@@ -3835,21 +5930,45 @@
   Admin.on('student-active-courses', function (el) {
     var student = Store.find('users', el.getAttribute('data-id'));
     if (!student) return;
-    var courses = studentActiveCourses(student);
-    var body = courses.length
-      ? '<div class="enroll-list">' + courses.map(function (item) {
-        var percent = Math.max(0, Math.min(100, Number(item.enrollment.progress) || 0));
-        return '<a class="enroll-row" href="' + e(SITE.u('course', item.course.id)) + '">' +
-          '<span class="lr-av">' + UI.icon('graduation-cap', 16) + '</span>' +
-          '<span class="er-b"><b>' + e(item.course.title) + '</b>' +
-          '<span class="er-meter"><span class="tiny muted">' + e(t('progress')) +
-          ' ' + percent + '%</span><span class="meter"><i style="width:' +
-          percent + '%"></i></span></span></span></a>';
-      }).join('') + '</div>'
-      : '<p class="tiny muted">' + e(t('studentActiveCoursesEmpty')) + '</p>';
+    var courses = studentCourseHistory(student);
+    function renderInPersonCourse(item) {
+      return '<a class="enroll-row" href="' + e(SITE.u('course', item.course.id)) + '">' +
+        '<span class="lr-av">' + UI.icon('graduation-cap', 16) + '</span>' +
+        '<span class="er-b"><b>' + e(item.course.title) + '</b>' +
+        (item.completed ? '<span>' + e(t('studentCompleted')) + ' · ' : '<span>') +
+        e(t('courseCohort')) +
+        ' ' + e(item.cohortName) + '</span></span></a>';
+    }
+    function renderOnlineCourse(item) {
+      var percent = Math.max(0, Math.min(100, Number(item.enrollment.progress) || 0));
+      var expired = item.enrollment.expiresAt &&
+        new Date(item.enrollment.expiresAt).getTime() <= Date.now();
+      var status = percent >= 100
+        ? '<span class="student-course-status completed">' + e(t('studentCompleted')) + '</span>'
+        : expired
+          ? '<span class="student-course-status expired">' + e(t('studentNotCompleted')) +
+            ' · ' + e(t('studentSubscriptionExpired')) + '</span>'
+          : '';
+      return '<a class="enroll-row" href="' + e(SITE.u('course', item.course.id)) + '">' +
+        '<span class="lr-av">' + UI.icon('graduation-cap', 16) + '</span>' +
+        '<span class="er-b"><b>' + e(item.course.title) + '</b>' + status +
+        '<span class="er-meter"><span class="tiny muted">' + e(t('progress')) +
+        ' ' + percent + '%</span><span class="meter"><i style="width:' +
+        percent + '%"></i></span></span></span></a>';
+    }
+    function renderCourseSection(title, items, renderCourse) {
+      return '<section class="student-course-section"><h3>' + e(title) + '</h3>' +
+        (items.length
+          ? '<div class="enroll-list">' + items.map(renderCourse).join('') + '</div>'
+          : '<p class="tiny muted">' + e(t('studentActiveCoursesEmpty')) + '</p>') +
+        '</section>';
+    }
+    var body =
+      renderCourseSection(t('studentTypeInPerson'), courses.inPerson, renderInPersonCourse) +
+      renderCourseSection(t('studentTypeOnline'), courses.online, renderOnlineCourse);
     UI.modal({
       title: t('studentActiveCoursesTitle') + ' — ' + student.name +
-        ' (' + courses.length + ')',
+        ' (' + (courses.inPerson.length + courses.online.length) + ')',
       size: 'md',
       body: body
     });
@@ -3859,7 +5978,7 @@
     var certificate = AdminData.studentCertificates().filter(function (item) {
       return item.id === el.getAttribute('data-id');
     })[0];
-    if (!certificate || certificate.type === 'workshop') return;
+    if (!certificate || certificate.type !== 'manual') return;
     el.disabled = true;
     fetch(SITE.u('certificateStatus', certificate.id), {
       method: 'POST',
@@ -4228,6 +6347,8 @@
               progress: progress.progress,
               status: 'active'
             });
+            if (data.invoice) AdminData.updateOnlineCourseInvoice(data.invoice);
+            if (data.registration) AdminData.updateCourseRegistrationRequest(data.registration);
             var courseData = Store.find('certificates', courseId);
             if (courseData && typeof data.enrolledCount === 'number') {
               courseData.enrollmentCount = data.enrolledCount;
@@ -4267,7 +6388,7 @@
           return response.json().then(function (data) {
             if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
             Store.state.enrollments = Store.collection('enrollments').filter(function (enrollment) {
-              return enrollment.databaseProgressId !== progressId;
+              return String(enrollment.databaseProgressId) !== String(progressId);
             });
             Store.state.completions = Store.collection('completions').filter(function (completion) {
               return completion.id.indexOf('db-completion-' + progressId + '-') !== 0;
@@ -4279,8 +6400,7 @@
             Store.save(true);
             UI.toast(t('unenrollOk'), 'success');
             Admin.renderAll();
-            m.body.innerHTML = courseStudentsBody(courseId);
-            bindSearch();
+            updateEnrolledStudents(data.enrolled || []);
           });
         }).catch(function (error) {
           remove.disabled = false;

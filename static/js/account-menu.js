@@ -37,17 +37,7 @@
 
     return '<nav class="account-menu" id="accountMenu" aria-label="خيارات الحساب" role="menu">' +
       actions +
-      '<button class="account-menu-item" type="button" data-account-theme role="menuitem">' + icon('theme') +
-      '<span>الثيم</span><span class="account-menu-theme-state"></span></button>' +
       '</nav>';
-  }
-
-  function syncThemeLabel() {
-    if (!menu) return;
-    var label = menu.querySelector('.account-menu-theme-state');
-    if (label) {
-      label.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? 'داكن' : 'فاتح';
-    }
   }
 
   function syncHeaderThemeButton() {
@@ -84,7 +74,6 @@
       document.body.insertAdjacentHTML('beforeend', menuMarkup());
       menu = document.getElementById('accountMenu');
     }
-    syncThemeLabel();
     menu.classList.add('is-open');
     menu.setAttribute('aria-hidden', 'false');
     trigger.setAttribute('aria-expanded', 'true');
@@ -122,7 +111,6 @@
         Store.save();
       }
     }
-    syncThemeLabel();
     syncHeaderThemeButton();
   }
 
@@ -158,9 +146,7 @@
       return;
     }
     if (!menu || !menu.classList.contains('is-open')) return;
-    if (event.target.closest('[data-account-theme]')) {
-      toggleTheme();
-    } else if (!menu.contains(event.target)) {
+    if (!menu.contains(event.target)) {
       closeMenu(false);
     }
   });

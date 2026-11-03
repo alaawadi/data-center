@@ -36,6 +36,8 @@ from courses.models import (
     LessonType,
     ManualCertificate,
     ManualCertificateStatus,
+    OnlineCourseInvoice,
+    OnlineCourseInvoicePayment,
     Quiz,
     QuizChoice,
     QuizQuestion,
@@ -46,10 +48,11 @@ from courses.models import (
     WorkshopAttendance,
     WorkshopCertificate,
 )
-from projects.models import Project, ProjectStatus
+from projects.models import Project, ProjectComment, ProjectStatus
 from posts.models import Post, PostTag
 from users.models import (
     DeviceSession,
+    FreelancerCategory,
     Profile,
     SocialLink,
     SocialPlatform,
@@ -118,10 +121,13 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'cohortName': '',
                 'studentId': '',
                 'accountReady': False,
+                'hasLoggedIn': False,
                 'sourceStudentName': '',
                 'status': self.registration.status,
                 'paidAmount': '0.00',
                 'coursePriceAmount': '',
+                'discountAmount': '0.00',
+                'totalAmount': '',
                 'remainingAmount': '',
                 'payments': [],
                 'createdAt': self.registration.created_at.isoformat(),
@@ -129,6 +135,26 @@ class AdminCourseRegistrationRequestTests(TestCase):
             }],
         )
         self.assertContains(response, 'admin-course-registration-requests-data')
+
+    def test_registration_request_payload_marks_student_after_first_login(self):
+        student = User.objects.create_user(
+            phone='0591000093',
+            password='student-password',
+            full_name='طالب طلب التسجيل',
+            role=UserRole.STUDENT,
+        )
+        self.registration.student = student
+        self.registration.save(update_fields=['student'])
+        self.client.force_login(self.admin)
+
+        before_login = self.client.get(reverse('dashboard:home'))
+        self.assertFalse(before_login.context['course_registration_requests_json'][0]['hasLoggedIn'])
+
+        student.last_login = timezone.now()
+        student.save(update_fields=['last_login'])
+        after_login = self.client.get(reverse('dashboard:home'))
+
+        self.assertTrue(after_login.context['course_registration_requests_json'][0]['hasLoggedIn'])
 
     def test_admin_panel_inperson_students_payload_includes_confirmed_student_payments(self):
         self.course.price = '100.00'
@@ -165,6 +191,26 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(requests[0]['paidAmount'], '30.00')
         self.assertEqual(requests[0]['remainingAmount'], '70.00')
         self.assertEqual(len(requests[0]['payments']), 1)
+
+    def test_admin_panel_keeps_legacy_inperson_balance_without_showing_fake_payment_details(self):
+        self.course.price = '100.00'
+        self.course.save(update_fields=['price'])
+        self.registration.status = CourseRegistrationRequestStatus.ACCEPTED
+        self.registration.save(update_fields=['status'])
+        CourseRegistrationPayment.objects.create(
+            registration_request=self.registration,
+            amount='50.00',
+            is_historical_balance=True,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        request = response.context['course_registration_requests_json'][0]
+        self.assertEqual(request['paidAmount'], '50.00')
+        self.assertEqual(request['remainingAmount'], '50.00')
+        self.assertEqual(request['payments'], [])
 
     def test_admin_panel_shows_referring_student_for_course_registration(self):
         student = User.objects.create_user(
@@ -337,6 +383,31 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(response.json()['request']['governorate'], 'central')
         self.assertEqual(response.json()['request']['studyYear'], 3)
         self.assertEqual(request.status, CourseRegistrationRequestStatus.NEW)
+
+    def test_admin_can_add_graduate_registration_request_without_study_year(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('dashboard:course-registration-request-save'),
+            data=json.dumps({
+                'courseId': self.course.slug,
+                'fullName': 'ليلى أحمد محمد',
+                'phone': '+970123456789',
+                'address': 'غزة',
+                'specialty': 'التصميم',
+                'governorate': 'central',
+                'studyYear': None,
+                'studentStatus': 'graduate',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        registration = CourseRegistrationRequest.objects.get(
+            pk=response.json()['request']['id'],
+        )
+        self.assertIsNone(registration.study_year)
+        self.assertIsNone(response.json()['request']['studyYear'])
 
     def test_inperson_course_activation_closes_and_starts_numbered_cohorts(self):
         self.client.force_login(self.admin)
@@ -951,6 +1022,340 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(CourseRegistrationRequest.objects.count(), 1)
 
 
+class AdminOnlineCourseInvoiceTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000181',
+            password='admin-password',
+            full_name='مدير فواتير الأونلاين',
+            role=UserRole.ADMIN,
+        )
+        self.trainer = User.objects.create_user(
+            phone='0591000182',
+            password='trainer-password',
+            full_name='مدرب أونلاين',
+            role=UserRole.TRAINER,
+        )
+        self.student = User.objects.create_user(
+            phone='0591000183',
+            password='student-password',
+            full_name='طالب أونلاين',
+            role=UserRole.STUDENT,
+        )
+        self.course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة أونلاين مدفوعة',
+            price='120.00',
+            currency='USD',
+            course_type=CourseType.ONLINE,
+            status=CourseStatus.PUBLISHED,
+        )
+        self.client.force_login(self.admin)
+
+    def create_invoice(self, discount_type='fixed', discount_value='0'):
+        return self.client.post(
+            reverse('dashboard:online-course-invoice-create'),
+            data=json.dumps({
+                'studentId': str(self.student.pk),
+                'courseId': str(self.course.pk),
+                'discountType': discount_type,
+                'discountValue': discount_value,
+            }),
+            content_type='application/json',
+        )
+
+    def test_admin_creates_online_invoice_with_percentage_discount_and_enrollment(self):
+        response = self.create_invoice('percentage', '25')
+
+        self.assertEqual(response.status_code, 200)
+        invoice_data = response.json()['invoice']
+        self.assertEqual(invoice_data['coursePrice'], '120.00')
+        self.assertEqual(invoice_data['discountType'], OnlineCourseInvoice.DiscountType.PERCENTAGE)
+        self.assertEqual(invoice_data['discountValue'], '25.00')
+        self.assertEqual(invoice_data['totalAmount'], '90.00')
+        self.assertEqual(invoice_data['paidAmount'], '0.00')
+        self.assertEqual(invoice_data['remainingAmount'], '90.00')
+        self.assertTrue(CourseProgress.objects.filter(student=self.student, course=self.course).exists())
+        self.assertEqual(OnlineCourseInvoice.objects.count(), 1)
+
+    def test_admin_can_create_online_invoice_without_discount(self):
+        response = self.create_invoice(discount_value='')
+
+        self.assertEqual(response.status_code, 200)
+        invoice_data = response.json()['invoice']
+        self.assertEqual(invoice_data['discountValue'], '0.00')
+        self.assertEqual(invoice_data['totalAmount'], '120.00')
+
+    def test_online_invoice_rejects_duplicate_and_invalid_discount(self):
+        self.assertEqual(self.create_invoice().status_code, 200)
+        self.assertEqual(self.create_invoice().status_code, 409)
+
+        self.student2 = User.objects.create_user(
+            phone='0591000184',
+            password='student-password',
+            full_name='طالب آخر',
+            role=UserRole.STUDENT,
+        )
+        invalid_discount = self.client.post(
+            reverse('dashboard:online-course-invoice-create'),
+            data=json.dumps({
+                'studentId': str(self.student2.pk),
+                'courseId': str(self.course.pk),
+                'discountType': 'percentage',
+                'discountValue': '100.01',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(invalid_discount.status_code, 400)
+        self.assertFalse(CourseProgress.objects.filter(student=self.student2, course=self.course).exists())
+
+    def test_admin_adds_online_invoice_payments_without_overpayment(self):
+        invoice_id = self.create_invoice('fixed', '20').json()['invoice']['id']
+        payment_url = reverse(
+            'dashboard:online-course-invoice-add-payment',
+            kwargs={'pk': invoice_id},
+        )
+        response = self.client.post(
+            payment_url,
+            data=json.dumps({'amount': '50.00'}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['invoice']['totalAmount'], '100.00')
+        self.assertEqual(response.json()['invoice']['paidAmount'], '50.00')
+        self.assertEqual(response.json()['invoice']['remainingAmount'], '50.00')
+        self.assertEqual(OnlineCourseInvoicePayment.objects.count(), 1)
+
+        overpayment = self.client.post(
+            payment_url,
+            data=json.dumps({'amount': '50.01'}),
+            content_type='application/json',
+        )
+        self.assertEqual(overpayment.status_code, 400)
+        self.assertEqual(OnlineCourseInvoicePayment.objects.count(), 1)
+
+    def test_admin_panel_payload_contains_online_invoices_only(self):
+        invoice_data = self.create_invoice().json()['invoice']
+        invoice = OnlineCourseInvoice.objects.get(pk=invoice_data['id'])
+        OnlineCourseInvoicePayment.objects.create(
+            invoice=invoice,
+            amount='50.00',
+            is_historical_balance=True,
+        )
+        in_person_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية',
+            price='80.00',
+            course_type=CourseType.IN_PERSON,
+            status=CourseStatus.PUBLISHED,
+        )
+        CourseProgress.objects.create(student=self.student, course=in_person_course)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        invoices = response.context['online_course_invoices_json']
+        self.assertEqual(len(invoices), 1)
+        self.assertEqual(invoices[0]['courseId'], self.course.slug)
+        self.assertEqual(invoices[0]['paidAmount'], '50.00')
+        self.assertEqual(invoices[0]['payments'], [])
+        self.assertContains(response, 'admin-online-course-invoices-data')
+
+
+class AdminSubscriptionCreateTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000191',
+            password='admin-password',
+            full_name='مدير الاشتراكات الموحدة',
+            role=UserRole.ADMIN,
+        )
+        self.trainer = User.objects.create_user(
+            phone='0591000192',
+            password='trainer-password',
+            full_name='مدرب الاشتراكات',
+            role=UserRole.TRAINER,
+        )
+        self.student = User.objects.create_user(
+            phone='0591000193',
+            password='student-password',
+            full_name='طالب الاشتراك',
+            role=UserRole.STUDENT,
+        )
+        self.online_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة أونلاين للاشتراك',
+            price='120.00',
+            currency='USD',
+            course_type=CourseType.ONLINE,
+            status=CourseStatus.PUBLISHED,
+        )
+        self.inperson_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية للاشتراك',
+            price='₪200',
+            course_type=CourseType.IN_PERSON,
+            status=CourseStatus.PUBLISHED,
+        )
+        self.cohort = InPersonCourseCohort.objects.create(
+            course=self.inperson_course,
+            number=1,
+        )
+        self.client.force_login(self.admin)
+
+    def create_subscription(self, course, course_type, cohort_id='', discount='0', payment='0'):
+        return self.client.post(
+            reverse('dashboard:subscription-create'),
+            data=json.dumps({
+                'studentId': str(self.student.pk),
+                'courseType': course_type,
+                'courseId': str(course.pk),
+                'cohortId': str(cohort_id),
+                'paymentAmount': payment,
+                'discountAmount': discount,
+            }),
+            content_type='application/json',
+        )
+
+    def test_online_subscription_uses_course_price_and_optional_discount(self):
+        response = self.create_subscription(
+            self.online_course,
+            CourseType.ONLINE,
+            discount='20.00',
+            payment='10.00',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        subscription = response.json()['subscription']
+        self.assertEqual(subscription['coursePrice'], '120.00')
+        self.assertEqual(subscription['discountValue'], '20.00')
+        self.assertEqual(subscription['totalAmount'], '100.00')
+        self.assertEqual(subscription['paidAmount'], '10.00')
+        self.assertEqual(subscription['remainingAmount'], '90.00')
+        self.assertTrue(CourseProgress.objects.filter(
+            student=self.student,
+            course=self.online_course,
+        ).exists())
+
+    def test_online_subscription_rejects_student_with_active_course_progress(self):
+        CourseProgress.objects.create(
+            student=self.student,
+            course=self.online_course,
+        )
+
+        response = self.create_subscription(self.online_course, CourseType.ONLINE)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['message'], 'الطالب مضاف بالفعل إلى الدورة.')
+        self.assertFalse(OnlineCourseInvoice.objects.exists())
+
+    def test_inperson_subscription_stores_discount_and_calculates_balance(self):
+        response = self.create_subscription(
+            self.inperson_course,
+            CourseType.IN_PERSON,
+            cohort_id=self.cohort.pk,
+            discount='50.00',
+            payment='25.00',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        subscription = response.json()['subscription']
+        registration = CourseRegistrationRequest.objects.get(
+            student=self.student,
+            course=self.inperson_course,
+        )
+        self.assertEqual(registration.course_price_amount, Decimal('200.00'))
+        self.assertEqual(registration.discount_amount, Decimal('50.00'))
+        self.assertEqual(subscription['totalAmount'], '150.00')
+        self.assertEqual(subscription['paidAmount'], '25.00')
+        self.assertEqual(subscription['remainingAmount'], '125.00')
+        self.assertTrue(CourseProgress.objects.filter(
+            student=self.student,
+            course=self.inperson_course,
+        ).exists())
+
+    def test_inperson_subscription_rejects_student_already_in_selected_cohort(self):
+        CourseRegistrationRequest.objects.create(
+            course=self.inperson_course,
+            cohort=self.cohort,
+            student=self.student,
+            full_name=self.student.display_name,
+            phone=self.student.phone,
+            address='',
+            specialty='',
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        )
+
+        response = self.create_subscription(
+            self.inperson_course,
+            CourseType.IN_PERSON,
+            cohort_id=self.cohort.pk,
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['message'], 'الطالب مضاف بالفعل إلى الدورة.')
+        self.assertEqual(
+            CourseRegistrationRequest.objects.filter(
+                course=self.inperson_course,
+                student=self.student,
+            ).count(),
+            1,
+        )
+
+    def test_inperson_subscription_allows_student_from_older_cohort_in_latest_cohort(self):
+        CourseRegistrationRequest.objects.create(
+            course=self.inperson_course,
+            cohort=self.cohort,
+            student=self.student,
+            full_name=self.student.display_name,
+            phone=self.student.phone,
+            address='',
+            specialty='',
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        )
+        self.cohort.ended_at = timezone.now()
+        self.cohort.save(update_fields=['ended_at'])
+        latest_cohort = InPersonCourseCohort.objects.create(
+            course=self.inperson_course,
+            number=2,
+        )
+
+        response = self.create_subscription(
+            self.inperson_course,
+            CourseType.IN_PERSON,
+            cohort_id=latest_cohort.pk,
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            CourseRegistrationRequest.objects.filter(
+                course=self.inperson_course,
+                student=self.student,
+            ).count(),
+            2,
+        )
+        self.assertTrue(CourseRegistrationRequest.objects.filter(
+            course=self.inperson_course,
+            student=self.student,
+            cohort=latest_cohort,
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        ).exists())
+
+    def test_subscription_rejects_discount_over_course_price_without_enrollment(self):
+        response = self.create_subscription(
+            self.inperson_course,
+            CourseType.IN_PERSON,
+            cohort_id=self.cohort.pk,
+            discount='200.01',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(CourseProgress.objects.filter(
+            student=self.student,
+            course=self.inperson_course,
+        ).exists())
+
+
 class AdminTrainerListTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(
@@ -1382,6 +1787,44 @@ class StudentSessionManagementTests(TestCase):
         self.assertEqual(detail_response.status_code, 200)
         self.assertEqual(detail_response.context['course'].pk, course.pk)
 
+    def test_panel_course_progress_history_includes_expired_enrollments(self):
+        student = User.objects.create_user(
+            phone='6666666667',
+            password='student-password',
+            full_name='طالب اشتراك منتهي',
+            role=UserRole.STUDENT,
+        )
+        trainer = User.objects.create_user(
+            phone='6666666668',
+            password='trainer-password',
+            full_name='مدرب الدورة',
+            role=UserRole.TRAINER,
+        )
+        course = Course.objects.create(
+            owner=trainer,
+            title='دورة اشتراك منتهي',
+            course_type=CourseType.ONLINE,
+            status=CourseStatus.PUBLISHED,
+        )
+        progress = CourseProgress.objects.create(
+            student=student,
+            course=course,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(
+            str(progress.pk),
+            {item['id'] for item in response.context['course_progress_json']},
+        )
+        self.assertIn(
+            str(progress.pk),
+            {item['id'] for item in response.context['admin_course_progress_history_json']},
+        )
+
     def test_panel_requires_an_admin_user(self):
         trainer = User.objects.create_user(
             phone='3333333333',
@@ -1447,6 +1890,13 @@ class StudentSessionManagementTests(TestCase):
         )
         certificate = CourseCertificate.objects.create(student=student, course=course)
         self.client.force_login(self.admin)
+
+        panel_response = self.client.get(reverse('dashboard:home'))
+        remove_url = reverse('dashboard:course-student-remove', args=[0])
+        self.assertContains(
+            panel_response,
+            f'courseStudentRemove: "{remove_url}".replace(\'/0/remove/\', \'/__ID__/remove/\')',
+        )
 
         response = self.client.post(
             reverse('dashboard:course-student-remove', args=[progress.pk]),
@@ -1892,7 +2342,11 @@ class AdminCourseStudentEnrollmentTests(TestCase):
             full_name='طالب مسجل',
             role=UserRole.STUDENT,
         )
-        self.course = Course.objects.create(owner=self.trainer, title='دورة التسجيل')
+        self.course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة التسجيل',
+            price='120.00',
+        )
         self.client.force_login(self.admin)
         self.url = reverse('dashboard:course-students', args=[self.course.slug])
 
@@ -1914,8 +2368,16 @@ class AdminCourseStudentEnrollmentTests(TestCase):
         self.assertEqual(response.status_code, 201, response.content)
         self.assertTrue(response.json()['created'])
         self.assertEqual(response.json()['progress']['courseId'], self.course.slug)
+        self.assertEqual(response.json()['invoice']['coursePrice'], '120.00')
+        self.assertEqual(response.json()['invoice']['totalAmount'], '120.00')
         self.assertTrue(
             CourseProgress.objects.filter(student=self.student, course=self.course).exists()
+        )
+        self.assertTrue(
+            OnlineCourseInvoice.objects.filter(
+                progress__student=self.student,
+                progress__course=self.course,
+            ).exists()
         )
         self.assertEqual(
             [progress['userId'] for progress in response.json()['enrolled']],
@@ -1938,8 +2400,51 @@ class AdminCourseStudentEnrollmentTests(TestCase):
         )
         self.assertEqual(duplicate.status_code, 200)
         self.assertFalse(duplicate.json()['created'])
+        self.assertEqual(duplicate.json()['invoice']['totalAmount'], '120.00')
         self.assertEqual(duplicate.json()['enrolledCount'], 2)
         self.assertEqual(CourseProgress.objects.filter(student=self.student, course=self.course).count(), 1)
+
+    def test_inperson_enrollment_creates_accepted_subscription_at_course_price(self):
+        self.course.course_type = CourseType.IN_PERSON
+        self.course.price = '₪200'
+        self.course.save(update_fields=['course_type', 'price'])
+        cohort = InPersonCourseCohort.objects.create(
+            course=self.course,
+            number=1,
+        )
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'studentId': self.student.pk}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        registration_data = response.json()['registration']
+        self.assertEqual(registration_data['status'], CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertEqual(registration_data['coursePriceAmount'], '200.00')
+        self.assertEqual(registration_data['studentId'], str(self.student.pk))
+        self.assertEqual(registration_data['cohortId'], str(cohort.pk))
+        registration = CourseRegistrationRequest.objects.get(
+            course=self.course,
+            student=self.student,
+        )
+        self.assertEqual(registration.status, CourseRegistrationRequestStatus.ACCEPTED)
+
+        duplicate = self.client.post(
+            self.url,
+            data=json.dumps({'studentId': self.student.pk}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(duplicate.status_code, 200, duplicate.content)
+        self.assertEqual(
+            CourseRegistrationRequest.objects.filter(
+                course=self.course,
+                student=self.student,
+            ).count(),
+            1,
+        )
 
     def test_admin_enrollment_awards_referral_points_exactly_once(self):
         self.course.price = '₪100'
@@ -2062,6 +2567,7 @@ class AdminCourseStudentEnrollmentTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['invoice']['totalAmount'], '100.00')
         self.assertTrue(StudentPointTransaction.objects.filter(referral=referral, points=10).exists())
 
     def test_course_student_search_and_enrollment_require_admin_and_student_role(self):
@@ -2076,6 +2582,112 @@ class AdminCourseStudentEnrollmentTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
         self.assertFalse(CourseProgress.objects.filter(course=self.course).exists())
+
+    def test_removing_student_enrollment_does_not_affect_other_students_or_courses(self):
+        selected_progress = CourseProgress.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+        other_progress = CourseProgress.objects.create(
+            student=self.other_student,
+            course=self.course,
+        )
+        other_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة أخرى',
+            price='80.00',
+        )
+        other_course_progress = CourseProgress.objects.create(
+            student=self.student,
+            course=other_course,
+        )
+        selected_invoice = OnlineCourseInvoice.objects.create(
+            progress=selected_progress,
+            course_price='120.00',
+            total_amount='120.00',
+        )
+        OnlineCourseInvoicePayment.objects.create(
+            invoice=selected_invoice,
+            amount='20.00',
+        )
+        other_invoice = OnlineCourseInvoice.objects.create(
+            progress=other_progress,
+            course_price='120.00',
+            total_amount='120.00',
+        )
+        other_course_invoice = OnlineCourseInvoice.objects.create(
+            progress=other_course_progress,
+            course_price='80.00',
+            total_amount='80.00',
+        )
+        selected_certificate = CourseCertificate.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+        other_certificate = CourseCertificate.objects.create(
+            student=self.other_student,
+            course=self.course,
+        )
+
+        response = self.client.post(
+            reverse('dashboard:course-student-remove', args=[selected_progress.pk]),
+            data=json.dumps({}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(CourseProgress.objects.filter(pk=selected_progress.pk).exists())
+        self.assertTrue(CourseProgress.objects.filter(pk=other_progress.pk).exists())
+        self.assertTrue(CourseProgress.objects.filter(pk=other_course_progress.pk).exists())
+        self.assertFalse(OnlineCourseInvoice.objects.filter(pk=selected_invoice.pk).exists())
+        self.assertTrue(OnlineCourseInvoice.objects.filter(pk=other_invoice.pk).exists())
+        self.assertTrue(OnlineCourseInvoice.objects.filter(pk=other_course_invoice.pk).exists())
+        self.assertFalse(CourseCertificate.objects.filter(pk=selected_certificate.pk).exists())
+        self.assertTrue(CourseCertificate.objects.filter(pk=other_certificate.pk).exists())
+        self.assertEqual(response.json()['enrolledCount'], 1)
+        self.assertEqual(
+            [row['userId'] for row in response.json()['enrolled']],
+            [str(self.other_student.pk)],
+        )
+
+    def test_expired_online_enrollment_is_hidden_and_reenrollment_keeps_invoice_payments(self):
+        progress = CourseProgress.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+        progress.expires_at = timezone.now() - timedelta(seconds=1)
+        progress.save(update_fields=['expires_at'])
+        invoice = OnlineCourseInvoice.objects.create(
+            progress=progress,
+            course_price='120.00',
+            total_amount='120.00',
+        )
+        payment = OnlineCourseInvoicePayment.objects.create(
+            invoice=invoice,
+            amount='35.00',
+        )
+
+        listing = self.client.get(self.url, {'q': 'new'})
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(listing.json()['enrolled'], [])
+        self.assertEqual(
+            [row['id'] for row in listing.json()['results']],
+            [str(self.student.pk)],
+        )
+
+        renewed = self.client.post(
+            self.url,
+            data=json.dumps({'studentId': self.student.pk}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(renewed.status_code, 200, renewed.content)
+        self.assertEqual(renewed.json()['invoice']['id'], str(invoice.pk))
+        self.assertEqual(renewed.json()['invoice']['paidAmount'], '35.00')
+        self.assertTrue(
+            CourseProgress.objects.get(pk=progress.pk).expires_at > timezone.now()
+        )
+        self.assertTrue(OnlineCourseInvoicePayment.objects.filter(pk=payment.pk).exists())
 
 
 class AdminCourseActivationTests(TestCase):
@@ -2226,6 +2838,30 @@ class AdminProjectActivationTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.project.refresh_from_db()
         self.assertEqual(self.project.status, ProjectStatus.PUBLISHED)
+
+    def test_admin_panel_includes_project_comment_count_without_comment_details(self):
+        root_comment = ProjectComment.objects.create(
+            project=self.project,
+            author=self.student,
+            body='تعليق رئيسي',
+        )
+        ProjectComment.objects.create(
+            project=self.project,
+            author=self.admin,
+            body='رد',
+            parent=root_comment,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertEqual(response.status_code, 200)
+        project_data = next(
+            item for item in response.context['admin_projects_json']
+            if item['pk'] == self.project.pk
+        )
+        self.assertEqual(project_data['comments'], [])
+        self.assertEqual(project_data['commentsCount'], 1)
 
 
 class AdminStudentCertificateTests(TestCase):
@@ -3353,10 +3989,61 @@ class TrainingCategoryManagementTests(TestCase):
         self.assertEqual(profile.specialization, '')
         self.assertFalse(TrainingCategory.objects.filter(pk=category.pk).exists())
 
+    def test_category_active_status_is_saved_and_returned(self):
+        category = TrainingCategory.objects.create(name='البرمجة')
+
+        response = self.post_json({
+            'action': 'set_active',
+            'id': category.pk,
+            'active': False,
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['category']['is_active'])
+        category.refresh_from_db()
+        self.assertFalse(category.is_active)
+
+        listed = self.client.get(self.url)
+        self.assertFalse(listed.json()['categories'][0]['is_active'])
+
+    def test_inactive_category_and_courses_are_hidden_from_all_courses_listing(self):
+        active = TrainingCategory.objects.create(name='تحليل البيانات')
+        inactive = TrainingCategory.objects.create(name='التصميم', is_active=False)
+        visible_course = Course.objects.create(
+            owner=self.admin,
+            title='دورة تحليل البيانات',
+            category=active.name,
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.ONLINE,
+        )
+        hidden_course = Course.objects.create(
+            owner=self.admin,
+            title='دورة التصميم',
+            category=inactive.name,
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.ONLINE,
+        )
+
+        response = self.client.get(reverse('courses:list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['training_categories_json'], [active.name])
+        self.assertEqual(
+            [course['slug'] for course in response.context['courses_json']],
+            [visible_course.slug],
+        )
+        self.assertNotIn(
+            hidden_course.slug,
+            [course['slug'] for course in response.context['courses_json']],
+        )
+
     def test_categories_are_exposed_to_all_public_listing_filters(self):
         TrainingCategory.objects.create(name='تحليل البيانات')
+        TrainingCategory.objects.create(name='تصميم غير نشط', is_active=False)
+        FreelancerCategory.objects.create(name='تحليل البيانات')
+        FreelancerCategory.objects.create(name='تصميم غير نشط', is_active=False)
 
-        for route in ('courses:list', 'projects:list', 'accounts:list'):
+        for route in ('courses:list', 'projects:list'):
             with self.subTest(route=route):
                 response = self.client.get(reverse(route))
                 self.assertEqual(response.status_code, 200)
@@ -3364,6 +4051,93 @@ class TrainingCategoryManagementTests(TestCase):
                     response.context['training_categories_json'],
                     ['تحليل البيانات'],
                 )
+        freelancer_listing = self.client.get(reverse('accounts:list'))
+        self.assertEqual(freelancer_listing.status_code, 200)
+        self.assertEqual(
+            freelancer_listing.context['training_categories_json'],
+            ['تحليل البيانات'],
+        )
+
+
+class FreelancerCategoryManagementTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591999011',
+            password='admin-password',
+            full_name='مدير فئات المستقلين',
+            role=UserRole.ADMIN,
+        )
+        self.client.force_login(self.admin)
+        self.url = reverse('dashboard:freelancer-categories')
+
+    def post_json(self, payload):
+        return self.client.post(
+            self.url,
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def test_category_create_update_toggle_and_delete(self):
+        created = self.post_json({'action': 'create', 'name': 'تصميم'})
+        self.assertEqual(created.status_code, 200, created.content)
+        category = FreelancerCategory.objects.get(name='تصميم')
+
+        trainer = User.objects.create_user(
+            phone='0591999012',
+            password='trainer-password',
+            full_name='مدرب التصميم',
+            role=UserRole.TRAINER,
+        )
+        trainer.profile.specialization = category.name
+        trainer.profile.save(update_fields=['specialization'])
+
+        updated = self.post_json({
+            'action': 'update',
+            'id': category.pk,
+            'name': 'التصميم الرقمي',
+        })
+        self.assertEqual(updated.status_code, 200, updated.content)
+        trainer.profile.refresh_from_db()
+        self.assertEqual(trainer.profile.specialization, 'التصميم الرقمي')
+
+        deactivated = self.post_json({
+            'action': 'set_active',
+            'id': category.pk,
+            'active': False,
+        })
+        self.assertEqual(deactivated.status_code, 200, deactivated.content)
+        self.assertFalse(deactivated.json()['category']['is_active'])
+
+        deleted = self.post_json({'action': 'delete', 'id': category.pk})
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        trainer.profile.refresh_from_db()
+        self.assertEqual(trainer.profile.specialization, '')
+        self.assertFalse(FreelancerCategory.objects.filter(pk=category.pk).exists())
+
+    def test_freelancer_listing_filters_active_freelancer_categories(self):
+        active = FreelancerCategory.objects.create(name='تطوير الويب')
+        inactive = FreelancerCategory.objects.create(name='التصميم', is_active=False)
+        trainer = User.objects.create_user(
+            phone='0591999013',
+            password='trainer-password',
+            full_name='مستقل تطوير الويب',
+            role=UserRole.TRAINER,
+        )
+        trainer.profile.specialization = active.name
+        trainer.profile.save(update_fields=['specialization'])
+
+        response = self.client.get(reverse('accounts:list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(active.name, response.context['training_categories_json'])
+        self.assertNotIn(inactive.name, response.context['training_categories_json'])
+
+    def test_freelancer_category_api_requires_admin(self):
+        self.client.logout()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 401)
 
 
 class AdminDisplayOrderTests(TestCase):

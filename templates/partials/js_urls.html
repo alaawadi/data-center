@@ -53,7 +53,7 @@
       courseStatus: "{% url 'dashboard:course-status' pk='__ID__' %}",
       projectStatus: "{% url 'dashboard:project-status' pk='__ID__' %}",
       certificateStatus: "{% url 'dashboard:certificate-status' certificate_key='__ID__' %}",
-      courseStudentRemove: "{% url 'dashboard:course-student-remove' pk=0 %}",
+      courseStudentRemove: "{% url 'dashboard:course-student-remove' pk=0 %}".replace('/0/remove/', '/__ID__/remove/'),
       courseStudents: "{% url 'dashboard:course-students' pk='__ID__' %}",
       trainerCourseStudents: "{% url 'portfolio:trainer-course-students' course_slug='__ID__' %}",
       courseLessonSave: "{% url 'dashboard:course-lesson-save' %}",
@@ -64,6 +64,9 @@
       courseRegistrationRequestStatus: "{% url 'dashboard:course-registration-request-status' pk=0 %}".replace('/0/status/', '/__ID__/status/'),
       courseRegistrationRequestSetupLink: "{% url 'dashboard:course-registration-request-setup-link' pk=0 %}".replace('/0/setup-link/', '/__ID__/setup-link/'),
       courseRegistrationRequestPaidAmount: "{% url 'dashboard:course-registration-request-paid-amount' pk=0 %}".replace('/0/paid-amount/', '/__ID__/paid-amount/'),
+      onlineCourseInvoiceCreate: "{% url 'dashboard:online-course-invoice-create' %}",
+      onlineCourseInvoicePayment: "{% url 'dashboard:online-course-invoice-add-payment' pk=0 %}".replace('/0/payments/', '/__ID__/payments/'),
+      subscriptionCreate: "{% url 'dashboard:subscription-create' %}",
       workshopAttendees: "{% url 'dashboard:workshop-attendees' pk='__ID__' %}",
       workshopAttendanceStatus: "{% url 'dashboard:workshop-attendance-status' pk='__ID__' %}",
       workshopRegenerateQr: "{% url 'dashboard:workshop-regenerate-qr' pk='__ID__' %}",
@@ -72,6 +75,7 @@
       platformSettings: "{% url 'dashboard:platform-settings' %}",
       databaseBackup: "{% url 'dashboard:database-backup' %}",
       trainingCategories: "{% url 'dashboard:training-categories' %}",
+      freelancerCategories: "{% url 'dashboard:freelancer-categories' %}",
       adminDisplayOrder: "{% url 'dashboard:display-order' %}",
       login: "{% url 'users:login' %}",
       signup: "{% url 'users:signup' %}",
@@ -79,6 +83,7 @@
       authenticated: {{ user.is_authenticated|yesno:"true,false" }},
       admin: {% if user.is_authenticated and user.role == 'admin' %}true{% else %}false{% endif %},
       phoneCheck: "{% url 'users:phone-check' %}",
+      profileWhatsappCheck: "{% url 'users:profile-whatsapp-check' %}",
       profileEdit: "{% url 'users:profile-edit' %}",
       profileUpdate: "{% url 'users:profile-update' %}",
       assets: "{% static '' %}"
@@ -91,7 +96,7 @@
   {% if projects_json != "" %}{{ projects_json|json_script:"projects-data" }}{% endif %}
   {% if saved_projects_json != "" %}{{ saved_projects_json|json_script:"saved-projects-data" }}{% endif %}
   {% if posts_json != "" %}{{ posts_json|json_script:"posts-data" }}{% endif %}
-  {% if courses_json != "" %}{{ courses_json|json_script:"courses-data" }}{% endif %}
+  {% if courses_json != "" and not skip_generic_courses_json %}{{ courses_json|json_script:"courses-data" }}{% endif %}
   {% if active_courses_json != "" %}{{ active_courses_json|json_script:"active-courses-data" }}{% endif %}
   {% if my_courses_json != "" %}{{ my_courses_json|json_script:"my-courses-data" }}{% endif %}
   {% if my_certs_json != "" %}{{ my_certs_json|json_script:"my-certs-data" }}{% endif %}

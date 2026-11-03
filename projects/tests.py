@@ -3,7 +3,9 @@ import json
 from tempfile import TemporaryDirectory
 
 from django.core.files.base import ContentFile
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from users.models import User, UserRole
@@ -105,31 +107,108 @@ class ProjectVisibilityTests(TestCase):
         payload.update(overrides)
         return payload
 
-    def test_trainer_without_content_permission_cannot_create_or_publish_projects(self):
+    def test_trainer_without_content_permission_can_manage_personal_projects(self):
         self.trainer.can_publish_content = False
         self.trainer.save(update_fields=['can_publish_content'])
         self.client.force_login(self.trainer)
 
         create_response = self.client.post(
             reverse('projects:save'),
-            data=json.dumps(self._publish_payload()),
+            data=json.dumps(self._publish_payload(visibility='personal')),
+            content_type='application/json',
+        )
+        self.assertEqual(create_response.status_code, 200, create_response.content)
+        project = Project.objects.get(slug=create_response.json()['id'])
+        self.assertEqual(project.visibility, ProjectVisibility.PERSONAL)
+        self.assertEqual(self.client.get(reverse('projects:create')).status_code, 200)
+
+        update_response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps(self._publish_payload(
+                id=project.slug, visibility='personal', title='مشروعي الشخصي المعدل',
+            )),
+            content_type='application/json',
+        )
+        self.assertEqual(update_response.status_code, 200, update_response.content)
+        project.refresh_from_db()
+        self.assertEqual(project.title, 'مشروعي الشخصي المعدل')
+
+        list_response = self.client.get(reverse('projects:list'))
+        self.assertNotIn(
+            project.slug,
+            [item['id'] for item in list_response.context['projects_json']],
+        )
+        profile_response = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': self.trainer.handle})
+        )
+        self.assertIn(
+            project.slug,
+            [item['id'] for item in profile_response.context['projects_json']],
+        )
+
+        detail_response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+        self.assertEqual(detail_response.status_code, 200)
+
+    def test_trainer_without_content_permission_cannot_manage_non_personal_projects(self):
+        self.trainer.can_publish_content = False
+        self.trainer.save(update_fields=['can_publish_content'])
+        self.client.force_login(self.trainer)
+
+        create_response = self.client.post(
+            reverse('projects:save'),
+            data=json.dumps(self._publish_payload(visibility='public')),
             content_type='application/json',
         )
         self.assertEqual(create_response.status_code, 403)
         self.assertEqual(create_response.json()['error'], 'content_creation_disabled')
         self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
-        self.assertEqual(self.client.get(reverse('projects:create')).status_code, 403)
 
         draft = Project.objects.create(owner=self.trainer, title='مسودة قائمة')
+        self.assertEqual(
+            self.client.get(reverse('projects:edit', kwargs={'pk': draft.slug})).status_code,
+            403,
+        )
         publish_response = self.client.post(
             reverse('projects:save'),
-            data=json.dumps(self._publish_payload(id=draft.slug)),
+            data=json.dumps(self._publish_payload(
+                id=draft.slug, visibility='personal',
+            )),
             content_type='application/json',
         )
         self.assertEqual(publish_response.status_code, 403)
         self.assertEqual(publish_response.json()['error'], 'content_creation_disabled')
+        delete_response = self.client.post(
+            reverse('projects:delete'),
+            data=json.dumps({'id': draft.slug}),
+            content_type='application/json',
+        )
+        self.assertEqual(delete_response.status_code, 403)
         draft.refresh_from_db()
         self.assertEqual(draft.status, ProjectStatus.DRAFT)
+        self.assertEqual(draft.visibility, ProjectVisibility.PUBLIC)
+
+    def test_personal_projects_are_hidden_when_trainer_profile_is_private(self):
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع شخصي خاص',
+            status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.PERSONAL,
+        )
+        self.trainer.profile.is_public = False
+        self.trainer.profile.save(update_fields=['is_public'])
+
+        response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+        self.assertEqual(response.status_code, 404)
+
+        self.client.force_login(self.trainer)
+        owner_response = self.client.get(
+            reverse('projects:detail', kwargs={'pk': project.slug})
+        )
+        self.assertEqual(owner_response.status_code, 200)
 
     def test_publishing_rejects_missing_required_project_fields(self):
         self.client.force_login(self.trainer)
@@ -248,10 +327,15 @@ class ProjectVisibilityTests(TestCase):
             owner=self.trainer, title='دورات', status=ProjectStatus.PUBLISHED,
             visibility=ProjectVisibility.COURSES,
         )
+        Project.objects.create(
+            owner=self.trainer, title='شخصي', status=ProjectStatus.PUBLISHED,
+            visibility=ProjectVisibility.PERSONAL,
+        )
         res = self.client.get(reverse('projects:list'))
         titles = [p['title'] for p in res.context['projects_json']]
         self.assertIn('عام', titles)
         self.assertNotIn('دورات', titles)
+        self.assertNotIn('شخصي', titles)
 
     def test_projects_list_has_search_and_load_more_controls(self):
         response = self.client.get(reverse('projects:list'))
@@ -263,6 +347,35 @@ class ProjectVisibilityTests(TestCase):
         self.assertEqual(response.context['projects_count'], len(response.context['projects_json']))
         self.assertContains(response, '0+ مشروع')
         self.assertContains(response, 'class="cd-title-badge-row"')
+
+    def test_public_project_list_omits_detail_data_and_avoids_n_plus_one_queries(self):
+        for index in range(4):
+            Project.objects.create(
+                owner=self.trainer,
+                title=f'مشروع عام {index}',
+                content='محتوى تفصيلي لا يلزم في بطاقة القائمة',
+                status=ProjectStatus.PUBLISHED,
+                visibility=ProjectVisibility.PUBLIC,
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(reverse('projects:list'))
+
+        self.assertEqual(response.status_code, 200)
+        project = next(
+            item for item in response.context['projects_json']
+            if item['title'] == 'مشروع عام 0'
+        )
+        self.assertEqual(project['content'], '')
+        self.assertEqual(project['comments'], [])
+        self.assertFalse(any(
+            'FROM "projects_projectcomment"' in query['sql']
+            for query in queries
+        ))
+        self.assertLessEqual(
+            sum('FROM "users_profile"' in query['sql'] for query in queries),
+            1,
+        )
 
     def test_freelancer_profile_hides_courses_projects(self):
         Project.objects.create(

@@ -21,6 +21,16 @@ class CustomErrorPageTests(TestCase):
 
 
 class SiteVisitMiddlewareTests(TestCase):
+    def test_html_pages_are_compressed_when_the_client_accepts_gzip(self):
+        response = self.client.get('/', HTTP_ACCEPT_ENCODING='gzip')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get('Content-Encoding'), 'gzip')
+        self.assertLess(
+            int(response.get('Content-Length', len(response.content))),
+            len(response.content) * 2,
+        )
+
     def test_successful_html_page_views_are_counted(self):
         self.client.get('/')
         self.client.get('/')

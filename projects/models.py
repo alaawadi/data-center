@@ -16,6 +16,7 @@ class ProjectStatus(models.TextChoices):
 class ProjectVisibility(models.TextChoices):
     PUBLIC = 'public', 'عام'
     COURSES = 'courses', 'مخصّص للدورات'
+    PERSONAL = 'personal', 'مشروع شخصي'
 
 
 class ProjectTag(models.Model):
@@ -121,35 +122,51 @@ class Project(models.Model):
     def is_trainer_project(self):
         return self.owner.role == UserRole.TRAINER
 
-    def to_public_dict(self):
+    def to_public_dict(
+        self,
+        include_content=True,
+        include_comments=True,
+        include_comment_count=False,
+        include_attachments=True,
+    ):
         """Shape expected by the client-side card/detail rendering."""
         owner = self.owner
-        return {
+        files = self.files.all()
+        images = self.images.all() if include_attachments else ()
+        data = {
             'id': self.slug or str(self.pk),
             'pk': self.pk,
             'title': self.title,
             'slug': self.slug,
             'cover': self.cover.url if self.cover else '',
             'summary': self.summary,
-            'content': self.content,
+            'content': self.content if include_content else '',
             'category': self.category,
             'role': self.role,
             'date': self.project_date.isoformat() if self.project_date else '',
             'tags': [tag.name for tag in self.tags.all()],
             'links': {'github': self.github_url, 'demo': self.demo_url},
-            'files': [
-                {
-                    'id': f.pk,
-                    'name': f.display_name,
-                    'size': f.size,
-                    'url': reverse('projects:file-download', args=[f.pk]),
-                    'dataUrl': reverse('projects:file-download', args=[f.pk]),
-                    'downloadUrl': reverse('projects:file-download', args=[f.pk]),
-                    'downloads': f.downloads,
-                }
-                for f in self.files.all()
-            ],
-            'gallery': [img.image.url for img in self.images.all() if img.image],
+            'files': (
+                [
+                    {
+                        'id': project_file.pk,
+                        'name': project_file.display_name,
+                        'size': project_file.size,
+                        'url': reverse('projects:file-download', args=[project_file.pk]),
+                        'dataUrl': reverse('projects:file-download', args=[project_file.pk]),
+                        'downloadUrl': reverse('projects:file-download', args=[project_file.pk]),
+                        'downloads': project_file.downloads,
+                    }
+                    for project_file in files
+                ]
+                if include_attachments
+                else []
+            ),
+            'gallery': (
+                [image.image.url for image in images if image.image]
+                if include_attachments
+                else []
+            ),
             'views': self.views,
             'likes': self.likes,
             'status': self.status,
@@ -163,11 +180,35 @@ class Project(models.Model):
             },
             'createdAt': self.created_at.isoformat(),
             'updatedAt': self.updated_at.isoformat(),
-            'comments': [
-                c.to_public_dict()
-                for c in self.comments.filter(parent__isnull=True).select_related('author')
-            ],
+            'comments': (
+                [
+                    comment.to_public_dict()
+                    for comment in (
+                        getattr(self, 'admin_root_comments', None)
+                        if hasattr(self, 'admin_root_comments')
+                        else getattr(self, 'public_root_comments', None)
+                        if hasattr(self, 'public_root_comments')
+                        else self.comments.filter(parent__isnull=True).select_related('author')
+                    )
+                ]
+                if include_comments
+                else []
+            ),
         }
+        if not include_attachments:
+            data['fileCount'] = len(files)
+        if include_comment_count:
+            root_comments = getattr(self, 'admin_root_comments', None)
+            if root_comments is None:
+                root_comments = getattr(self, 'public_root_comments', None)
+            data['commentsCount'] = (
+                len(root_comments)
+                if root_comments is not None
+                else getattr(self, 'root_comment_count', None)
+            )
+            if data['commentsCount'] is None:
+                data['commentsCount'] = self.comments.filter(parent__isnull=True).count()
+        return data
 
 
 class ProjectInteraction(models.Model):

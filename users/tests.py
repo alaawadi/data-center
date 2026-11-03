@@ -1,4 +1,5 @@
 import hashlib
+import json
 from datetime import timedelta
 
 from django.contrib.auth.hashers import make_password
@@ -8,9 +9,12 @@ from django.core.cache import cache
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
-from .forms import ProfileEditForm
+from .forms import COUNTRY_CALLING_CODES, COUNTRY_CALLING_CODE_CHOICES, ProfileEditForm
 from .models import (
+    DEFAULT_STUDENT_CATEGORY_NAME,
     DeviceSession,
+    FreelancerCategory,
+    FreelancerCategory,
     LoginAttempt,
     Profile,
     SignupVerification,
@@ -37,8 +41,9 @@ class UserPhoneValidationTests(TestCase):
         phone_field = User._meta.get_field('phone')
         self.assertEqual(phone_field.clean('0591234567', None), '0591234567')
         self.assertEqual(phone_field.clean('1234567890', None), '1234567890')
+        self.assertEqual(phone_field.clean('+12025550123', None), '+12025550123')
 
-        for phone in ('123456789', '12345678901', '12345abc90'):
+        for phone in ('123456789', '12345678901', '12345abc90', '+02025550123'):
             with self.subTest(phone=phone):
                 with self.assertRaises(ValidationError):
                     phone_field.clean(phone, None)
@@ -57,6 +62,19 @@ class LoginSecurityTests(TestCase):
 
     def _post(self, phone=PHONE, password=PASSWORD, client=None):
         return (client or self.client).post(self.url, {'username': phone, 'password': password})
+
+    def test_login_page_includes_country_code_picker(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="loginCountryCodePicker"')
+        self.assertContains(response, 'id="liCountryCode"')
+        self.assertContains(response, 'id="liPhoneValue"')
+        self.assertContains(response, 'class="country-code-search"')
+        self.assertContains(response, '🇵🇸 +970')
+        self.assertGreater(
+            len(response.context['form'].fields['country_code'].choices), 200
+        )
 
     def test_successful_login_registers_device(self):
         response = self._post()
@@ -81,7 +99,72 @@ class LoginSecurityTests(TestCase):
 
         self.assertRedirects(
             response,
-            reverse('accounts:profile', kwargs={'handle': self.user.handle}),
+            reverse('portfolio:home'),
+            fetch_redirect_response=False,
+        )
+
+    def test_existing_palestinian_account_can_log_in_with_international_prefix(self):
+        response = self._post(phone='+970' + self.user.phone[1:])
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self.assertEqual(response.wsgi_request.user.pk, self.user.pk)
+
+    def test_existing_palestinian_account_can_log_in_with_alternate_international_prefix(self):
+        response = self._post(phone='+972' + self.user.phone[1:])
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self.assertEqual(response.wsgi_request.user.pk, self.user.pk)
+
+    def test_plus_970_account_can_log_in_with_plus_972_prefix(self):
+        user = User.objects.create_user(
+            phone='+970591000043',
+            password=PASSWORD,
+            full_name='طالب برقم دولي',
+        )
+
+        response = self._post(phone='+972591000043')
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self.assertEqual(response.wsgi_request.user.pk, user.pk)
+
+    def test_plus_972_account_can_log_in_with_plus_970_prefix(self):
+        user = User.objects.create_user(
+            phone='+972591000044',
+            password=PASSWORD,
+            full_name='طالب برقم بديل',
+        )
+
+        response = self._post(phone='+970591000044')
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.wsgi_request.user.is_authenticated)
+        self.assertEqual(response.wsgi_request.user.pk, user.pk)
+
+    def test_local_and_international_numbers_share_login_lockout(self):
+        international_phone = '+970' + self.user.phone[1:]
+        for _ in range(4):
+            self._post(password='wrong')
+        self._post(phone=international_phone, password='wrong')
+
+        self.assertEqual(LoginAttempt.objects.filter(phone=PHONE).count(), 5)
+        self.assertEqual(self._post().status_code, 429)
+
+    def test_trainer_login_redirects_to_personal_profile(self):
+        trainer = User.objects.create_user(
+            phone='0591000015',
+            password=PASSWORD,
+            full_name='مدرب تجربة',
+            role=UserRole.TRAINER,
+        )
+
+        response = self._post(phone=trainer.phone)
+
+        self.assertRedirects(
+            response,
+            reverse('portfolio:home'),
             fetch_redirect_response=False,
         )
 
@@ -156,6 +239,11 @@ class LoginSecurityTests(TestCase):
         self._post()
         response = self.client.post(reverse('users:logout'))
         self.assertEqual(response.status_code, 302)
+        self.assertRedirects(
+            response,
+            reverse('users:login'),
+            fetch_redirect_response=False,
+        )
         self.assertEqual(DeviceSession.objects.filter(user=self.user).count(), 0)
 
     def test_failed_attempts_are_recorded(self):
@@ -181,7 +269,9 @@ class LoginSecurityTests(TestCase):
             self._post(password='wrong')
         self.assertEqual(LoginAttempt.objects.filter(phone=PHONE).count(), 4)
 
-        self.assertEqual(self._post().status_code, 302)
+        self.assertEqual(
+            self._post(phone='+970' + self.user.phone[1:]).status_code, 302
+        )
         self.assertEqual(LoginAttempt.objects.filter(phone=PHONE).count(), 0)
 
     def test_failed_login_does_not_authenticate(self):
@@ -226,6 +316,31 @@ class PhoneCheckTests(TestCase):
 
     def test_invalid_number_rejected(self):
         self.assertEqual(self.client.get(self.url, {'phone': '123'}).status_code, 400)
+
+    def test_international_number_is_checked_against_legacy_local_number(self):
+        User.objects.create(phone='0591000021')
+
+        response = self.client.get(self.url, {'phone': '+970591000021'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['available'])
+
+    def test_equivalent_palestinian_international_prefixes_are_unavailable(self):
+        User.objects.create(phone='+970591000022')
+
+        plus_972_response = self.client.get(
+            self.url, {'phone': '+972591000022'}
+        )
+        self.assertEqual(plus_972_response.status_code, 200)
+        self.assertFalse(plus_972_response.json()['available'])
+
+        User.objects.create(phone='+972591000023')
+
+        plus_970_response = self.client.get(
+            self.url, {'phone': '+970591000023'}
+        )
+        self.assertEqual(plus_970_response.status_code, 200)
+        self.assertFalse(plus_970_response.json()['available'])
 
     def test_rate_limited(self):
         for _ in range(30):
@@ -277,6 +392,22 @@ class SignupStepOneTests(TestCase):
             'email': f'user{number}@example.com',
         }
 
+    def test_signup_page_includes_all_country_calling_codes(self):
+        response = self.client.get(self.url)
+        choices = COUNTRY_CALLING_CODE_CHOICES
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="suCountryCode"')
+        self.assertContains(response, 'class="country-code-search"')
+        self.assertContains(response, 'ابحث برقم مقدمة الدولة')
+        self.assertContains(response, '🇺🇸 +1')
+        self.assertContains(response, '🇵🇸 +970')
+        self.assertEqual(len(choices), len(COUNTRY_CALLING_CODES))
+        for _, label in choices:
+            with self.subTest(label=label):
+                self.assertTrue(all(0x1F1E6 <= ord(letter) <= 0x1F1FF for letter in label[:2]))
+        self.assertGreater(len(response.context['form'].fields['country_code'].choices), 200)
+
     def test_only_three_accounts_can_be_created_per_ip_in_rolling_24_hours(self):
         for number in range(41, 44):
             response = self.client.post(self.url, self._signup_data(number))
@@ -313,6 +444,14 @@ class SignupStepOneTests(TestCase):
         self.assertEqual(user.email, SIGNUP_DATA['email'])
         self.assertEqual(user.full_name, SIGNUP_DATA['full_name'])
         self.assertEqual(user.role, UserRole.STUDENT)
+        self.assertEqual(
+            user.profile.specialization, DEFAULT_STUDENT_CATEGORY_NAME
+        )
+        self.assertTrue(
+            FreelancerCategory.objects.filter(
+                name=DEFAULT_STUDENT_CATEGORY_NAME, is_active=True
+            ).exists()
+        )
         self.assertTrue(user.is_active)
         self.assertTrue(user.check_password(SIGNUP_DATA['password1']))
         self.assertEqual(len(mail.outbox), 0)
@@ -327,6 +466,74 @@ class SignupStepOneTests(TestCase):
         self.assertTrue(login_response.wsgi_request.user.is_authenticated)
         self.assertEqual(login_response.wsgi_request.user.pk, user.pk)
         self.assertEqual(DeviceSession.objects.filter(user=user).count(), 1)
+
+    def test_signup_accepts_international_country_prefix_and_phone_login(self):
+        response = self.client.post(self.url, {
+            **SIGNUP_DATA,
+            'country_code': '+1',
+            'phone': '2025550198',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        user = User.objects.get(phone='+12025550198')
+        login_response = self.client.post(reverse('users:login'), {
+            'username': user.phone,
+            'password': SIGNUP_DATA['password1'],
+        })
+        self.assertEqual(login_response.status_code, 302)
+        self.assertEqual(login_response.wsgi_request.user.pk, user.pk)
+
+    def test_signup_stores_selected_palestinian_prefix_with_national_number(self):
+        response = self.client.post(self.url, {
+            **SIGNUP_DATA,
+            'country_code': '+970',
+            'phone': '0591000042',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(User.objects.filter(phone='+970591000042').exists())
+
+    def test_signup_accepts_nine_digit_local_phone_with_country_code(self):
+        response = self.client.post(self.url, {
+            **SIGNUP_DATA,
+            'country_code': '+970',
+            'phone': '591000042',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(User.objects.filter(phone='+970591000042').exists())
+
+    def test_signup_with_palestinian_prefix_rejects_existing_legacy_number(self):
+        User.objects.create(phone='0591000040')
+
+        response = self.client.post(self.url, {
+            **SIGNUP_DATA,
+            'country_code': '+970',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['form'].has_error('phone'))
+
+    def test_signup_rejects_equivalent_palestinian_international_prefixes(self):
+        cases = (
+            ('+970591000045', '+972', '591000045'),
+            ('+972591000046', '+970', '591000046'),
+        )
+        for existing_phone, submitted_prefix, submitted_phone in cases:
+            with self.subTest(existing_phone=existing_phone):
+                User.objects.create(phone=existing_phone)
+
+                response = self.client.post(self.url, {
+                    **SIGNUP_DATA,
+                    'country_code': submitted_prefix,
+                    'phone': submitted_phone,
+                })
+
+                self.assertEqual(response.status_code, 200)
+                self.assertTrue(response.context['form'].has_error('phone'))
+                self.assertFalse(
+                    User.objects.filter(phone='+' + submitted_prefix[1:] + submitted_phone).exists()
+                )
 
     def test_signup_preserves_password_whitespace_for_login(self):
         password = ' Sup3r$ecret1 '
@@ -394,6 +601,80 @@ class SignupStepOneTests(TestCase):
 
 
 class ProfileVerificationTests(TestCase):
+    def test_profile_whatsapp_check_detects_other_user_across_palestinian_prefixes(self):
+        current_user = User.objects.create_user(
+            phone='0591000065',
+            password='pass1234',
+            full_name='المستخدم الحالي',
+            role=UserRole.STUDENT,
+        )
+        User.objects.create_user(
+            phone='+972599999997',
+            password='pass1234',
+            full_name='مستخدم آخر',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(current_user)
+
+        response = self.client.get(
+            reverse('users:profile-whatsapp-check'),
+            {'phone': '+970599999997'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['available'])
+        self.assertTrue(response.json()['belongsToAnotherUser'])
+
+    def test_profile_whatsapp_check_allows_current_users_own_phone(self):
+        user = User.objects.create_user(
+            phone='+972599999996',
+            password='pass1234',
+            full_name='صاحب الرقم',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(user)
+
+        response = self.client.get(
+            reverse('users:profile-whatsapp-check'),
+            {'phone': '+970599999996'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['available'])
+        self.assertFalse(response.json()['belongsToAnotherUser'])
+
+    def test_profile_update_rejects_whatsapp_owned_by_another_user(self):
+        user = User.objects.create_user(
+            phone='0591000064',
+            password='pass1234',
+            full_name='مستخدم تجربة',
+            role=UserRole.STUDENT,
+        )
+        User.objects.create_user(
+            phone='+970599999995',
+            password='pass1234',
+            full_name='مستخدم آخر',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(user)
+        original_whatsapp = user.profile.whatsapp
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'profile_form': '1',
+            'full_name': user.full_name,
+            'full_name_ar': '',
+            'full_name_en': '',
+            'whatsapp': '+972599999995',
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()['error'],
+            'whatsapp_belongs_to_another_user',
+        )
+        user.profile.refresh_from_db()
+        self.assertEqual(user.profile.whatsapp, original_whatsapp)
+
     def test_profile_update_accepts_only_supported_whatsapp_formats_and_letter_names(self):
         user = User.objects.create_user(
             phone='0591000067',
@@ -416,15 +697,29 @@ class ProfileVerificationTests(TestCase):
             '+970599999999',
             '972599999999',
             '970599999999',
+            '+12025550198',
         ):
             response = self.client.post(url, {**base_data, 'whatsapp': whatsapp})
             self.assertEqual(response.status_code, 200, whatsapp)
             self.assertEqual(response.json()['profile']['whatsapp'], whatsapp)
+            self.assertIn('profile_setup', response.json())
+            self.assertEqual(response.json()['profile_setup']['percent'], 20)
+
+        for whatsapp, normalized in (
+            ('+9720599999999', '+972599999999'),
+            ('+9700599999999', '+970599999999'),
+            ('9720599999999', '972599999999'),
+            ('9700599999999', '970599999999'),
+        ):
+            response = self.client.post(url, {**base_data, 'whatsapp': whatsapp})
+            self.assertEqual(response.status_code, 200, whatsapp)
+            self.assertEqual(response.json()['profile']['whatsapp'], normalized)
 
         for whatsapp in (
             '+97259999999',
+            '+972059999999',
             '9725999999999',
-            '+971599999999',
+            '+02025550198',
             '0599999999',
         ):
             response = self.client.post(url, {**base_data, 'whatsapp': whatsapp})
@@ -440,12 +735,35 @@ class ProfileVerificationTests(TestCase):
             self.assertEqual(response.status_code, 400, name)
             self.assertEqual(response.json()['error'], 'invalid_name')
 
-    def test_profile_modal_requires_valid_email_and_whatsapp_for_students_and_trainers(self):
+    def test_profile_modal_saves_international_whatsapp_number(self):
+        user = User.objects.create_user(
+            phone='0591000066',
+            password='pass1234',
+            full_name='مستخدم تجربة',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'profile_form': '1',
+            'full_name': user.full_name,
+            'full_name_ar': '',
+            'full_name_en': '',
+            'whatsapp': '+12025550198',
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        user.profile.refresh_from_db()
+        self.assertEqual(user.profile.whatsapp, '+12025550198')
+        self.assertEqual(response.json()['profile']['whatsapp'], '+12025550198')
+
+    def test_profile_modal_keeps_account_email_unchanged_for_trainers_and_students(self):
         for index, role in enumerate((UserRole.STUDENT, UserRole.TRAINER), start=1):
             user = User.objects.create_user(
                 phone=f'059100006{index}',
                 password='pass1234',
                 full_name='مستخدم تجربة',
+                email=f'before-{index}@example.com',
                 role=role,
             )
             self.client.force_login(user)
@@ -453,7 +771,6 @@ class ProfileVerificationTests(TestCase):
             common_data = {
                 'profile_form': '1',
                 'full_name': user.full_name,
-                'email': 'valid@example.com',
             }
             if role == UserRole.STUDENT:
                 common_data.update({'full_name_ar': '', 'full_name_en': ''})
@@ -463,22 +780,6 @@ class ProfileVerificationTests(TestCase):
             missing_whatsapp = self.client.post(url, common_data)
             self.assertEqual(missing_whatsapp.status_code, 400)
             self.assertEqual(missing_whatsapp.json()['error'], 'required_whatsapp')
-
-            missing_email = self.client.post(url, {
-                **common_data,
-                'email': '',
-                'whatsapp': '+970599999999',
-            })
-            self.assertEqual(missing_email.status_code, 400)
-            self.assertEqual(missing_email.json()['error'], 'invalid_email')
-
-            invalid_email = self.client.post(url, {
-                **common_data,
-                'email': 'not-an-email',
-                'whatsapp': '+970599999999',
-            })
-            self.assertEqual(invalid_email.status_code, 400)
-            self.assertEqual(invalid_email.json()['error'], 'invalid_email')
 
             invalid_whatsapp = self.client.post(url, {
                 **common_data,
@@ -490,11 +791,164 @@ class ProfileVerificationTests(TestCase):
             valid_update = self.client.post(url, {
                 **common_data,
                 'whatsapp': '+970599999999',
+                'email': 'changed@example.com',
             })
             self.assertEqual(valid_update.status_code, 200, valid_update.content)
             user.refresh_from_db()
-            self.assertEqual(user.email, 'valid@example.com')
+            self.assertEqual(user.email, f'before-{index}@example.com')
             self.assertEqual(user.profile.whatsapp, '+970599999999')
+
+    def test_trainer_profile_modal_saves_social_accounts(self):
+        trainer = User.objects.create_user(
+            phone='0591000071',
+            password='pass1234',
+            full_name='مدرب تجربة',
+            email='trainer@example.com',
+            role=UserRole.TRAINER,
+        )
+        trainer.profile.website = 'https://trainer.example'
+        trainer.profile.save(update_fields=['website'])
+        self.client.force_login(trainer)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'profile_form': '1',
+            'full_name': trainer.full_name,
+            'trainer_name_en': '',
+            'headline': '',
+            'whatsapp': '+970599999999',
+            'email': 'changed@example.com',
+            'website': 'https://changed.example',
+            'social_links': json.dumps([
+                {'platform': 'linkedin', 'url': 'https://linkedin.com/in/trainer'},
+                {'platform': 'instagram', 'url': 'https://instagram.com/trainer'},
+                {'platform': 'whatsapp', 'url': 'https://wa.me/970599999999'},
+            ]),
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        trainer.refresh_from_db()
+        self.assertEqual(trainer.email, 'trainer@example.com')
+        self.assertEqual(trainer.profile.website, 'https://trainer.example')
+        self.assertEqual(
+            list(trainer.profile.social_links.order_by('platform').values_list(
+                'platform', 'url'
+            )),
+            [
+                ('instagram', 'https://instagram.com/trainer'),
+                ('linkedin', 'https://linkedin.com/in/trainer'),
+                ('whatsapp', 'https://wa.me/970599999999'),
+            ],
+        )
+        self.assertIn(
+            {
+                'platform': 'واتساب',
+                'platform_key': 'whatsapp',
+                'url': 'https://wa.me/970599999999',
+            },
+            response.json()['profile']['social_links'],
+        )
+
+    def test_student_profile_modal_saves_specialization_and_multiple_social_links_without_email(self):
+        student = User.objects.create_user(
+            phone='0591000068',
+            password='pass1234',
+            full_name='طالب تجربة',
+            email='keep@example.com',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(student)
+        category = FreelancerCategory.objects.create(name='البرمجة')
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'profile_form': '1',
+            'full_name': student.full_name,
+            'full_name_ar': '',
+            'full_name_en': '',
+            'headline': category.name,
+            'student_specialization': 'هندسة برمجيات',
+            'whatsapp': '+970599999999',
+            'social_links': json.dumps([
+                {'platform': 'github', 'url': 'https://github.com/student'},
+                {'platform': 'linkedin', 'url': 'https://linkedin.com/in/student'},
+            ]),
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        student.refresh_from_db()
+        self.assertEqual(student.email, 'keep@example.com')
+        self.assertEqual(student.profile.headline, category.name)
+        self.assertEqual(student.profile.specialization, category.name)
+        self.assertEqual(student.profile.student_specialization, 'هندسة برمجيات')
+        self.assertEqual(response.json()['profile']['headline'], category.name)
+        self.assertEqual(response.json()['profile']['specialization'], category.name)
+        self.assertEqual(
+            list(student.profile.social_links.order_by('platform').values_list(
+                'platform', 'url'
+            )),
+            [
+                ('github', 'https://github.com/student'),
+                ('linkedin', 'https://linkedin.com/in/student'),
+            ],
+        )
+        self.assertEqual(
+            {item['platform_key'] for item in response.json()['profile']['social_links']},
+            {'github', 'linkedin'},
+        )
+
+    def test_student_profile_modal_rejects_long_specialization_and_invalid_social_links(self):
+        student = User.objects.create_user(
+            phone='0591000069',
+            password='pass1234',
+            full_name='طالب تجربة',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(student)
+        base_data = {
+            'profile_form': '1',
+            'full_name': student.full_name,
+            'full_name_ar': '',
+            'full_name_en': '',
+            'whatsapp': '+970599999999',
+            'student_specialization': 'س' * 31,
+            'social_links': '[]',
+        }
+
+        response = self.client.post(reverse('users:profile-update'), base_data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_specialization')
+
+        response = self.client.post(reverse('users:profile-update'), {
+            **base_data,
+            'student_specialization': 'برمجة',
+            'social_links': json.dumps([
+                {'platform': 'github', 'url': 'not-a-url'},
+            ]),
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_social_links')
+
+    def test_student_profile_edit_page_uses_specialization_and_social_links_instead_of_email_website(self):
+        student = User.objects.create_user(
+            phone='0591000070',
+            password='pass1234',
+            full_name='طالب تجربة',
+            email='student@example.com',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(student)
+
+        response = self.client.get(reverse('users:profile-edit'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('email', response.context['form'].fields)
+        self.assertNotIn('website', response.context['form'].fields)
+        self.assertContains(response, 'id="id_student_specialization"')
+        self.assertContains(response, 'maxlength="30"')
+        self.assertContains(response, 'id="add-social-link-btn"')
+        self.assertNotContains(response, 'id="id_email"')
+        self.assertNotContains(response, 'id="id_website"')
 
     def test_profile_update_does_not_allow_student_to_set_verified_badge(self):
         student = User.objects.create_user(
@@ -653,29 +1107,160 @@ class LegalCertificateNameTests(TestCase):
         self.assertTrue(form.fields['full_name_ar'].disabled)
         self.assertTrue(form.fields['full_name_en'].disabled)
 
+    def test_professional_title_only_accepts_active_freelancer_categories(self):
+        category = FreelancerCategory.objects.create(name='تصميم واجهات')
+        inactive_category = FreelancerCategory.objects.create(
+            name='تحليل بيانات', is_active=False
+        )
+        profile, _ = Profile.objects.get_or_create(user=self.user)
+
+        valid_form = ProfileEditForm(
+            data={
+                'headline': category.name,
+                'gender': 'unspecified',
+                'skills_count': '1',
+                'skill_1': '',
+            },
+            instance=profile,
+        )
+        self.assertTrue(valid_form.is_valid(), valid_form.errors)
+        valid_form.save()
+        profile.refresh_from_db()
+        self.assertEqual(profile.headline, category.name)
+        self.assertEqual(profile.specialization, category.name)
+
+        for invalid_title in (inactive_category.name, 'مسمى غير مسجل'):
+            with self.subTest(invalid_title=invalid_title):
+                invalid_form = ProfileEditForm(
+                    data={
+                        'headline': invalid_title,
+                        'gender': 'unspecified',
+                        'skills_count': '1',
+                        'skill_1': '',
+                    },
+                    instance=profile,
+                )
+                self.assertFalse(invalid_form.is_valid())
+                self.assertIn('headline', invalid_form.errors)
+
+    def test_profile_category_updates_freelancer_listing_and_admin_counts(self):
+        category = FreelancerCategory.objects.create(name='تصميم واجهات')
+        profile, _ = Profile.objects.get_or_create(user=self.user)
+        self.client.force_login(self.user)
+
+        saved = self.client.post(reverse('users:profile-edit'), {
+            'full_name': self.user.full_name,
+            'email': self.user.email,
+            'headline': category.name,
+            'student_specialization': 'هندسة برمجيات',
+            'gender': 'unspecified',
+            'is_public': 'on',
+            'skills_count': '1',
+            'skill_1': '',
+            'socials-TOTAL_FORMS': '2',
+            'socials-INITIAL_FORMS': '0',
+            'socials-MIN_NUM_FORMS': '0',
+            'socials-MAX_NUM_FORMS': '1000',
+        })
+
+        self.assertEqual(saved.status_code, 302)
+        profile.refresh_from_db()
+        self.assertEqual(profile.headline, category.name)
+        self.assertEqual(profile.specialization, category.name)
+        self.assertEqual(profile.student_specialization, 'هندسة برمجيات')
+
+        listing = self.client.get(reverse('accounts:list'))
+        self.assertEqual(listing.status_code, 200)
+        self.assertIn(category.name, listing.context['training_categories_json'])
+        listed_profile = next(
+            item for item in listing.context['profiles_json']
+            if item['handle'] == self.user.handle
+        )
+        self.assertEqual(listed_profile['title'], category.name)
+        self.assertEqual(listed_profile['specialization'], category.name)
+
+        trainer = User.objects.create_user(
+            phone='0591000057',
+            password='trainer-pass',
+            full_name='مدرب تجربة',
+            role=UserRole.TRAINER,
+        )
+        self.client.force_login(trainer)
+        trainer_saved = self.client.post(reverse('users:profile-edit'), {
+            'full_name': trainer.full_name,
+            'email': trainer.email,
+            'headline': category.name,
+            'gender': 'unspecified',
+            'is_public': 'on',
+            'skills_count': '1',
+            'skill_1': '',
+            'socials-TOTAL_FORMS': '2',
+            'socials-INITIAL_FORMS': '0',
+            'socials-MIN_NUM_FORMS': '0',
+            'socials-MAX_NUM_FORMS': '1000',
+            'socials-0-platform': 'linkedin',
+            'socials-0-url': 'https://linkedin.com/in/trainer',
+        })
+        self.assertEqual(trainer_saved.status_code, 302)
+        self.assertEqual(
+            list(trainer.profile.social_links.values_list('platform', 'url')),
+            [('linkedin', 'https://linkedin.com/in/trainer')],
+        )
+
+        admin = User.objects.create_user(
+            phone='0591000056',
+            password='admin-pass',
+            full_name='مدير الفئات',
+            role=UserRole.ADMIN,
+        )
+        self.client.force_login(admin)
+        counts = self.client.get(reverse('dashboard:freelancer-categories'))
+        category_data = next(
+            item for item in counts.json()['categories']
+            if item['id'] == category.pk
+        )
+        self.assertEqual(category_data['students'], 1)
+        self.assertEqual(category_data['trainers'], 1)
+
     def test_trainer_profile_explains_english_certificate_name(self):
+        category = FreelancerCategory.objects.create(name='تطوير الويب')
         trainer = User.objects.create_user(
             phone='0591000053',
             password='pass1234',
             full_name='مدرب تجربة',
+            email='trainer@example.com',
             full_name_ar='مدرب تجربة أول',
             full_name_en='Trainer Example Name',
             role=UserRole.TRAINER,
         )
         profile, _ = Profile.objects.get_or_create(user=trainer)
+        profile.website = 'https://trainer.example'
+        profile.save(update_fields=['website'])
 
         form = ProfileEditForm(instance=profile)
 
         self.assertNotIn('full_name_ar', form.fields)
         self.assertNotIn('full_name_en', form.fields)
+        self.assertNotIn('email', form.fields)
+        self.assertNotIn('website', form.fields)
         self.assertIn('بالإنجليزية', form.fields['trainer_name_en'].label)
         self.assertIn('شهادات دوراتك', form.fields['trainer_name_en'].help_text)
         self.assertEqual(form.fields['trainer_name_en'].initial, 'Trainer Example Name')
+        self.assertIn('data-freelancer-category-combobox', form.fields['headline'].widget.attrs)
 
         self.client.force_login(trainer)
         response = self.client.get(reverse('users:profile-edit'))
         self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            category.name, response.context['freelancer_category_options']
+        )
+        self.assertContains(response, 'id="freelancer-category-options"')
         self.assertContains(response, 'id="id_trainer_name_en"')
+        self.assertContains(response, 'حسابات التواصل الاجتماعي')
+        self.assertContains(response, 'id="add-social-link-btn"')
+        self.assertContains(response, 'value="whatsapp"')
+        self.assertNotContains(response, 'id="id_email"')
+        self.assertNotContains(response, 'id="id_website"')
         self.assertNotContains(response, 'id="id_full_name_ar"')
         self.assertNotContains(response, 'id="id_full_name_en"')
 
@@ -693,6 +1278,8 @@ class LegalCertificateNameTests(TestCase):
         form.save()
         trainer.refresh_from_db()
         self.assertEqual(trainer.trainer_name_en, 'Jordan Doe')
+        self.assertEqual(trainer.email, 'trainer@example.com')
+        self.assertEqual(trainer.profile.website, 'https://trainer.example')
         self.assertEqual(trainer.full_name_ar, 'مدرب تجربة أول')
         self.assertEqual(trainer.full_name_en, 'Trainer Example Name')
 
@@ -798,12 +1385,13 @@ class AdminProfileEditingTests(TestCase):
 
     def test_admin_profile_modal_endpoint_updates_target_profile(self):
         self.client.force_login(self.admin)
+        category = FreelancerCategory.objects.create(name='البرمجة')
 
         response = self.client.post(reverse('users:profile-update'), {
             'target_user_id': str(self.trainer.pk),
             'full_name': 'اسم المدرب المعدل',
             'trainer_name_en': 'Trainer Example',
-            'headline': 'مدرب برمجة',
+            'headline': category.name,
             'bio': 'نبذة جديدة',
             'email': 'trainer@example.com',
             'website': 'https://example.com',
@@ -815,12 +1403,30 @@ class AdminProfileEditingTests(TestCase):
         self.profile.refresh_from_db()
         self.assertEqual(self.trainer.full_name, 'اسم المدرب المعدل')
         self.assertEqual(self.trainer.trainer_name_en, 'Trainer Example')
-        self.assertEqual(self.profile.headline, 'مدرب برمجة')
+        self.assertEqual(self.profile.headline, category.name)
+        self.assertEqual(self.profile.specialization, category.name)
         self.assertEqual(self.profile.bio, 'نبذة جديدة')
         self.assertEqual(
             list(self.profile.profile_skills.values_list('skill__name', flat=True)),
             ['برمجة'],
         )
+
+    def test_profile_modal_rejects_inactive_professional_category(self):
+        inactive_category = FreelancerCategory.objects.create(
+            name='تصميم قديم', is_active=False
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(reverse('users:profile-update'), {
+            'target_user_id': str(self.trainer.pk),
+            'headline': inactive_category.name,
+        })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_headline')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.headline, '')
+        self.assertEqual(self.profile.specialization, '')
 
     def test_admin_can_change_student_legal_names_multiple_times(self):
         student = User.objects.create_user(
@@ -873,10 +1479,15 @@ class AdminProfileEditingTests(TestCase):
         self.client.force_login(self.admin)
         admin_response = self.client.get(profile_url)
         self.assertIn('adminTargetUserId', admin_response.context['profile_json'])
+        self.assertEqual(
+            admin_response.context['profile_json']['accountPhone'],
+            self.trainer.phone,
+        )
 
         self.client.force_login(self.trainer)
         owner_response = self.client.get(profile_url)
         self.assertNotIn('adminTargetUserId', owner_response.context['profile_json'])
+        self.assertNotIn('accountPhone', owner_response.context['profile_json'])
 
 
 class StudentSetupLinkTests(TestCase):

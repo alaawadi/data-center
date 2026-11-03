@@ -18,6 +18,7 @@
     'map-pin': '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
     'external-link': '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+    'log-out': '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
     github: '<path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.401 5.401 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/>',
     globe: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
@@ -91,6 +92,60 @@
     return '<svg class="ic ic-fill" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
   }
 
+  function socialPlatformLogo(platform) {
+    var logos = {
+      website: icon('globe', 16),
+      facebook: '<span class="social-platform-letter">f</span>',
+      linkedin: '<span class="social-platform-letter social-platform-letter-wide">in</span>',
+      github: icon('github', 16),
+      behance: '<span class="social-platform-letter social-platform-letter-wide">Bē</span>',
+      x: '<span class="social-platform-letter">X</span>',
+      instagram: icon('instagram', 16),
+      youtube: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="m10 9 5 3-5 3z" fill="#fff"/></svg>',
+      telegram: '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.7 3.3 18.5 20c-.2 1.2-.9 1.5-1.8.9l-5-3.7-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.3-8.4c.4-.4-.1-.6-.6-.3L6 13.4l-5-1.6c-1.1-.3-1.1-1.1.2-1.6L20.7 2c.9-.3 1.7.2 1 1.3z"/></svg>',
+      whatsapp: icon('whatsapp', 16),
+      other: icon('globe', 16)
+    };
+    var key = Object.prototype.hasOwnProperty.call(logos, platform) ? platform : 'other';
+    return '<span class="social-platform-logo social-platform-logo--' + key + '" aria-hidden="true">' + logos[key] + '</span>';
+  }
+
+  function socialLinksHTML(links) {
+    var labels = {
+      facebook: 'فيسبوك',
+      linkedin: 'لينكدإن',
+      github: 'GitHub',
+      behance: 'Behance',
+      x: 'X',
+      instagram: 'إنستغرام',
+      youtube: 'يوتيوب',
+      telegram: 'تيليجرام',
+      whatsapp: 'واتساب',
+      other: 'رابط تواصل'
+    };
+    var entries = Array.isArray(links)
+      ? links
+      : Object.keys(links || {}).map(function (platform) {
+        return { platform_key: platform, url: links[platform] };
+      });
+    var seen = {};
+    var anchors = entries.map(function (link) {
+      if (!link || typeof link !== 'object') return '';
+      var platform = link.platform_key || link.platform;
+      var url = String(link.url || '').trim();
+      if (!Object.prototype.hasOwnProperty.call(labels, platform) ||
+          !/^https?:\/\/[^\s]+$/i.test(url) || seen[platform]) return '';
+      seen[platform] = true;
+      return '<a class="profile-social-link" href="' + esc(url) +
+        '" target="_blank" rel="noopener noreferrer" aria-label="' + esc(labels[platform]) +
+        '" title="' + esc(labels[platform]) + '">' + socialPlatformLogo(platform) + '</a>';
+    }).filter(Boolean);
+    return anchors.length
+      ? '<nav class="profile-social-links" aria-label="حسابات التواصل الاجتماعي">' +
+        anchors.join('') + '</nav>'
+      : '';
+  }
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -140,6 +195,17 @@
       '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + c[0] + '"/><stop offset="1" stop-color="' + c[1] + '"/></linearGradient></defs>' +
       '<rect width="96" height="96" rx="48" fill="url(#g)"/>' +
       '<text x="48" y="62" text-anchor="middle" font-family="Tajawal, Segoe UI, sans-serif" font-size="44" font-weight="700" fill="#fff">' + esc(letter) + '</text></svg>'
+    );
+  }
+
+  function profileAvatarFallback(name, size) {
+    size = size || 96;
+    var firstName = String(name || '?').trim().split(/\s+/)[0];
+    var letter = firstName.charAt(0) || '?';
+    return svgURI(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 96 96">' +
+      '<rect width="96" height="96" rx="48" fill="rgba(255,159,26,.2)"/>' +
+      '<text x="48" y="62" text-anchor="middle" font-family="Tajawal, Segoe UI, sans-serif" font-size="44" font-weight="700" fill="#ff9f1a">' + esc(letter) + '</text></svg>'
     );
   }
 
@@ -849,10 +915,13 @@
   window.UI = {
     icon: icon,
     iconFilled: iconFilled,
+    socialPlatformLogo: socialPlatformLogo,
+    socialLinksHTML: socialLinksHTML,
     esc: esc,
     svgURI: svgURI,
     initialsAvatar: initialsAvatar,
     userLetterAvatar: userLetterAvatar,
+    profileAvatarFallback: profileAvatarFallback,
     avatarOf: avatarOf,
     verifiedBadge: verifiedBadge,
     timeAgo: timeAgo,

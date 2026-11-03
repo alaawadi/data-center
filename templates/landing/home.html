@@ -14,8 +14,9 @@
 
 {% block content %}
   {{ site_settings|json_script:"site-settings-data" }}
-  {{ courses_json|json_script:"landing-courses-data" }}
-  {{ inperson_courses_json|json_script:"landing-inperson-courses-data" }}
+  {{ landing_courses_json|json_script:"landing-courses-data" }}
+  {{ landing_inperson_courses_json|json_script:"landing-inperson-courses-data" }}
+  {{ online_courses_count|json_script:"landing-online-courses-count" }}
   <!-- شاشة التحميل -->
   <div class="site-loader" id="siteLoader" aria-hidden="true">
     <picture>

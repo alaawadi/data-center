@@ -400,7 +400,9 @@
     var actions = '';
     if (links.github) actions += '<a class="btn btn-ghost btn-sm" href="' + e(links.github) + '" target="_blank" rel="noopener">' + UI.icon('github', 15) + ' ' + e(t('source')) + '</a>';
     if (links.demo) actions += '<a class="btn btn-soft btn-sm" href="' + e(links.demo) + '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) + ' ' + e(t('demo')) + '</a>';
-    actions += '<button type="button" class="btn btn-primary btn-sm" data-act="open-project" data-url="' + e(SITE.u('project', pj.id)) + '"' + (key != null ? ' data-key="' + e(key) + '"' : '') + '>' + UI.icon('briefcase', 15) + ' ' + e(t('plProjectOpen')) + '</button>';
+    var returnToPlaylist = location.pathname + location.search + location.hash;
+    var projectUrl = SITE.u('project', pj.id) + '?return=' + encodeURIComponent(returnToPlaylist);
+    actions += '<button type="button" class="btn btn-primary btn-sm" data-act="open-project" data-url="' + e(projectUrl) + '"' + (key != null ? ' data-key="' + e(key) + '"' : '') + '>' + UI.icon('briefcase', 15) + ' ' + e(t('plProjectOpen')) + '</button>';
 
     return '<div class="pl-proj-card">' +
       (pj.cover ? '<div class="pl-proj-cover"><img src="' + e(pj.cover) + '" alt="' + e(pj.title) + '" loading="lazy" decoding="async"></div>' : '') +
@@ -1040,7 +1042,7 @@
         var pid = pf.lesson ? pf.lesson.id : null;
         if (serverProgress && pid != null) pushProgress(pid, true, pkey);
       }
-      if (url) window.open(url, '_blank');
+      if (url) window.location.href = url;
       return;
     }
     if (act === 'prev' || act === 'next') {

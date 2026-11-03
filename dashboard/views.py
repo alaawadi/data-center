@@ -27,7 +27,7 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.validators import EmailValidator, URLValidator
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Prefetch, Q, Sum
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.utils import timezone
@@ -39,6 +39,11 @@ from core.models import PlatformSettings, SiteVisitDaily
 from courses.referrals import (
     award_referral_points_for_enrollment,
     award_referral_points_for_registration_request,
+)
+from courses.subscriptions import (
+    active_course_progress,
+    add_calendar_months,
+    subscription_is_active,
 )
 from courses.models import (
     Course,
@@ -56,6 +61,8 @@ from courses.models import (
     LessonType,
     ManualCertificate,
     ManualCertificateStatus,
+    OnlineCourseInvoice,
+    OnlineCourseInvoicePayment,
     Quiz,
     StudentPointTransaction,
     StudentReferralLink,
@@ -70,6 +77,7 @@ from projects.models import Project, ProjectStatus
 from projects.views import project_editor_context
 from users.models import (
     DeviceSession,
+    FreelancerCategory,
     Profile,
     SocialLink,
     SocialPlatform,
@@ -487,6 +495,29 @@ def _inperson_cohort_payload(cohort):
     }
 
 
+def _admin_course_progress_payload(progress):
+    return {
+        'id': str(progress.pk),
+        'courseId': progress.course.slug,
+        'userId': str(progress.student_id),
+        'user': {
+            'id': str(progress.student_id),
+            'name': progress.student.display_name,
+            'handle': progress.student.handle,
+            'avatar': progress.student.profile.avatar.url
+            if _trainer_profile(progress.student) and progress.student.profile.avatar
+            else '',
+            'role': progress.student.role,
+        },
+        'completedIds': progress.completed_ids or [],
+        'completed': progress.completed,
+        'joinedAt': progress.created_at.isoformat(),
+        'expiresAt': progress.expires_at.isoformat() if progress.expires_at else '',
+        'updatedAt': progress.updated_at.isoformat(),
+        'progress': progress.percent,
+    }
+
+
 def _course_registration_course_price(course):
     raw_price = (course.price or '').strip()
     normalized_price = raw_price.translate(
@@ -494,6 +525,12 @@ def _course_registration_course_price(course):
     ).replace(',', '.')
     if normalized_price.casefold() in ('مجاني', 'free'):
         return Decimal('0.00')
+    normalized_price = re.sub(
+        r'(?:₪|\$|\bILS\b|\bNIS\b|\bUSD\b|شيكل|دولار)',
+        '',
+        normalized_price,
+        flags=re.IGNORECASE,
+    ).strip()
     try:
         price = Decimal(normalized_price)
     except InvalidOperation:
@@ -503,10 +540,27 @@ def _course_registration_course_price(course):
     return price.quantize(Decimal('0.01'))
 
 
+def _course_registration_price_at_registration(registration):
+    return (
+        registration.course_price_amount
+        if registration.course_price_amount is not None
+        else _course_registration_course_price(registration.course)
+    )
+
+
+def _course_registration_total_amount(registration):
+    price = _course_registration_price_at_registration(registration)
+    if price is None:
+        return None
+    return max(Decimal('0.00'), price - (registration.discount_amount or Decimal('0.00')))
+
+
 def _course_registration_request_payload(registration, referral_points_awarded=None):
-    course_price = _course_registration_course_price(registration.course)
+    course_price = _course_registration_price_at_registration(registration)
+    total_amount = _course_registration_total_amount(registration)
     payments = list(registration.payments.all())
     paid_amount = sum((payment.amount for payment in payments), Decimal('0.00'))
+    recorded_payments = [payment for payment in payments if not payment.is_historical_balance]
     payload = {
         'id': str(registration.pk),
         'courseId': registration.course.slug,
@@ -531,22 +585,25 @@ def _course_registration_request_payload(registration, referral_points_awarded=N
         ),
         'status': registration.status,
         'paidAmount': format(paid_amount, 'f'),
+        'discountAmount': format(registration.discount_amount or Decimal('0.00'), 'f'),
         'remainingAmount': (
-            format(max(Decimal('0.00'), course_price - paid_amount), 'f')
-            if course_price is not None
+            format(max(Decimal('0.00'), total_amount - paid_amount), 'f')
+            if total_amount is not None
             else ''
         ),
+        'totalAmount': format(total_amount, 'f') if total_amount is not None else '',
         'payments': [
             {
                 'amount': format(payment.amount, 'f'),
                 'createdAt': payment.created_at.isoformat(),
             }
-            for payment in payments
+            for payment in recorded_payments
         ],
         'createdAt': registration.created_at.isoformat(),
     }
     if registration.student_id:
         payload['accountReady'] = registration.student.has_usable_password()
+        payload['hasLoggedIn'] = bool(registration.student.last_login)
         try:
             setup_link = registration.student.student_setup_link
         except StudentSetupLink.DoesNotExist:
@@ -556,9 +613,90 @@ def _course_registration_request_payload(registration, referral_points_awarded=N
         )
     else:
         payload['accountReady'] = False
+        payload['hasLoggedIn'] = False
         payload['setupLinkExpiresAt'] = ''
     if referral_points_awarded is not None:
         payload['referralPointsAwarded'] = referral_points_awarded
+    return payload
+
+
+def _online_course_invoice_payload(invoice):
+    payments = list(invoice.payments.all())
+    paid_amount = sum((payment.amount for payment in payments), Decimal('0.00'))
+    recorded_payments = [payment for payment in payments if not payment.is_historical_balance]
+    return {
+        'id': str(invoice.pk),
+        'progressId': str(invoice.progress_id),
+        'studentId': str(invoice.progress.student_id),
+        'studentName': invoice.progress.student.display_name,
+        'studentPhone': invoice.progress.student.phone,
+        'courseId': invoice.progress.course.slug,
+        'courseTitle': invoice.progress.course.title,
+        'coursePrice': format(invoice.course_price, 'f'),
+        'discountType': invoice.discount_type,
+        'discountValue': format(invoice.discount_value, 'f'),
+        'totalAmount': format(invoice.total_amount, 'f'),
+        'paidAmount': format(paid_amount, 'f'),
+        'remainingAmount': format(max(Decimal('0.00'), invoice.total_amount - paid_amount), 'f'),
+        'currency': invoice.currency,
+        'payments': [
+            {
+                'amount': format(payment.amount, 'f'),
+                'createdAt': payment.created_at.isoformat(),
+            }
+            for payment in recorded_payments
+        ],
+        'createdAt': invoice.created_at.isoformat(),
+    }
+
+
+def _subscription_course_price_at_registration(registration):
+    return _course_registration_price_at_registration(registration)
+
+
+def _subscription_payload_from_registration(registration):
+    price = _subscription_course_price_at_registration(registration)
+    discount = registration.discount_amount or Decimal('0.00')
+    total = _course_registration_total_amount(registration)
+    payments = list(registration.payments.all())
+    paid = sum((payment.amount for payment in payments), Decimal('0.00'))
+    return {
+        'id': f'inperson-{registration.pk}',
+        'studentId': str(registration.student_id or ''),
+        'studentName': registration.student.display_name
+        if registration.student_id else registration.full_name,
+        'studentPhone': registration.student.phone
+        if registration.student_id else registration.phone,
+        'courseType': CourseType.IN_PERSON,
+        'courseId': registration.course.slug,
+        'courseTitle': registration.course.title,
+        'cohortName': registration.cohort.name if registration.cohort_id else '',
+        'coursePrice': format(price, 'f') if price is not None else '',
+        'discountAmount': format(discount, 'f'),
+        'totalAmount': format(total, 'f') if total is not None else '',
+        'paidAmount': format(paid, 'f'),
+        'remainingAmount': format(
+            max(Decimal('0.00'), total - paid), 'f'
+        ) if total is not None else '',
+        'currency': registration.course.currency,
+        'createdAt': registration.created_at.isoformat(),
+        'payments': [
+            {
+                'amount': format(payment.amount, 'f'),
+                'createdAt': payment.created_at.isoformat(),
+            }
+            for payment in payments if not payment.is_historical_balance
+        ],
+    }
+
+
+def _subscription_payload_from_invoice(invoice):
+    payload = _online_course_invoice_payload(invoice)
+    payload.update({
+        'id': f'online-{invoice.pk}',
+        'courseType': CourseType.ONLINE,
+        'cohortName': '',
+    })
     return payload
 
 
@@ -710,14 +848,16 @@ def course_registration_request_save(request):
         return _admin_api_error('التخصص غير صالح.', 400)
     if governorate not in ('gaza', 'central'):
         return _admin_api_error('المحافظة غير صالحة.', 400)
-    if (
+    if student_status not in ('student', 'graduate'):
+        return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
+    if student_status == 'graduate' and study_year is None:
+        study_year = None
+    elif (
         isinstance(study_year, bool)
         or not isinstance(study_year, int)
         or not 1 <= study_year <= 4294967295
     ):
         return _admin_api_error('السنة الدراسية يجب أن تكون رقماً صحيحاً موجباً.', 400)
-    if student_status not in ('student', 'graduate'):
-        return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
 
     with transaction.atomic():
         cohort = start_next_inperson_cohort(course)
@@ -1079,12 +1219,12 @@ def course_registration_request_paid_amount(request, pk):
         if registration.status != CourseRegistrationRequestStatus.ACCEPTED:
             return _admin_api_error('يمكن تحديد المبلغ للطلبات المقبولة فقط.', 409)
 
-        course_price = _course_registration_course_price(registration.course)
-        if course_price is None:
+        subscription_total = _course_registration_total_amount(registration)
+        if subscription_total is None:
             return _admin_api_error('حدد سعراً صالحاً للدورة قبل تسجيل الدفعات.', 409)
 
         total_paid = registration.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
-        remaining_amount = course_price - total_paid
+        remaining_amount = subscription_total - total_paid
         if paid_amount > remaining_amount:
             return _admin_api_error('لا يمكن أن تتجاوز الدفعة المبلغ المتبقي.', 400)
 
@@ -1098,6 +1238,402 @@ def course_registration_request_paid_amount(request, pk):
         'ok': True,
         'request': _course_registration_request_payload(registration),
     })
+
+
+@require_POST
+def online_course_invoice_create(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات الفاتورة غير صالحة.', 400)
+    expected_keys = {'studentId', 'courseId', 'discountType', 'discountValue'}
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
+        return _admin_api_error('بيانات الفاتورة غير صالحة.', 400)
+
+    try:
+        student_id = int(payload['studentId'])
+        course_id = int(payload['courseId'])
+    except (TypeError, ValueError):
+        return _admin_api_error('اختر طالباً ودورة أونلاين صالحين.', 400)
+    if student_id <= 0 or course_id <= 0:
+        return _admin_api_error('اختر طالباً ودورة أونلاين صالحين.', 400)
+
+    discount_type = payload['discountType']
+    if discount_type not in OnlineCourseInvoice.DiscountType.values:
+        return _admin_api_error('نوع الخصم غير صالح.', 400)
+    raw_discount = payload['discountValue']
+    if raw_discount == '':
+        raw_discount = 0
+    if isinstance(raw_discount, bool) or not isinstance(raw_discount, (str, int, float)):
+        return _admin_api_error('أدخل قيمة خصم صالحة.', 400)
+    try:
+        discount_value = Decimal(str(raw_discount))
+    except InvalidOperation:
+        return _admin_api_error('أدخل قيمة خصم صالحة.', 400)
+    if (
+        not discount_value.is_finite()
+        or discount_value < 0
+        or discount_value.as_tuple().exponent < -2
+        or discount_value >= Decimal('100000000')
+    ):
+        return _admin_api_error('قيمة الخصم يجب أن تكون موجبة أو صفراً وبحد أقصى منزلتين عشريتين.', 400)
+
+    try:
+        with transaction.atomic():
+            student = User.objects.select_for_update().filter(
+                pk=student_id,
+                role=UserRole.STUDENT,
+            ).first()
+            if student is None:
+                return _admin_api_error('الطالب غير موجود.', 404)
+            course = Course.objects.select_for_update().filter(
+                pk=course_id,
+                course_type=CourseType.ONLINE,
+                status=CourseStatus.PUBLISHED,
+            ).first()
+            if course is None:
+                return _admin_api_error('الدورة الأونلاين غير موجودة أو غير منشورة.', 404)
+
+            course_price = _course_registration_course_price(course)
+            if course_price is None or course_price <= 0:
+                return _admin_api_error('يجب تحديد سعر صالح وأكبر من صفر للدورة قبل إصدار الفاتورة.', 409)
+
+            if discount_type == OnlineCourseInvoice.DiscountType.PERCENTAGE:
+                if discount_value > 100:
+                    return _admin_api_error('لا يمكن أن تتجاوز نسبة الخصم 100٪.', 400)
+                discount_amount = (
+                    course_price * discount_value / Decimal('100')
+                ).quantize(Decimal('0.01'))
+            else:
+                if discount_value > course_price:
+                    return _admin_api_error('لا يمكن أن يتجاوز الخصم سعر الدورة.', 400)
+                discount_amount = discount_value
+
+            progress, enrollment_created = CourseProgress.objects.get_or_create(
+                student=student,
+                course=course,
+            )
+            if OnlineCourseInvoice.objects.filter(progress=progress).exists():
+                return _admin_api_error('توجد فاتورة بالفعل لهذا الطالب في هذه الدورة.', 409)
+
+            invoice = OnlineCourseInvoice.objects.create(
+                progress=progress,
+                course_price=course_price,
+                discount_type=discount_type,
+                discount_value=discount_value,
+                total_amount=course_price - discount_amount,
+                currency=course.currency,
+            )
+    except IntegrityError:
+        return _admin_api_error('توجد فاتورة بالفعل لهذا الطالب في هذه الدورة.', 409)
+
+    return JsonResponse({
+        'ok': True,
+        'enrollmentCreated': enrollment_created,
+        'invoice': _online_course_invoice_payload(
+            OnlineCourseInvoice.objects.select_related(
+                'progress__student',
+                'progress__course',
+            ).prefetch_related('payments').get(pk=invoice.pk)
+        ),
+    })
+
+
+@require_POST
+def online_course_invoice_add_payment(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات الدفعة غير صالحة.', 400)
+    if not isinstance(payload, dict) or set(payload) != {'amount'}:
+        return _admin_api_error('بيانات الدفعة غير صالحة.', 400)
+
+    raw_amount = payload['amount']
+    if isinstance(raw_amount, bool) or not isinstance(raw_amount, (str, int, float)):
+        return _admin_api_error('أدخل مبلغاً صحيحاً.', 400)
+    try:
+        amount = Decimal(str(raw_amount))
+    except InvalidOperation:
+        return _admin_api_error('أدخل مبلغاً صحيحاً.', 400)
+    if (
+        not amount.is_finite()
+        or amount <= 0
+        or amount.as_tuple().exponent < -2
+        or amount >= Decimal('100000000')
+    ):
+        return _admin_api_error('يجب أن تكون الدفعة أكبر من صفر وبحد أقصى منزلتين عشريتين.', 400)
+
+    with transaction.atomic():
+        invoice = (
+            OnlineCourseInvoice.objects.select_for_update()
+            .select_related('progress__student', 'progress__course')
+            .filter(pk=pk)
+            .first()
+        )
+        if invoice is None:
+            return _admin_api_error('الفاتورة غير موجودة.', 404)
+        total_paid = invoice.payments.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        remaining_amount = invoice.total_amount - total_paid
+        if amount > remaining_amount:
+            return _admin_api_error('لا يمكن أن تتجاوز الدفعة المبلغ المتبقي.', 400)
+
+        OnlineCourseInvoicePayment.objects.create(invoice=invoice, amount=amount)
+
+    if hasattr(invoice, '_prefetched_objects_cache'):
+        invoice._prefetched_objects_cache.pop('payments', None)
+    return JsonResponse({
+        'ok': True,
+        'invoice': _online_course_invoice_payload(invoice),
+    })
+
+
+@require_POST
+def subscription_create(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return _admin_api_error('بيانات الاشتراك غير صالحة.', 400)
+    expected_keys = {
+        'studentId', 'courseType', 'courseId', 'cohortId', 'paymentAmount',
+        'discountAmount',
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_keys:
+        return _admin_api_error('بيانات الاشتراك غير صالحة.', 400)
+
+    try:
+        student_id = int(payload['studentId'])
+        course_id = int(payload['courseId'])
+    except (TypeError, ValueError):
+        return _admin_api_error('اختر طالباً ودورة صالحة.', 400)
+    if student_id <= 0 or course_id <= 0:
+        return _admin_api_error('اختر طالباً ودورة صالحة.', 400)
+    course_type = payload['courseType']
+    if course_type not in (CourseType.ONLINE, CourseType.IN_PERSON):
+        return _admin_api_error('نوع الدورة غير صالح.', 400)
+
+    raw_payment = payload['paymentAmount']
+    if raw_payment in ('', None):
+        payment_amount = Decimal('0.00')
+    elif isinstance(raw_payment, bool) or not isinstance(raw_payment, (str, int, float)):
+        return _admin_api_error('أدخل مبلغ دفعة صالحاً.', 400)
+    else:
+        try:
+            payment_amount = Decimal(str(raw_payment))
+        except InvalidOperation:
+            return _admin_api_error('أدخل مبلغ دفعة صالحاً.', 400)
+        if (
+            not payment_amount.is_finite()
+            or payment_amount < 0
+            or payment_amount.as_tuple().exponent < -2
+            or payment_amount >= Decimal('100000000')
+        ):
+            return _admin_api_error('يجب أن تكون الدفعة صفراً أو أكثر وبحد أقصى منزلتين عشريتين.', 400)
+
+    raw_discount = payload['discountAmount']
+    if raw_discount in ('', None):
+        discount_amount = Decimal('0.00')
+    elif isinstance(raw_discount, bool) or not isinstance(raw_discount, (str, int, float)):
+        return _admin_api_error('أدخل قيمة خصم صالحة.', 400)
+    else:
+        try:
+            discount_amount = Decimal(str(raw_discount))
+        except InvalidOperation:
+            return _admin_api_error('أدخل قيمة خصم صالحة.', 400)
+        if (
+            not discount_amount.is_finite()
+            or discount_amount < 0
+            or discount_amount.as_tuple().exponent < -2
+            or discount_amount >= Decimal('100000000')
+        ):
+            return _admin_api_error('يجب أن يكون الخصم صفراً أو أكثر وبحد أقصى منزلتين عشريتين.', 400)
+
+    try:
+        with transaction.atomic():
+            student = User.objects.select_for_update().filter(
+                pk=student_id,
+                role=UserRole.STUDENT,
+            ).first()
+            if student is None:
+                return _admin_api_error('الطالب غير موجود.', 404)
+
+            course = Course.objects.select_for_update().filter(
+                pk=course_id,
+                course_type=course_type,
+                status=CourseStatus.PUBLISHED,
+            ).first()
+            if course is None:
+                return _admin_api_error('الدورة غير موجودة أو غير منشورة.', 404)
+            course_price = _course_registration_course_price(course)
+            if course_price is None or course_price <= 0:
+                return _admin_api_error('يجب تحديد سعر صالح وأكبر من صفر للدورة.', 409)
+            if discount_amount > course_price:
+                return _admin_api_error('لا يمكن أن يتجاوز الخصم قيمة الاشتراك.', 400)
+            subscription_total = course_price - discount_amount
+            if payment_amount > subscription_total:
+                return _admin_api_error('لا يمكن أن تتجاوز الدفعة قيمة الاشتراك.', 400)
+
+            cohort = None
+            if course_type == CourseType.IN_PERSON:
+                try:
+                    cohort_id = int(payload['cohortId'])
+                except (TypeError, ValueError):
+                    return _admin_api_error('اختر شعبة صالحة للدورة الوجاهية.', 400)
+                cohort = InPersonCourseCohort.objects.select_for_update().filter(
+                    pk=cohort_id,
+                    course=course,
+                    ended_at__isnull=True,
+                ).first()
+                if cohort is None:
+                    return _admin_api_error('الشعبة غير موجودة أو غير نشطة لهذه الدورة.', 400)
+            elif payload['cohortId'] not in ('', None):
+                return _admin_api_error('لا يمكن اختيار شعبة لدورة أونلاين.', 400)
+
+            if course_type == CourseType.IN_PERSON and CourseRegistrationRequest.objects.filter(
+                course=course,
+                student=student,
+                cohort=cohort,
+                status=CourseRegistrationRequestStatus.ACCEPTED,
+            ).exists():
+                return _admin_api_error('الطالب مضاف بالفعل إلى الدورة.', 409)
+
+            progress = CourseProgress.objects.select_for_update().filter(
+                student=student,
+                course=course,
+            ).first()
+            if course_type == CourseType.ONLINE and progress:
+                existing_invoice = OnlineCourseInvoice.objects.filter(
+                    progress=progress,
+                ).exists()
+                if existing_invoice or active_course_progress(
+                    CourseProgress.objects.filter(pk=progress.pk)
+                ).exists():
+                    return _admin_api_error('الطالب مضاف بالفعل إلى الدورة.', 409)
+
+            enrollment_created = progress is None
+            if progress is None:
+                progress = CourseProgress.objects.create(student=student, course=course)
+            if course_type == CourseType.ONLINE and (
+                not progress.expires_at or progress.expires_at <= timezone.now()
+            ):
+                progress.expires_at = add_calendar_months(timezone.now())
+                progress.save(update_fields=['expires_at', 'updated_at'])
+
+            invoice = None
+            registration = None
+            registration_created = False
+            if course_type == CourseType.ONLINE:
+                invoice = OnlineCourseInvoice.objects.create(
+                    progress=progress,
+                    course_price=course_price,
+                    discount_type=OnlineCourseInvoice.DiscountType.FIXED,
+                    discount_value=discount_amount,
+                    total_amount=subscription_total,
+                    currency=course.currency,
+                )
+                if payment_amount:
+                    OnlineCourseInvoicePayment.objects.create(
+                        invoice=invoice,
+                        amount=payment_amount,
+                    )
+            else:
+                registration = (
+                    CourseRegistrationRequest.objects.select_for_update()
+                    .filter(
+                        course=course,
+                        student=student,
+                        status__in=(
+                            CourseRegistrationRequestStatus.NEW,
+                            CourseRegistrationRequestStatus.CONTACTED,
+                        ),
+                    )
+                    .order_by('-created_at', '-pk')
+                    .first()
+                )
+                if registration:
+                    registration.cohort = cohort
+                    registration.status = CourseRegistrationRequestStatus.ACCEPTED
+                    registration.course_price_amount = course_price
+                    registration.discount_amount = discount_amount
+                    registration.save(update_fields=[
+                        'cohort', 'status', 'course_price_amount', 'discount_amount',
+                    ])
+                else:
+                    student_phone = (
+                        _normalized_inperson_student_phone(student.phone) or student.phone
+                    )
+                    registration = CourseRegistrationRequest.objects.create(
+                        course=course,
+                        cohort=cohort,
+                        student=student,
+                        course_price_amount=course_price,
+                        discount_amount=discount_amount,
+                        full_name=student.display_name[:200],
+                        phone=student_phone if len(student_phone) <= 13 else '',
+                        address='',
+                        specialty='',
+                        status=CourseRegistrationRequestStatus.ACCEPTED,
+                    )
+                    registration_created = True
+                if payment_amount:
+                    CourseRegistrationPayment.objects.create(
+                        registration_request=registration,
+                        amount=payment_amount,
+                    )
+    except IntegrityError:
+        return _admin_api_error('تعذر إنشاء الاشتراك بسبب تعارض مع تسجيل موجود.', 409)
+
+    award_referral_points_for_enrollment(student, course)
+    progress.refresh_from_db()
+    progress_payload = {
+        'id': str(progress.pk),
+        'studentId': str(student.pk),
+        'courseId': course.slug,
+        'joinedAt': progress.created_at.isoformat(),
+        'expiresAt': progress.expires_at.isoformat() if progress.expires_at else '',
+        'progress': progress.percent,
+        'completed': progress.completed,
+    }
+    if invoice:
+        invoice = OnlineCourseInvoice.objects.select_related(
+            'progress__student',
+            'progress__course',
+        ).prefetch_related('payments').get(pk=invoice.pk)
+        invoice_payload = _online_course_invoice_payload(invoice)
+        return JsonResponse({
+            'ok': True,
+            'courseType': course_type,
+            'enrollmentCreated': enrollment_created,
+            'progress': progress_payload,
+            'invoice': invoice_payload,
+            'subscription': _subscription_payload_from_invoice(invoice),
+        }, status=201)
+
+    registration = CourseRegistrationRequest.objects.select_related(
+        'course', 'cohort', 'student__student_setup_link',
+        'referral_link__referrer',
+    ).prefetch_related('payments').get(pk=registration.pk)
+    registration_payload = _course_registration_request_payload(registration)
+    return JsonResponse({
+        'ok': True,
+        'courseType': course_type,
+        'enrollmentCreated': enrollment_created,
+        'registrationCreated': registration_created,
+        'progress': progress_payload,
+        'registration': registration_payload,
+        'subscription': _subscription_payload_from_registration(registration),
+    }, status=201)
 
 
 def _training_categories_payload():
@@ -1131,6 +1667,7 @@ def _training_categories_payload():
         {
             'id': category.pk,
             'name': category.name,
+            'is_active': category.is_active,
             'display_order': category.display_order,
             'courses': course_counts.get(category.name, 0),
             'projects': project_counts.get(category.name, 0),
@@ -1178,6 +1715,25 @@ def training_categories(request):
                     display_order=models.F('display_order') - 1
                 )
         return JsonResponse({'ok': True, 'id': category_id})
+
+    if action == 'set_active':
+        try:
+            category_id = int(payload.get('id'))
+        except (TypeError, ValueError):
+            return _admin_api_error('المجال التدريبي غير موجود.', 404)
+        active = payload.get('active')
+        if not isinstance(active, bool):
+            return _admin_api_error('حالة المجال التدريبي غير صالحة.', 400)
+        category = TrainingCategory.objects.filter(pk=category_id).first()
+        if category is None:
+            return _admin_api_error('المجال التدريبي غير موجود.', 404)
+        if category.is_active != active:
+            category.is_active = active
+            category.save(update_fields=['is_active'])
+        category_data = next(
+            item for item in _training_categories_payload() if item['id'] == category.pk
+        )
+        return JsonResponse({'ok': True, 'category': category_data})
 
     if action == 'reorder':
         order = payload.get('order')
@@ -1244,6 +1800,151 @@ def training_categories(request):
 
     category_data = next(
         item for item in _training_categories_payload() if item['id'] == category.pk
+    )
+    return JsonResponse({'ok': True, 'category': category_data})
+
+
+def _freelancer_categories_payload():
+    profile_counts = {
+        (row['specialization'], row['user__role']): row['total']
+        for row in Profile.objects.filter(
+            user__role__in=(UserRole.TRAINER, UserRole.STUDENT)
+        )
+        .exclude(specialization='')
+        .values('specialization', 'user__role')
+        .annotate(total=Count('pk'))
+    }
+    return [
+        {
+            'id': category.pk,
+            'name': category.name,
+            'is_active': category.is_active,
+            'display_order': category.display_order,
+            'trainers': profile_counts.get((category.name, UserRole.TRAINER), 0),
+            'students': profile_counts.get((category.name, UserRole.STUDENT), 0),
+        }
+        for category in FreelancerCategory.objects.order_by('display_order', 'name')
+    ]
+
+
+@require_http_methods(['GET', 'POST'])
+def freelancer_categories(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    if request.method == 'GET':
+        return JsonResponse({'ok': True, 'categories': _freelancer_categories_payload()})
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+
+    action = payload.get('action')
+    if action == 'reorder':
+        order = payload.get('order')
+        if not isinstance(order, list) or not order or any(
+            not isinstance(category_id, str) or not category_id.isdigit()
+            for category_id in order
+        ):
+            return _admin_api_error('ترتيب الفئات غير صالح.', 400)
+        category_ids = [int(category_id) for category_id in order]
+        if len(category_ids) != len(set(category_ids)):
+            return _admin_api_error('لا يمكن تكرار الفئات في الترتيب.', 400)
+        with transaction.atomic():
+            categories = list(
+                FreelancerCategory.objects.select_for_update().filter(pk__in=category_ids)
+            )
+            if len(categories) != len(category_ids):
+                return _admin_api_error('بعض الفئات غير موجودة.', 404)
+            categories_by_id = {category.pk: category for category in categories}
+            for position, category_id in enumerate(category_ids):
+                categories_by_id[category_id].display_order = position
+            FreelancerCategory.objects.bulk_update(categories, ['display_order'])
+        return JsonResponse({'ok': True, 'categories': _freelancer_categories_payload()})
+
+    if action in ('set_active', 'delete'):
+        try:
+            category_id = int(payload.get('id'))
+        except (TypeError, ValueError):
+            return _admin_api_error('الفئة غير موجودة.', 404)
+        with transaction.atomic():
+            category = FreelancerCategory.objects.select_for_update().filter(
+                pk=category_id
+            ).first()
+            if category is None:
+                return _admin_api_error('الفئة غير موجودة.', 404)
+            if action == 'set_active':
+                active = payload.get('active')
+                if not isinstance(active, bool):
+                    return _admin_api_error('حالة الفئة غير صالحة.', 400)
+                category.is_active = active
+                category.save(update_fields=['is_active'])
+            else:
+                Profile.objects.filter(specialization=category.name).update(
+                    specialization=''
+                )
+                original_order = category.display_order
+                category.delete()
+                if original_order is not None:
+                    FreelancerCategory.objects.filter(
+                        display_order__gt=original_order
+                    ).update(display_order=models.F('display_order') - 1)
+        if action == 'delete':
+            return JsonResponse({'ok': True, 'id': category_id})
+        category_data = next(
+            item for item in _freelancer_categories_payload()
+            if item['id'] == category_id
+        )
+        return JsonResponse({'ok': True, 'category': category_data})
+
+    if action not in ('create', 'update'):
+        return _admin_api_error('نوع العملية غير صالح.', 400)
+    name = payload.get('name')
+    name = name.strip() if isinstance(name, str) else ''
+    if not name or len(name) > 120:
+        return _admin_api_error('أدخل اسم الفئة، على ألا يتجاوز 120 حرفاً.', 400)
+
+    try:
+        with transaction.atomic():
+            if action == 'create':
+                if FreelancerCategory.objects.filter(name__iexact=name).exists():
+                    return _admin_api_error('هذه الفئة موجودة بالفعل.', 409)
+                max_order = FreelancerCategory.objects.aggregate(
+                    max_order=models.Max('display_order')
+                )['max_order'] or 0
+                category = FreelancerCategory.objects.create(
+                    name=name,
+                    display_order=max_order + 1,
+                )
+            else:
+                try:
+                    category_id = int(payload.get('id'))
+                except (TypeError, ValueError):
+                    return _admin_api_error('الفئة غير موجودة.', 404)
+                category = FreelancerCategory.objects.select_for_update().filter(
+                    pk=category_id
+                ).first()
+                if category is None:
+                    return _admin_api_error('الفئة غير موجودة.', 404)
+                if FreelancerCategory.objects.filter(name__iexact=name).exclude(
+                    pk=category.pk
+                ).exists():
+                    return _admin_api_error('هذه الفئة موجودة بالفعل.', 409)
+                old_name = category.name
+                if old_name != name:
+                    Profile.objects.filter(specialization=old_name).update(
+                        specialization=name
+                    )
+                    category.name = name
+                    category.save(update_fields=['name'])
+    except IntegrityError:
+        return _admin_api_error('هذه الفئة موجودة بالفعل.', 409)
+
+    category_data = next(
+        item for item in _freelancer_categories_payload() if item['id'] == category.pk
     )
     return JsonResponse({'ok': True, 'category': category_data})
 
@@ -2077,6 +2778,7 @@ def student_save(request):
             'joined': student.date_joined.isoformat(),
             'lastActive': student.last_login.isoformat() if student.last_login else '',
             'bio': profile.bio if profile else '',
+            'specialization': profile.specialization if profile else '',
             'avatar': profile.avatar.url if profile and profile.avatar else '',
             'showReferralStats': profile.show_referral_stats if profile else False,
         },
@@ -2291,7 +2993,35 @@ def course_student_remove(request, pk):
             progress.delete()
     except CourseProgress.DoesNotExist:
         return _admin_api_error('سجل الطالب في هذه الدورة غير موجود.', 404)
-    return JsonResponse({'ok': True, 'enrolledCount': course.progress.count()})
+    enrollments = active_course_progress(
+        CourseProgress.objects.filter(course=course)
+    ).select_related(
+        'student', 'student__profile'
+    ).order_by('created_at', 'pk')
+    return JsonResponse({
+        'ok': True,
+        'enrolledCount': enrollments.count(),
+        'enrolled': [
+            {
+                'id': str(enrollment.pk),
+                'userId': str(enrollment.student_id),
+                'user': {
+                    'name': enrollment.student.display_name,
+                    'handle': enrollment.student.handle,
+                    'avatar': (
+                        enrollment.student.profile.avatar.url
+                        if _trainer_profile(enrollment.student)
+                        and enrollment.student.profile.avatar
+                        else ''
+                    ),
+                },
+                'joinedAt': enrollment.created_at.isoformat(),
+                'expiresAt': enrollment.expires_at.isoformat() if enrollment.expires_at else '',
+                'progress': enrollment.percent,
+            }
+            for enrollment in enrollments
+        ],
+    })
 
 
 @require_http_methods(['GET', 'POST'])
@@ -2323,6 +3053,7 @@ def course_students(request, pk):
             'completedIds': progress.completed_ids or [],
             'completed': progress.completed,
             'joinedAt': progress.created_at.isoformat(),
+            'expiresAt': progress.expires_at.isoformat() if progress.expires_at else '',
             'updatedAt': progress.updated_at.isoformat(),
             'progress': progress.percent,
         }
@@ -2339,7 +3070,11 @@ def course_students(request, pk):
                     | Q(phone__icontains=query)
                     | Q(email__icontains=query)
                 )
-                .exclude(course_progress__course=course)
+                .exclude(
+                    pk__in=active_course_progress(
+                        CourseProgress.objects.filter(course=course)
+                    ).values('student_id')
+                )
                 .select_related('profile')
                 .order_by('full_name', 'pk')[:20]
             )
@@ -2352,11 +3087,11 @@ def course_students(request, pk):
                 'handle': student.handle,
                 'avatar': profile.avatar.url if profile and profile.avatar else '',
             })
-        enrollments = (
+        enrollments = active_course_progress(
             CourseProgress.objects.filter(course=course)
-            .select_related('student', 'student__profile')
-            .order_by('created_at', 'pk')
-        )
+        ).select_related(
+            'student', 'student__profile'
+        ).order_by('created_at', 'pk')
         return JsonResponse({
             'ok': True,
             'results': results,
@@ -2378,20 +3113,105 @@ def course_students(request, pk):
     if student is None:
         return _admin_api_error('الطالب غير موجود.', 404)
 
-    progress, created = CourseProgress.objects.get_or_create(
-        student=student,
-        course=course,
-    )
+    invoice = None
+    inperson_registration = None
+    course_price = None
+    with transaction.atomic():
+        course = Course.objects.select_for_update().get(pk=course.pk)
+        if course.course_type == CourseType.ONLINE:
+            existing_progress = CourseProgress.objects.filter(
+                student=student,
+                course=course,
+            ).first()
+            if existing_progress:
+                invoice = OnlineCourseInvoice.objects.filter(
+                    progress=existing_progress,
+                ).first()
+            if invoice is None:
+                course_price = _course_registration_course_price(course)
+                if course_price is None:
+                    return _admin_api_error(
+                        'يجب تحديد سعر صالح للدورة قبل إصدار فاتورة الاشتراك.',
+                        409,
+                    )
+            else:
+                course_price = invoice.course_price
+
+        progress, created = CourseProgress.objects.get_or_create(
+            student=student,
+            course=course,
+        )
+        if (
+            course.course_type == CourseType.ONLINE
+            and (
+                not progress.expires_at
+                or progress.expires_at <= timezone.now()
+            )
+        ):
+            progress.expires_at = add_calendar_months(timezone.now())
+            progress.save(update_fields=['expires_at'])
+        if course.course_type == CourseType.ONLINE:
+            invoice, _ = OnlineCourseInvoice.objects.get_or_create(
+                progress=progress,
+                defaults={
+                    'course_price': course_price,
+                    'discount_type': OnlineCourseInvoice.DiscountType.FIXED,
+                    'discount_value': Decimal('0.00'),
+                    'total_amount': course_price,
+                    'currency': course.currency,
+                },
+            )
+        elif course.course_type == CourseType.IN_PERSON:
+            inperson_registration = (
+                CourseRegistrationRequest.objects.select_for_update()
+                .filter(course=course, student=student)
+                .order_by('-created_at', '-pk')
+                .first()
+            )
+            if inperson_registration is None:
+                active_cohort = InPersonCourseCohort.objects.filter(
+                    course=course,
+                    ended_at__isnull=True,
+                ).first()
+                student_phone = _normalized_inperson_student_phone(student.phone) or student.phone
+                inperson_registration = CourseRegistrationRequest.objects.create(
+                    course=course,
+                    cohort=active_cohort,
+                    student=student,
+                    full_name=student.display_name[:200],
+                    phone=student_phone if len(student_phone) <= 13 else '',
+                    address='',
+                    specialty='',
+                    status=CourseRegistrationRequestStatus.ACCEPTED,
+                )
+            elif inperson_registration.status != CourseRegistrationRequestStatus.ACCEPTED:
+                inperson_registration.status = CourseRegistrationRequestStatus.ACCEPTED
+                inperson_registration.save(update_fields=['status'])
     award_referral_points_for_enrollment(student, course)
-    enrollments = (
+    enrollments = active_course_progress(
         CourseProgress.objects.filter(course=course)
-        .select_related('student', 'student__profile')
-        .order_by('created_at', 'pk')
-    )
+    ).select_related(
+        'student', 'student__profile'
+    ).order_by('created_at', 'pk')
     return JsonResponse({
         'ok': True,
         'created': created,
         'progress': progress_data(progress),
+        'invoice': (
+            _online_course_invoice_payload(
+                OnlineCourseInvoice.objects.select_related(
+                    'progress__student',
+                    'progress__course',
+                ).prefetch_related('payments').get(pk=invoice.pk)
+            )
+            if invoice
+            else None
+        ),
+        'registration': (
+            _course_registration_request_payload(inperson_registration)
+            if inperson_registration
+            else None
+        ),
         'enrolled': [progress_data(enrolled) for enrolled in enrollments],
         'enrolledCount': enrollments.count(),
     }, status=201 if created else 200)
@@ -2638,15 +3458,19 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['skip_generic_courses_json'] = True
         context['training_categories_json'] = _training_categories_payload()
-        context['platform_settings'] = get_platform_settings()
+        context['freelancer_categories_json'] = _freelancer_categories_payload()
+        context['platform_settings'] = get_platform_settings(
+            getattr(self.request, 'platform_settings_data', None)
+        )
         context['settings_summary'] = {
             'users': User.objects.filter(role=UserRole.STUDENT).count(),
             'activeUsers': User.objects.filter(role=UserRole.STUDENT, is_active=True).count(),
             'trainers': User.objects.filter(role=UserRole.TRAINER).count(),
             'courses': Course.objects.count(),
             'lessons': Lesson.objects.count(),
-            'enrolled': CourseProgress.objects.count(),
+            'enrolled': active_course_progress(CourseProgress.objects.all()).count(),
             'projects': Project.objects.count(),
             'databaseSizeBytes': _database_size_bytes(),
         }
@@ -2655,13 +3479,30 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         )
         courses = (
             Course.objects.select_related('owner', 'owner__profile')
-            .prefetch_related('sections__lessons')
-            .annotate(enrollment_count=Count('progress', distinct=True))
+            .prefetch_related(
+                'sections__lessons__quiz__questions',
+                'sections__lessons__linked_project',
+            )
+            .annotate(
+                enrollment_count=Count(
+                    'progress',
+                    filter=Q(
+                        Q(progress__expires_at__isnull=True)
+                        | Q(progress__expires_at__gt=timezone.now())
+                    ),
+                    distinct=True,
+                )
+            )
             .order_by('-created_at', 'pk')
         )
         context['courses_json'] = []
         for course in courses:
-            data = course.to_public_dict(include_answers=True)
+            data = course.to_public_dict(
+                include_answers=False,
+                include_content=False,
+                include_lesson_content=False,
+                include_related_projects=False,
+            )
             data['enrollmentCount'] = course.enrollment_count
             data['displayOrder'] = course.display_order
             context['courses_json'].append(data)
@@ -2671,13 +3512,29 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
             if course.is_published and course.is_paid and not course.is_coming_soon
         ]
         admin_projects = (
-            Project.objects.select_related('owner', 'source_lesson__section__course')
-            .prefetch_related('tags', 'images', 'files', 'comments__author')
+            Project.objects.select_related(
+                'owner', 'owner__profile', 'source_lesson__section__course'
+            )
+            .annotate(
+                root_comment_count=Count(
+                    'comments',
+                    filter=Q(comments__parent__isnull=True),
+                    distinct=True,
+                )
+            )
+            .prefetch_related(
+                'tags',
+                'images',
+                'files',
+            )
             .order_by('-created_at', 'pk')
         )
         context['admin_projects_json'] = []
         for project in admin_projects:
-            data = project.to_public_dict()
+            data = project.to_public_dict(
+                include_comments=False,
+                include_comment_count=True,
+            )
             data['displayOrder'] = project.display_order
             data['ownerId'] = str(project.owner_id)
             data['ownerRole'] = project.owner.role
@@ -2795,32 +3652,41 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'referral_link__referrer'
             ).prefetch_related('payments')
         ]
-        course_progress = (
-            CourseProgress.objects.select_related('student', 'student__profile', 'course')
-            .order_by('created_at', 'pk')
+        course_progress = list(
+            CourseProgress.objects.select_related(
+                'student', 'student__profile', 'course'
+            ).order_by('created_at', 'pk')
         )
+        context['admin_course_progress_history_json'] = [
+            _admin_course_progress_payload(progress) for progress in course_progress
+        ]
         context['course_progress_json'] = [
-            {
-                'id': str(progress.pk),
-                'courseId': progress.course.slug,
-                'userId': str(progress.student_id),
-                'user': {
-                    'id': str(progress.student_id),
-                    'name': progress.student.display_name,
-                    'handle': progress.student.handle,
-                    'avatar': progress.student.profile.avatar.url
-                    if _trainer_profile(progress.student)
-                    and progress.student.profile.avatar
-                    else '',
-                    'role': progress.student.role,
-                },
-                'completedIds': progress.completed_ids or [],
-                'completed': progress.completed,
-                'joinedAt': progress.created_at.isoformat(),
-                'updatedAt': progress.updated_at.isoformat(),
-                'progress': progress.percent,
-            }
+            _admin_course_progress_payload(progress)
             for progress in course_progress
+            if subscription_is_active(progress.expires_at)
+        ]
+        online_course_invoices = (
+            OnlineCourseInvoice.objects.filter(
+                progress__student__role=UserRole.STUDENT,
+                progress__course__course_type=CourseType.ONLINE,
+            )
+            .select_related('progress__student', 'progress__course')
+            .prefetch_related('payments')
+        )
+        context['online_course_invoices_json'] = [
+            _online_course_invoice_payload(invoice)
+            for invoice in online_course_invoices
+        ]
+        context['admin_subscriptions_json'] = [
+            _subscription_payload_from_registration(registration)
+            for registration in CourseRegistrationRequest.objects.filter(
+                course__course_type=CourseType.IN_PERSON,
+                status=CourseRegistrationRequestStatus.ACCEPTED,
+            ).select_related('course', 'cohort', 'student')
+            .prefetch_related('payments')
+        ] + [
+            _subscription_payload_from_invoice(invoice)
+            for invoice in online_course_invoices
         ]
         redemptions = (
             StudentPointTransaction.objects.filter(
@@ -2884,6 +3750,9 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'joined': student.date_joined.isoformat(),
                 'lastActive': student.last_login.isoformat() if student.last_login else '',
                 'bio': student.profile.bio if _trainer_profile(student) else '',
+                'specialization': student.profile.specialization
+                if _trainer_profile(student)
+                else '',
                 'avatar': student.profile.avatar.url
                 if _trainer_profile(student) and student.profile.avatar
                 else '',

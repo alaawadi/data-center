@@ -97,6 +97,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'django.middleware.gzip.GZipMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'users.middleware.DeviceCookieMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -150,7 +151,7 @@ AUTH_USER_MODEL = 'users.User'
 
 LOGIN_URL = 'users:login'
 LOGIN_REDIRECT_URL = 'portfolio:home'
-LOGOUT_REDIRECT_URL = 'landing:home'
+LOGOUT_REDIRECT_URL = 'users:login'
 
 
 # Password validation
@@ -190,6 +191,9 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = _env_path('DJANGO_STATIC_ROOT', 'staticfiles')
+
+
+
 
 # Media (uploaded files: avatars, covers)
 MEDIA_URL = '/media/'

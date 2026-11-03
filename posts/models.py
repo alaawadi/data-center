@@ -136,8 +136,8 @@ class Post(models.Model):
             'createdAt': self.created_at.isoformat(),
             'updatedAt': self.updated_at.isoformat(),
             'comments': [
-                c.to_public_dict()
-                for c in self.comments.filter(parent__isnull=True).select_related('author')
+                comment.to_public_dict()
+                for comment in self.comments.filter(parent__isnull=True).select_related('author')
             ],
         }
 
@@ -206,5 +206,5 @@ class PostComment(models.Model):
             'text': self.body,
             'createdAt': self.created_at.isoformat(),
             'likes': self.likes,
-            'replies': [r.to_public_dict() for r in self.replies.all()],
+            'replies': [reply.to_public_dict() for reply in self.replies.all()],
         }

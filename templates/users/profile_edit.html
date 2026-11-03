@@ -27,6 +27,7 @@
 
       <section class="pf-section">
         <h2>الهوية والصورة</h2>
+        {{ freelancer_category_options|json_script:"freelancer-category-options" }}
         {% if object.user.is_trainer %}
           {% include "users/_field.html" with field=form.trainer_name_en %}
         {% else %}
@@ -40,6 +41,10 @@
           {% include "users/_field.html" with field=form.full_name %}
           {% include "users/_field.html" with field=form.headline %}
         </div>
+        {% if not object.user.is_trainer %}
+          {% include "users/_field.html" with field=form.student_specialization %}
+          <p class="hint" id="specialization-count">0/30 حرفاً</p>
+        {% endif %}
         {% include "users/_field.html" with field=form.bio %}
         <div class="pf-grid">
           {% include "users/_field.html" with field=form.avatar %}
@@ -61,11 +66,7 @@
 
       <section class="pf-section">
         <h2>التواصل</h2>
-        <div class="pf-grid">
-          {% include "users/_field.html" with field=form.email %}
-          {% include "users/_field.html" with field=form.whatsapp %}
-        </div>
-        {% include "users/_field.html" with field=form.website %}
+        {% include "users/_field.html" with field=form.whatsapp %}
       </section>
 
       <section class="pf-section">
@@ -85,16 +86,27 @@
       </section>
 
       <section class="pf-section">
-        <h2>روابط التواصل الاجتماعي</h2>
+        <h2>حسابات التواصل الاجتماعي</h2>
         {{ socials.management_form }}
         {% for row in socials %}
           <div class="pf-social-row">
             {{ row.id }}
             <div class="field">{{ row.platform }}{% for error in row.platform.errors %}<p class="hint error">{{ error }}</p>{% endfor %}</div>
             <div class="field">{{ row.url }}{% for error in row.url.errors %}<p class="hint error">{{ error }}</p>{% endfor %}</div>
-            <div class="field">{% if row.instance.pk %}<label class="label">{{ row.DELETE }} حذف</label>{% endif %}</div>
+            <div class="field"><label class="label">{{ row.DELETE }} حذف</label></div>
           </div>
         {% endfor %}
+        <template id="social-link-empty-form">
+          <div class="pf-social-row">
+            {{ socials.empty_form.id }}
+            <div class="field">{{ socials.empty_form.platform }}</div>
+            <div class="field">{{ socials.empty_form.url }}</div>
+            <div class="field"><label class="label">{{ socials.empty_form.DELETE }} حذف</label></div>
+          </div>
+        </template>
+        <div class="pf-actions" style="justify-content:flex-start;margin-top:1rem">
+          <button class="btn btn-soft" type="button" id="add-social-link-btn">إضافة رابط</button>
+        </div>
         <p class="hint">اترك أي صف فارغاً لتجاهله — وحدّد مربع الحذف لإزالة رابط موجود.</p>
       </section>
 
@@ -125,13 +137,24 @@
 
 {% block scripts %}
   {{ block.super }}
+  <script defer src="{% static_v 'js/profile-edit.js' %}"></script>
   <script>
     (function(){
+      const specialization = document.getElementById('id_student_specialization');
+      const specializationCount = document.getElementById('specialization-count');
+      if (specialization && specializationCount) {
+        function updateSpecializationCount() {
+          specializationCount.textContent = specialization.value.length + '/30 حرفاً';
+          specializationCount.classList.toggle('error', specialization.value.length > 30);
+        }
+        specialization.addEventListener('input', updateSpecializationCount);
+        updateSpecializationCount();
+      }
+
       const addBtn = document.getElementById('add-skill-btn');
       const list = document.getElementById('skills-list');
       const countInput = document.querySelector('input[name="skills_count"]');
-      if (!addBtn || !list) return;
-      addBtn.addEventListener('click', function(){
+      if (addBtn && list && countInput) addBtn.addEventListener('click', function(){
         let count = parseInt(countInput.value || '0') + 1;
         if (count > 8) return;
         const idx = count;
@@ -156,8 +179,155 @@
         }
       });
       // initial state on page load
-      if (parseInt(countInput.value || '0') >= 8) {
+      if (addBtn && countInput && parseInt(countInput.value || '0') >= 8) {
         addBtn.disabled = true;
+      }
+
+      const addSocialBtn = document.getElementById('add-social-link-btn');
+      const socialTemplate = document.getElementById('social-link-empty-form');
+      const socialTotal = document.querySelector('input[name="socials-TOTAL_FORMS"]');
+      const socialForm = document.querySelector('.pf-form');
+      const initialSocialSelect = document.querySelector('.pf-social-row select');
+      const allSocialPlatforms = initialSocialSelect
+        ? Array.from(initialSocialSelect.options).map(function(option) {
+          return { value: option.value, label: option.textContent };
+        })
+        : [];
+      function refreshSocialPlatformOptions() {
+        const selects = Array.from(document.querySelectorAll('.pf-social-row select'));
+        const activeSelects = selects.filter(function(select) {
+          const deletion = select.closest('.pf-social-row').querySelector('input[type="checkbox"]');
+          return !deletion || !deletion.checked;
+        });
+        const selectedPlatforms = new Set(activeSelects.map(function(select) {
+          return select.value;
+        }).filter(Boolean));
+        selects.forEach(function(select) {
+          const current = select.value;
+          const usedByOthers = new Set(activeSelects.filter(function(other) {
+            return other !== select && other.value;
+          }).map(function(other) { return other.value; }));
+          while (select.firstChild) select.removeChild(select.firstChild);
+          allSocialPlatforms.forEach(function(platform) {
+            if (platform.value && usedByOthers.has(platform.value) && platform.value !== current) return;
+            const option = document.createElement('option');
+            option.value = platform.value;
+            option.textContent = platform.label;
+            select.appendChild(option);
+          });
+          select.value = current;
+          let picker = select.closest('[data-platform-picker]');
+          if (!picker) {
+            picker = document.createElement('div');
+            picker.className = 'social-platform-picker';
+            picker.dataset.platformPicker = '';
+            const trigger = document.createElement('button');
+            trigger.className = 'social-platform-picker-trigger';
+            trigger.type = 'button';
+            trigger.dataset.platformTrigger = '';
+            trigger.setAttribute('aria-haspopup', 'listbox');
+            trigger.setAttribute('aria-expanded', 'false');
+            const menu = document.createElement('div');
+            menu.className = 'social-platform-picker-menu';
+            menu.setAttribute('role', 'listbox');
+            menu.setAttribute('aria-label', 'المنصات');
+            select.before(picker);
+            picker.append(trigger, menu, select);
+          }
+          const currentPlatform = allSocialPlatforms.find(function(platform) {
+            return platform.value === current;
+          });
+          const trigger = picker.querySelector('[data-platform-trigger]');
+          trigger.setAttribute('aria-label', currentPlatform
+            ? 'المنصة المختارة: ' + currentPlatform.label
+            : 'اختر المنصة');
+          trigger.innerHTML = (current && window.UI
+            ? window.UI.socialPlatformLogo(current)
+            : window.UI.icon('globe', 18)) + window.UI.icon('chevron-down', 12);
+          picker.querySelector('.social-platform-picker-menu').innerHTML =
+            allSocialPlatforms.filter(function(platform) {
+              return platform.value && (!usedByOthers.has(platform.value) || platform.value === current);
+            }).map(function(platform) {
+              return '<button class="social-platform-picker-option" type="button" role="option" data-platform-option="' +
+                platform.value + '" aria-label="' + platform.label + '" title="' + platform.label +
+                '" aria-selected="' + (platform.value === current ? 'true' : 'false') + '">' +
+                window.UI.socialPlatformLogo(platform.value) + '</button>';
+            }).join('');
+        });
+        const selectablePlatforms = allSocialPlatforms.filter(function(platform) {
+          return platform.value;
+        }).length;
+        if (addSocialBtn) addSocialBtn.disabled = selectedPlatforms.size >= selectablePlatforms;
+      }
+      document.querySelectorAll('.pf-social-row select').forEach(function(select) {
+        select.classList.add('input', 'select');
+      });
+      document.querySelectorAll('.pf-social-row input[type="url"]').forEach(function(input) {
+        input.classList.add('input');
+        input.dir = 'ltr';
+      });
+      if (socialForm) socialForm.addEventListener('change', function(event) {
+        if (event.target.matches('.pf-social-row select, .pf-social-row input[type="checkbox"]')) {
+          refreshSocialPlatformOptions();
+        }
+      });
+      if (socialForm) socialForm.addEventListener('click', function(event) {
+        const option = event.target.closest('[data-platform-option]');
+        if (option) {
+          const picker = option.closest('[data-platform-picker]');
+          const select = picker.querySelector('select');
+          select.value = option.dataset.platformOption;
+          picker.classList.remove('is-open');
+          const trigger = picker.querySelector('[data-platform-trigger]');
+          trigger.setAttribute('aria-expanded', 'false');
+          trigger.focus();
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+          return;
+        }
+        const trigger = event.target.closest('[data-platform-trigger]');
+        if (!trigger) return;
+        const picker = trigger.closest('[data-platform-picker]');
+        const shouldOpen = !picker.classList.contains('is-open');
+        socialForm.querySelectorAll('[data-platform-picker].is-open').forEach(function(openPicker) {
+          openPicker.classList.remove('is-open');
+          openPicker.querySelector('[data-platform-trigger]').setAttribute('aria-expanded', 'false');
+        });
+        picker.classList.toggle('is-open', shouldOpen);
+        trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+      });
+      document.addEventListener('click', function(event) {
+        if (event.target.closest('[data-platform-picker]')) return;
+        document.querySelectorAll('.pf-social-row [data-platform-picker].is-open').forEach(function(picker) {
+          picker.classList.remove('is-open');
+          picker.querySelector('[data-platform-trigger]').setAttribute('aria-expanded', 'false');
+        });
+      });
+      document.addEventListener('keydown', function(event) {
+        if (event.key !== 'Escape') return;
+        const picker = document.querySelector('.pf-social-row [data-platform-picker].is-open');
+        if (!picker) return;
+        picker.classList.remove('is-open');
+        const trigger = picker.querySelector('[data-platform-trigger]');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.focus();
+      });
+      document.addEventListener('DOMContentLoaded', refreshSocialPlatformOptions);
+      if (addSocialBtn && socialTemplate && socialTotal) {
+        addSocialBtn.addEventListener('click', function(){
+          const index = parseInt(socialTotal.value || '0', 10);
+          const row = document.createElement('div');
+          row.innerHTML = socialTemplate.innerHTML.replace(/__prefix__/g, String(index));
+          const newRow = row.firstElementChild;
+          newRow.querySelector('select').classList.add('input', 'select');
+          const urlInput = newRow.querySelector('input[type="url"]');
+          if (urlInput) {
+            urlInput.classList.add('input');
+            urlInput.dir = 'ltr';
+          }
+          socialTemplate.before(newRow);
+          socialTotal.value = String(index + 1);
+          refreshSocialPlatformOptions();
+        });
       }
     })();
   </script>

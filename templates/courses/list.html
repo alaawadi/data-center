@@ -6,7 +6,7 @@
 {% block body_attrs %}data-page="all-courses"{% endblock %}
 
 {% block hero %}
-  {% include "partials/hero_banner.html" with hero_crumb="الدورات" hero_badge=online_courses_badge hero_badge_inline=True hero_title="الدورات التدريبية المعتمدة" hero_sub="شهادات احترافية معتمدة في مختلف المجالات — تعلّم من خبراء واحصل على شهادتك بعد إتمام كل دورة." hero_cta_template="partials/hero_cta_courses.html" %}
+  {% include "partials/hero_banner.html" with hero_crumb="الدورات" hero_badge=online_courses_badge hero_badge_inline=True hero_title="الدورات التدريبية المعتمدة" hero_sub="شهادات احترافية معتمدة في مختلف المجالات — تعلّم من خبراء واحصل على شهادتك بعد إتمام كل دورة." %}
 {% endblock %}
 {% block listing_tools %}
   {% if can_reorder_courses %}

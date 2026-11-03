@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
+from unittest.mock import patch
 
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -44,6 +45,7 @@ from .models import (
     WorkshopAttendance,
     WorkshopCertificate,
 )
+from .subscriptions import add_calendar_months
 
 
 def _payload(**kwargs):
@@ -153,6 +155,22 @@ class CoursePermissionsTests(TestCase):
         )
         self.assertEqual(publish_response.status_code, 403)
         self.assertEqual(publish_response.json()['error'], 'content_creation_disabled')
+        self.assertEqual(
+            self.client.get(reverse('courses:edit', kwargs={'pk': draft.slug})).status_code,
+            403,
+        )
+        discard_response = self.client.post(
+            reverse('courses:discard-changes'),
+            data=json.dumps({'id': draft.slug}),
+            content_type='application/json',
+        )
+        self.assertEqual(discard_response.status_code, 403)
+        delete_response = self.client.post(
+            self.delete_url,
+            data=json.dumps({'id': draft.slug}),
+            content_type='application/json',
+        )
+        self.assertEqual(delete_response.status_code, 403)
         draft.refresh_from_db()
         self.assertEqual(draft.status, CourseStatus.DRAFT)
 
@@ -174,6 +192,23 @@ class CoursePermissionsTests(TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.json()['error'], 'title_required')
         self.assertFalse(Course.objects.exists())
+
+    def test_new_course_defaults_to_inactive_and_stays_in_trainer_profile(self):
+        payload = _payload()
+        payload.pop('status')
+
+        response = self._post(payload, self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(owner=self.trainer)
+        self.assertEqual(course.status, CourseStatus.DRAFT)
+
+        public_courses = self.client.get(reverse('courses:list')).context['courses_json']
+        self.assertNotIn(course.slug, [item['id'] for item in public_courses])
+
+        trainer_profile = self.client.get(reverse('portfolio:home'))
+        trainer_courses = trainer_profile.context['my_courses_json']
+        self.assertIn(course.slug, [item['id'] for item in trainer_courses])
 
     def test_trainer_creates_course_with_syllabus(self):
         res = self._post(_payload(trainerId=str(self.other_trainer.pk)), self.trainer)
@@ -201,7 +236,7 @@ class CoursePermissionsTests(TestCase):
         self.assertTrue(lesson.is_free)
         self.assertEqual(lesson.video_url, 'https://example.com/v1.mp4')
 
-    def test_trainer_course_type_is_always_online_on_creation(self):
+    def test_trainer_can_create_profile_only_inperson_course(self):
         response = self._post(
             _payload(status='draft', courseType=CourseType.IN_PERSON),
             self.trainer,
@@ -209,8 +244,9 @@ class CoursePermissionsTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         course = Course.objects.get(slug=response.json()['id'])
-        self.assertEqual(course.course_type, CourseType.ONLINE)
-        self.assertEqual(course.to_public_dict()['courseType'], CourseType.ONLINE)
+        self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertTrue(course.profile_only)
+        self.assertEqual(course.to_public_dict()['courseType'], CourseType.IN_PERSON)
 
     def test_course_currency_is_saved_and_formatted(self):
         response = self._post(
@@ -233,11 +269,12 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(response.json()['error'], 'invalid_currency')
         self.assertFalse(Course.objects.exists())
 
-    def test_trainer_cannot_change_existing_course_type(self):
+    def test_trainer_can_change_existing_course_type_and_profile_visibility(self):
         course = Course.objects.create(
             owner=self.trainer,
             title='دورة وجاهية',
             course_type=CourseType.IN_PERSON,
+            profile_only=True,
         )
 
         response = self._post(
@@ -247,7 +284,8 @@ class CoursePermissionsTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         course.refresh_from_db()
-        self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertEqual(course.course_type, CourseType.ONLINE)
+        self.assertFalse(course.profile_only)
 
     def test_admin_can_create_course_and_assign_it_to_a_trainer(self):
         res = self._post(_payload(trainerId=str(self.other_trainer.pk)), self.admin)
@@ -269,6 +307,7 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         course = Course.objects.get(slug=response.json()['id'])
         self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertFalse(course.profile_only)
 
     def test_admin_can_update_course_and_reassign_it_to_another_trainer(self):
         course = Course.objects.create(owner=self.trainer, title='دورة قائمة')
@@ -1124,6 +1163,37 @@ class CoursePageTests(TestCase):
         finally:
             profile.avatar.delete(save=False)
 
+    def test_related_courses_match_course_type_and_include_coming_soon(self):
+        online_coming_soon = Course.objects.create(
+            owner=self.other_trainer,
+            title='دورة أونلاين قريبًا',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.ONLINE,
+            is_coming_soon=True,
+        )
+        inperson_course = Course.objects.create(
+            owner=self.other_trainer,
+            title='دورة وجاهية مشابهة',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+        )
+
+        online_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        online_related = online_response.context['courses_json'][1:]
+        self.assertIn(online_coming_soon.slug, [course['id'] for course in online_related])
+        self.assertNotIn(inperson_course.slug, [course['id'] for course in online_related])
+        self.assertTrue(all(course['courseType'] == CourseType.ONLINE for course in online_related))
+
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        inperson_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        inperson_related = inperson_response.context['courses_json'][1:]
+        self.assertEqual([course['id'] for course in inperson_related], [inperson_course.slug])
+
     def test_inperson_detail_page_payload_identifies_course_type_and_learning_skills(self):
         self.published.course_type = CourseType.IN_PERSON
         self.published.skills = ['التصوير', 'الإضاءة']
@@ -1137,6 +1207,8 @@ class CoursePageTests(TestCase):
         payload = response.context['courses_json'][0]
         self.assertEqual(payload['courseType'], CourseType.IN_PERSON)
         self.assertEqual(payload['skills'], ['التصوير', 'الإضاءة'])
+        self.assertIn(('+970', '🇵🇸 +970'), response.context['country_calling_code_choices'])
+        self.assertContains(response, 'id="country-calling-code-choices"')
 
     def test_inperson_share_link_is_created_only_for_logged_in_students(self):
         self.published.course_type = CourseType.IN_PERSON
@@ -1181,7 +1253,7 @@ class CoursePageTests(TestCase):
             registration_url,
             data=json.dumps({
                 'fullName': 'محمد أحمد علي',
-                'phone': '+970123456789',
+                'phone': '+970561234567',
                 'address': 'غزة - الرمال',
                 'specialty': 'علوم الحاسوب',
                 'governorate': 'gaza',
@@ -1211,7 +1283,7 @@ class CoursePageTests(TestCase):
             reverse('courses:registration-request', kwargs={'pk': self.published.slug}),
             data=json.dumps({
                 'fullName': 'محمد أحمد علي',
-                'phone': '+970123456789',
+                'phone': '+970561234567',
                 'address': 'غزة - الرمال',
                 'specialty': 'علوم الحاسوب',
                 'governorate': 'gaza',
@@ -1232,7 +1304,7 @@ class CoursePageTests(TestCase):
         url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
         payload = {
             'fullName': 'محمد أحمد علي',
-            'phone': '+970123456789',
+            'phone': '+970561234567',
             'address': 'غزة - الرمال',
             'specialty': 'علوم الحاسوب',
             'governorate': 'gaza',
@@ -1249,7 +1321,7 @@ class CoursePageTests(TestCase):
                 registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
                 self.assertEqual(registration.full_name, full_name)
                 self.assertEqual(registration.course, self.published)
-                self.assertEqual(registration.phone, '+970123456789')
+                self.assertEqual(registration.phone, '+970561234567')
                 self.assertEqual(registration.address, 'غزة - الرمال')
                 self.assertEqual(registration.specialty, 'علوم الحاسوب')
                 self.assertEqual(registration.governorate, 'gaza')
@@ -1257,7 +1329,76 @@ class CoursePageTests(TestCase):
                 self.assertEqual(registration.student_status, '')
                 self.assertEqual(registration.status, CourseRegistrationRequestStatus.NEW)
 
-    def test_inperson_registration_request_accepts_supported_phone_formats(self):
+    @patch('courses.views.rate_limited', return_value=False)
+    def test_inperson_registration_request_accepts_graduate_without_address(self, _rate_limited):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        response = self.client.post(
+            reverse('courses:registration-request', kwargs={'pk': self.published.slug}),
+            data=json.dumps({
+                'fullName': 'محمد أحمد علي',
+                'phone': '+970561234567',
+                'specialty': 'علوم الحاسوب',
+                'governorate': 'gaza',
+                'studyYear': None,
+                'studentStatus': 'graduate',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
+        self.assertIsNone(registration.study_year)
+        self.assertEqual(registration.student_status, 'graduate')
+        self.assertEqual(registration.address, '')
+
+    @patch('courses.views.rate_limited', return_value=False)
+    def test_inperson_registration_request_allows_two_per_session_and_rejects_third(self, _rate_limited):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
+        payload = {
+            'fullName': 'محمد أحمد علي',
+            'phone': '+970561234567',
+            'specialty': 'علوم الحاسوب',
+            'governorate': 'gaza',
+            'studyYear': 2,
+            'studentStatus': 'student',
+        }
+
+        for expected_count in (1, 2):
+            response = self.client.post(
+                url,
+                data=json.dumps(payload),
+                content_type='application/json',
+            )
+            self.assertEqual(response.status_code, 201, response.content)
+            self.assertEqual(response.json()['count'], expected_count)
+            detail_response = self.client.get(
+                reverse('courses:detail', kwargs={'pk': self.published.slug})
+            )
+            self.assertEqual(
+                detail_response.context['course_registration_count'],
+                expected_count,
+            )
+
+        third_response = self.client.post(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(third_response.status_code, 409)
+        self.assertEqual(
+            third_response.json()['error'],
+            'registration_limit_reached',
+        )
+        self.assertEqual(third_response.json()['count'], 2)
+        self.assertEqual(CourseRegistrationRequest.objects.filter(
+            course=self.published
+        ).count(), 2)
+
+    @patch('courses.views.rate_limited', return_value=False)
+    def test_inperson_registration_request_accepts_supported_phone_formats(self, _rate_limited):
         self.published.course_type = CourseType.IN_PERSON
         self.published.save(update_fields=['course_type'])
         url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
@@ -1271,14 +1412,19 @@ class CoursePageTests(TestCase):
         }
 
         for phone in (
-            '970123456789',
-            '972123456789',
-            '+970123456789',
-            '+972123456789',
-            '0591234567',
+            '+970561234567',
+            '+972591234567',
+            '970561234567',
+            '972591234567',
             '0561234567',
+            '561234567',
+            '0591234567',
+            '591234567',
         ):
             with self.subTest(phone=phone):
+                session = self.client.session
+                session['course_registration_counts'] = {}
+                session.save()
                 response = self.client.post(
                     url,
                     data=json.dumps({**payload, 'phone': phone}),
@@ -1294,7 +1440,7 @@ class CoursePageTests(TestCase):
         url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
         payload = {
             'fullName': '',
-            'phone': '+970123456789',
+            'phone': '+970561234567',
             'address': 'غزة - الرمال',
             'specialty': 'علوم الحاسوب',
             'governorate': 'gaza',
@@ -1320,7 +1466,7 @@ class CoursePageTests(TestCase):
         url = reverse('courses:registration-request', kwargs={'pk': self.published.slug})
         valid_payload = {
             'fullName': 'محمد أحمد علي',
-            'phone': '+970123456789',
+            'phone': '+970561234567',
             'address': 'غزة',
             'specialty': 'علوم الحاسوب',
             'governorate': 'gaza',
@@ -1329,7 +1475,9 @@ class CoursePageTests(TestCase):
 
         for field, value, error in (
             ('fullName', 'محمد أحمد', 'invalid_full_name'),
-            ('phone', '97012345678', 'invalid_phone'),
+            ('phone', '056123456', 'invalid_phone'),
+            ('phone', '0571234567', 'invalid_phone'),
+            ('phone', '+12025550198', 'invalid_phone'),
             ('governorate', 'north', 'invalid_governorate'),
             ('studyYear', 1.5, 'invalid_study_year'),
             ('studentStatus', 'other', 'invalid_student_status'),
@@ -1361,10 +1509,52 @@ class CoursePageTests(TestCase):
 
         not_enrolled = self.client.get(url)
         self.assertFalse(not_enrolled.context['is_course_enrolled'])
+        self.assertFalse(not_enrolled.context['is_course_student_enrolled'])
+        self.assertContains(
+            not_enrolled,
+            '<script id="course-student-enrollment-data" type="application/json">false</script>',
+        )
 
         CourseProgress.objects.create(student=self.student, course=self.published)
         enrolled = self.client.get(url)
         self.assertTrue(enrolled.context['is_course_enrolled'])
+        self.assertTrue(enrolled.context['is_course_student_enrolled'])
+        self.assertContains(
+            enrolled,
+            '<script id="course-student-enrollment-data" type="application/json">true</script>',
+        )
+
+    def test_admin_course_enrollment_appears_in_student_active_courses_and_detail(self):
+        self.published.price = '120.00'
+        self.published.save(update_fields=['price'])
+        self.client.force_login(self.admin)
+        enrollment_response = self.client.post(
+            reverse('dashboard:course-students', kwargs={'pk': self.published.slug}),
+            data=json.dumps({'studentId': self.student.pk}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(enrollment_response.status_code, 201, enrollment_response.content)
+        self.assertTrue(
+            CourseProgress.objects.filter(
+                student=self.student,
+                course=self.published,
+                completed=False,
+            ).exists()
+        )
+
+        self.client.force_login(self.student)
+        portfolio_response = self.client.get(reverse('portfolio:home'))
+        self.assertEqual(
+            [course['id'] for course in portfolio_response.context['active_courses_json']],
+            [self.published.slug],
+        )
+
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        self.assertTrue(detail_response.context['is_course_enrolled'])
+        self.assertTrue(detail_response.context['is_course_student_enrolled'])
 
     def test_course_owner_trainer_can_start_without_enrollment(self):
         url = reverse('courses:detail', kwargs={'pk': self.published.slug})
@@ -1432,6 +1622,8 @@ class CoursePageTests(TestCase):
         self.client.force_login(self.trainer)
         create_response = self.client.get(reverse('courses:create'))
         self.assertEqual(create_response.status_code, 200)
+        self.assertTrue(create_response.context['can_select_course_type'])
+        self.assertContains(create_response, 'id="edCourseType"')
         self.assertEqual(create_response.context['training_categories_json'], [category.name])
         self.assertContains(create_response, 'id="edCurrency"')
         self.assertContains(create_response, '<option value="ILS">₪ شيكل</option>')
@@ -1443,7 +1635,11 @@ class CoursePageTests(TestCase):
         self.assertNotContains(create_response, 'placeholder="36"')
         self.assertNotContains(create_response, 'placeholder="12"')
         self.assertContains(create_response, 'id="edCategorySearch"')
-        self.assertNotContains(create_response, 'id="edCourseType"')
+        self.assertContains(create_response, 'id="edCourseType"')
+        self.assertContains(
+            create_response,
+            'name="courseTypeChoice" value="in_person"',
+        )
         self.assertContains(create_response, 'id="edCategoryOptions"')
         self.assertContains(create_response, 'id="edCategoryValidation"')
         self.assertNotContains(create_response, 'id="edGithub"')
@@ -1604,6 +1800,14 @@ class CourseProgressTests(TestCase):
         self.assertEqual(res.status_code, 302)
         self.assertEqual(CourseProgress.objects.count(), 0)
 
+    def test_online_enrollment_expires_after_two_calendar_months(self):
+        progress = CourseProgress.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+
+        self.assertEqual(progress.expires_at, add_calendar_months(progress.created_at))
+
     def test_paid_course_blocks_lesson_and_quiz_endpoints_until_enrolled(self):
         self.course.price = '₪150'
         self.course.save(update_fields=['price'])
@@ -1625,6 +1829,44 @@ class CourseProgressTests(TestCase):
         CourseProgress.objects.create(student=self.student, course=self.course)
         response = self._mark(self.lessons[0])
         self.assertEqual(response.status_code, 200)
+
+    def test_expired_online_subscription_hides_course_and_blocks_learning(self):
+        self.course.price = '₪150'
+        self.course.save(update_fields=['price'])
+        progress = CourseProgress.objects.create(
+            student=self.student,
+            course=self.course,
+        )
+        progress.expires_at = timezone.now() - timedelta(seconds=1)
+        progress.save(update_fields=['expires_at'])
+        self.client.force_login(self.student)
+
+        response = self._mark(self.lessons[0])
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error'], 'registration_required')
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.course.slug})
+        )
+        self.assertFalse(detail_response.context['is_course_enrolled'])
+        self.assertEqual(
+            self.client.get(self.playlist_url).status_code,
+            302,
+        )
+        portfolio_response = self.client.get(reverse('portfolio:home'))
+        self.assertNotIn(
+            self.course.slug,
+            [
+                course['id']
+                for course in portfolio_response.context['active_courses_json']
+            ],
+        )
+        self.assertTrue(
+            CourseProgress.objects.filter(
+                pk=progress.pk,
+                student=self.student,
+                course=self.course,
+            ).exists()
+        )
 
     def test_completion_creates_certificate_automatically(self):
         res = self._mark(self.lessons[0], user=self.student)
@@ -2132,6 +2374,19 @@ class CourseLinkedProjectTests(TestCase):
         self.lesson.refresh_from_db()
         self.assertIsNone(self.lesson.linked_project_id)
 
+    def test_syllabus_save_rejects_personal_project(self):
+        personal_project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع شخصي',
+            visibility='personal',
+            status=ProjectStatus.PUBLISHED,
+        )
+        self.client.force_login(self.trainer)
+        response = self._save_syllabus(personal_project.slug)
+        self.assertEqual(response.status_code, 200)
+        self.lesson.refresh_from_db()
+        self.assertIsNone(self.lesson.linked_project_id)
+
     def test_non_project_lesson_clears_link(self):
         self.lesson.linked_project = self.trainer_project
         self.lesson.save()
@@ -2168,6 +2423,12 @@ class CourseLinkedProjectTests(TestCase):
         self.assertEqual(lesson['project']['links']['github'], 'https://github.com/example/repo')
 
     def test_editor_injects_trainer_projects(self):
+        Project.objects.create(
+            owner=self.trainer,
+            title='مشروع شخصي',
+            visibility='personal',
+            status=ProjectStatus.PUBLISHED,
+        )
         self.client.force_login(self.trainer)
         res = self.client.get(reverse('courses:edit', kwargs={'pk': self.course.slug}))
         projects = res.context['trainer_projects_json']
@@ -2541,11 +2802,54 @@ class ManualCertificateReviewTests(TestCase):
         self.assertEqual(response.status_code, 201)
         certificate = ManualCertificate.objects.get(student=trainer)
         self.assertEqual(certificate.status, ManualCertificateStatus.PENDING)
+        self.assertFalse(certificate.is_active)
         self.assertEqual(response.json()['certificate']['status'], ManualCertificateStatus.PENDING)
+        self.assertFalse(response.json()['certificate']['active'])
+
+        public_profile = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': trainer.handle})
+        )
+        self.assertEqual(public_profile.context['profile_certs_json'], [])
+
         portfolio = self.client.get(reverse('portfolio:home'))
         self.assertEqual(
             portfolio.context['my_certs_json'][0]['status'],
             ManualCertificateStatus.PENDING,
+        )
+
+        admin = User.objects.create_user(
+            phone='059444004', password='pass1234', full_name='مدير شهادات المدرب',
+            role=UserRole.ADMIN,
+        )
+        self.client.force_login(admin)
+        admin_panel = self.client.get(reverse('dashboard:home'))
+        admin_certificates = admin_panel.context['admin_student_certificates_json']
+        admin_certificate = next(
+            item
+            for item in admin_certificates
+            if item['id'] == f'manual-{certificate.pk}'
+        )
+        self.assertEqual(admin_certificate['studentId'], str(trainer.pk))
+        self.assertFalse(admin_certificate['active'])
+        self.assertEqual(admin_certificate['reviewStatus'], ManualCertificateStatus.PENDING)
+
+        response = self.client.post(
+            reverse('dashboard:certificate-status', args=[f'manual-{certificate.pk}']),
+            data=json.dumps({'active': True}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        certificate.refresh_from_db()
+        self.assertTrue(certificate.is_active)
+        self.assertEqual(certificate.status, ManualCertificateStatus.APPROVED)
+        self.assertIsNotNone(certificate.reviewed_at)
+
+        public_profile = self.client.get(
+            reverse('accounts:profile', kwargs={'handle': trainer.handle})
+        )
+        self.assertEqual(
+            [item['id'] for item in public_profile.context['profile_certs_json']],
+            [f'manual-{certificate.pk}'],
         )
 
     def test_manual_certificate_requires_description_of_at_least_150_characters(self):

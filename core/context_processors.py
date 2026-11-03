@@ -3,7 +3,7 @@
 from django.db.models import Sum
 
 from courses.models import Course, CourseStatus, StudentPointTransaction, StudentReferralLink
-from users.models import UserRole
+from users.models import FreelancerCategory, UserRole
 
 from .models import PlatformSettings
 
@@ -54,8 +54,9 @@ DEFAULT_PLATFORM_SETTINGS = {
 }
 
 
-def get_platform_settings():
-    data = PlatformSettings.get_solo().data
+def get_platform_settings(data=None):
+    if data is None:
+        data = PlatformSettings.get_solo().data
     settings = {**DEFAULT_PLATFORM_SETTINGS, **(data if isinstance(data, dict) else {})}
     if not settings.get('homepageTitle'):
         settings['homepageTitle'] = DEFAULT_PLATFORM_SETTINGS['homepageTitle']
@@ -103,7 +104,9 @@ def site_chrome(request):
         'active_tab': active_tab,
         'is_landing': request.resolver_match.view_name == 'landing:home'
         if request.resolver_match else False,
-        'site_settings': get_platform_settings(),
+        'site_settings': get_platform_settings(
+            getattr(request, 'platform_settings_data', None)
+        ),
         'courses_sheet_json': [] if is_editor_fragment else [
             {
                 'id': course.slug or str(course.pk),
@@ -131,6 +134,12 @@ def server_profile(request):
     if profile is None:
         return {}
     data = profile.to_public_dict()
+    data['accountPhone'] = user.phone
+    data['freelancerCategories'] = list(
+        FreelancerCategory.objects.filter(is_active=True)
+        .order_by('display_order', 'name')
+        .values_list('name', flat=True)
+    )
     data['whatsapp'] = profile.whatsapp
     data['fullNameArabic'] = user.full_name_ar
     data['fullNameEnglish'] = user.full_name_en

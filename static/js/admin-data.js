@@ -138,7 +138,11 @@
   var adminWorkshops = [];
   var inpersonCohorts = [];
   var courseRegistrationRequests = [];
+  var onlineCourseInvoices = [];
+  var adminSubscriptions = [];
+  var adminCourseProgressHistory = [];
   var trainingCategories = [];
+  var freelancerCategories = [];
   var platformSettings = null;
   var platformSummary = {};
 
@@ -153,6 +157,10 @@
     var databaseCourses = coursesData ? JSON.parse(coursesData.textContent) : null;
     var courseProgressData = document.getElementById('admin-course-progress-data');
     var databaseCourseProgress = courseProgressData ? JSON.parse(courseProgressData.textContent) : null;
+    var courseProgressHistoryEl = document.getElementById('admin-course-progress-history-data');
+    adminCourseProgressHistory = courseProgressHistoryEl
+      ? JSON.parse(courseProgressHistoryEl.textContent)
+      : [];
     var adminProjectsEl = document.getElementById('admin-projects-data');
     adminProjects = adminProjectsEl ? JSON.parse(adminProjectsEl.textContent) : [];
     var studentCertificatesEl = document.getElementById('admin-student-certificates-data');
@@ -169,8 +177,16 @@
     courseRegistrationRequests = registrationRequestsEl
       ? JSON.parse(registrationRequestsEl.textContent)
       : [];
+    var onlineCourseInvoicesEl = document.getElementById('admin-online-course-invoices-data');
+    onlineCourseInvoices = onlineCourseInvoicesEl
+      ? JSON.parse(onlineCourseInvoicesEl.textContent)
+      : [];
+    var subscriptionsEl = document.getElementById('admin-subscriptions-data');
+    adminSubscriptions = subscriptionsEl ? JSON.parse(subscriptionsEl.textContent) : [];
     var trainingCategoriesEl = document.getElementById('admin-training-categories-data');
     trainingCategories = trainingCategoriesEl ? JSON.parse(trainingCategoriesEl.textContent) : [];
+    var freelancerCategoriesEl = document.getElementById('admin-freelancer-categories-data');
+    freelancerCategories = freelancerCategoriesEl ? JSON.parse(freelancerCategoriesEl.textContent) : [];
     var platformSettingsEl = document.getElementById('admin-platform-settings');
     platformSettings = platformSettingsEl ? JSON.parse(platformSettingsEl.textContent) : defaultSettings();
     var platformSummaryEl = document.getElementById('admin-settings-summary');
@@ -202,6 +218,7 @@
           courseId: progress.courseId,
           userId: 'db-user-' + progress.userId,
           joinedAt: progress.joinedAt,
+          expiresAt: progress.expiresAt || '',
           progress: progress.progress,
           completed: !!progress.completed,
           status: 'active'
@@ -397,7 +414,9 @@
   }
 
   function enrollments(courseId) {
-    var rows = Store.collection('enrollments');
+    var rows = Store.collection('enrollments').filter(function (enrollment) {
+      return !enrollment.expiresAt || Date.parse(enrollment.expiresAt) > Date.now();
+    });
     if (courseId) rows = rows.filter(function (en) { return en.courseId === courseId; });
     return rows.slice();
   }
@@ -485,7 +504,11 @@
     var posts = st.posts || [];
     var certs = st.certificates || [];
     var comments = 0, likes = 0, views = 0;
-    projects.forEach(function (p) { comments += (p.comments || []).length; likes += (p.likes || 0); views += (p.views || 0); });
+    projects.forEach(function (p) {
+      comments += p.commentsCount == null ? (p.comments || []).length : p.commentsCount;
+      likes += p.likes || 0;
+      views += p.views || 0;
+    });
     posts.forEach(function (p) { comments += (p.comments || []).length; likes += (p.likes || 0); views += (p.shares || 0); });
     var published = certs.filter(function (c) { return c.status !== 'draft'; }).length +
       projects.filter(function (p) { return p.status === 'published'; }).length +
@@ -592,6 +615,24 @@
     inPersonCohorts: function () {
       return Array.isArray(inpersonCohorts) ? inpersonCohorts.slice() : [];
     },
+    courseProgressHistory: function () {
+      return Array.isArray(adminCourseProgressHistory)
+        ? adminCourseProgressHistory.slice()
+        : [];
+    },
+    updateCourseProgressHistory: function (progress) {
+      if (!progress) return;
+      if (!Array.isArray(adminCourseProgressHistory)) adminCourseProgressHistory = [];
+      var index = adminCourseProgressHistory.findIndex(function (item) {
+        return String(item.id) === String(progress.id);
+      });
+      if (index === -1) adminCourseProgressHistory.push(progress);
+      else adminCourseProgressHistory[index] = Object.assign(
+        {},
+        adminCourseProgressHistory[index],
+        progress
+      );
+    },
     updateInPersonCohort: function (cohort) {
       if (!cohort) return;
       if (!Array.isArray(inpersonCohorts)) inpersonCohorts = [];
@@ -603,6 +644,36 @@
     },
     courseRegistrationRequests: function () {
       return Array.isArray(courseRegistrationRequests) ? courseRegistrationRequests.slice() : [];
+    },
+    inPersonSubscriptions: function () {
+      return courseRegistrationRequests.filter(function (request) {
+        return request.status === 'accepted';
+      }).slice();
+    },
+    onlineCourseInvoices: function () {
+      return Array.isArray(onlineCourseInvoices) ? onlineCourseInvoices.slice() : [];
+    },
+    subscriptions: function () {
+      return Array.isArray(adminSubscriptions) ? adminSubscriptions.slice() : [];
+    },
+    addSubscription: function (subscription) {
+      if (!Array.isArray(adminSubscriptions)) adminSubscriptions = [];
+      adminSubscriptions = adminSubscriptions.filter(function (item) {
+        return String(item.id) !== String(subscription.id);
+      });
+      adminSubscriptions.unshift(subscription);
+    },
+    addOnlineCourseInvoice: function (invoice) {
+      if (!Array.isArray(onlineCourseInvoices)) onlineCourseInvoices = [];
+      onlineCourseInvoices.unshift(invoice);
+    },
+    updateOnlineCourseInvoice: function (invoice) {
+      if (!Array.isArray(onlineCourseInvoices)) onlineCourseInvoices = [];
+      var index = onlineCourseInvoices.findIndex(function (item) {
+        return String(item.id) === String(invoice.id);
+      });
+      if (index === -1) onlineCourseInvoices.unshift(invoice);
+      else onlineCourseInvoices[index] = Object.assign({}, onlineCourseInvoices[index], invoice);
     },
     addCourseRegistrationRequest: function (request) {
       if (!Array.isArray(courseRegistrationRequests)) courseRegistrationRequests = [];
@@ -625,6 +696,12 @@
     },
     setTrainingCategories: function (categories) {
       trainingCategories = Array.isArray(categories) ? categories.slice() : [];
+    },
+    freelancerCategories: function () {
+      return Array.isArray(freelancerCategories) ? freelancerCategories.slice() : [];
+    },
+    setFreelancerCategories: function (categories) {
+      freelancerCategories = Array.isArray(categories) ? categories.slice() : [];
     },
     updateWorkshop: function (workshop) {
       if (!Array.isArray(adminWorkshops)) adminWorkshops = [];

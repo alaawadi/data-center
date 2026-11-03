@@ -13,6 +13,11 @@ urlpatterns = [
     path('privacy/', views.PrivacyView.as_view(), name='privacy'),
     path('signup/verify/', views.verify_signup_disabled, name='verify-signup'),
     path('phone-available/', views.check_phone_ajax, name='phone-check'),
+    path(
+        'profile/whatsapp-available/',
+        views.check_profile_whatsapp_ajax,
+        name='profile-whatsapp-check',
+    ),
     path('logout/', views.LogoutView.as_view(), name='logout'),
     path('profile/edit/', views.ProfileUpdateView.as_view(), name='profile-edit'),
     path('profile/update/', views.profile_update_ajax, name='profile-update'),

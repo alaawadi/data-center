@@ -255,10 +255,22 @@
     inperson.innerHTML = inpersonCourseItems.length
       ? inpersonCourseItems.map(function (course) { return renderCourseCard(course, true); }).join('')
       : '<p class="course-tab-empty">لا توجد دورات وجاهية حالياً.</p>';
+    var countDataEl = $('#landing-online-courses-count');
+    var courseCount = courseItems.length;
+    if (countDataEl) {
+      try {
+        var parsedCount = JSON.parse(countDataEl.textContent);
+        if (typeof parsedCount === 'number' && isFinite(parsedCount) && parsedCount >= 0) {
+          courseCount = parsedCount;
+        }
+      } catch (error) {
+        console.error('Could not read landing course count.', error);
+      }
+    }
     var count = $('#online-courses-count');
     var moreLink = $('#online-courses-more');
-    if (count) count.textContent = courseItems.length + ' دورة أونلاين';
-    if (moreLink) moreLink.setAttribute('aria-label', 'عرض جميع الدورات الأونلاين، العدد ' + courseItems.length);
+    if (count) count.textContent = courseCount + ' دورة أونلاين';
+    if (moreLink) moreLink.setAttribute('aria-label', 'عرض جميع الدورات الأونلاين، العدد ' + courseCount);
   }
 
   function initCourseTabs() {

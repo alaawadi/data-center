@@ -107,7 +107,8 @@ class HomePageTests(TestCase):
         response = self.client.get(reverse('landing:home'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'id="courses-data"')
+        self.assertNotContains(response, 'id="courses-data"')
+        self.assertContains(response, 'id="landing-courses-data"')
         self.assertContains(response, 'id="courses-sheet-data"')
         titles = [course['title'] for course in response.context['courses_json']]
         self.assertEqual(titles, [published.title])
@@ -116,6 +117,31 @@ class HomePageTests(TestCase):
         sheet_titles = [course['title'] for course in response.context['courses_sheet_json']]
         self.assertEqual(sheet_titles, [published.title])
         self.assertNotIn('syllabus', response.context['courses_sheet_json'][0])
+
+    def test_homepage_sends_only_card_fields_for_the_visible_course_cards(self):
+        trainer = get_user_model().objects.create_user(
+            phone='059444401',
+            password='pass1234',
+            full_name='مدرب بطاقات الصفحة الرئيسية',
+            role=UserRole.TRAINER,
+        )
+        for index in range(8):
+            Course.objects.create(
+                owner=trainer,
+                title=f'دورة الصفحة الرئيسية {index}',
+                status=CourseStatus.PUBLISHED,
+            )
+
+        response = self.client.get(reverse('landing:home'))
+
+        self.assertEqual(len(response.context['courses_json']), 8)
+        self.assertEqual(len(response.context['landing_courses_json']), 6)
+        self.assertEqual(response.context['online_courses_count'], 8)
+        self.assertEqual(
+            set(response.context['landing_courses_json'][0]),
+            {'id', 'image', 'price', 'title', 'duration', 'period'},
+        )
+        self.assertContains(response, '"landing-online-courses-count"')
 
     def test_homepage_does_not_render_the_in_person_workshops_tab(self):
         InPersonWorkshop.objects.create(
@@ -152,6 +178,13 @@ class HomePageTests(TestCase):
             status=CourseStatus.PUBLISHED,
             course_type=CourseType.IN_PERSON,
         )
+        profile_only_course = Course.objects.create(
+            owner=trainer,
+            title='دورة وجاهية للبروفايل فقط',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+            profile_only=True,
+        )
 
         homepage = self.client.get(reverse('landing:home'))
         all_courses = self.client.get(reverse('courses:list'))
@@ -163,6 +196,10 @@ class HomePageTests(TestCase):
         self.assertEqual(
             [course['id'] for course in homepage.context['inperson_courses_json']],
             [inperson_course.slug],
+        )
+        self.assertNotIn(
+            profile_only_course.slug,
+            [course['id'] for course in homepage.context['inperson_courses_json']],
         )
         self.assertContains(homepage, 'id="landing-inperson-courses-data"')
         self.assertContains(homepage, 'id="inperson-courses-container"')

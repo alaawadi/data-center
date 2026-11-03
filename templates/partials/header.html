@@ -17,11 +17,11 @@
 
         <div class="icons">
           {% if user.is_authenticated %}
-          <button type="button" id="account-btn" class="i-account" title="خيارات الحساب" aria-label="خيارات الحساب" aria-haspopup="dialog" aria-expanded="false" data-account-initial="{% if server_profile.name %}{{ server_profile.name|slice:':1' }}{% else %}{{ user.display_name|slice:':1' }}{% endif %}">
+          <button type="button" id="account-btn" class="i-account" title="خيارات الحساب" aria-label="خيارات الحساب" aria-haspopup="dialog" aria-expanded="false" data-account-initial="{{ server_profile.name|default:user.display_name|truncatewords:1|slice:':1' }}">
             {% if server_profile.avatar %}
             <img class="account-av" src="{{ server_profile.avatar }}" alt="" width="34" height="34">
             {% else %}
-            <span class="account-initial" aria-hidden="true">{% if server_profile.name %}{{ server_profile.name|slice:':1' }}{% else %}{{ user.display_name|slice:':1' }}{% endif %}</span>
+            <span class="account-initial" aria-hidden="true">{{ server_profile.name|default:user.display_name|truncatewords:1|slice:':1' }}</span>
             {% endif %}
           </button>
           {% else %}

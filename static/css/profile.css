@@ -1,1 +1,14 @@
 .skills-list .field { margin-bottom: 10px; }
+.pf-social-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.pf-social-row .field { min-width: 0; margin-bottom: 0; }
+.pf-social-row .field:first-of-type { width: 48px; }
+.pf-social-row .field:nth-of-type(2) { min-width: 0; }
+
+@media (max-width: 600px) {
+  .pf-social-row { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 8px; }
+}

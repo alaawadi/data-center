@@ -59,7 +59,7 @@
   function renderUserProfileHeader(p, selfProfile) {
     var host = document.getElementById('profileHost');
     if (!host) return;
-    var avatar = p.avatar || UI.initialsAvatar(p.name || p.handle, 280);
+    var avatar = p.avatar || UI.profileAvatarFallback(p.name || p.handle, 280);
 
     host.innerHTML =
       '<a class="detail-back" href="' + e(profileBackUrl()) + '">' + UI.icon(document.documentElement.dir === 'rtl' ? 'arrow-right' : 'arrow-left', 16) + e(t('back')) + '</a>' +
@@ -68,9 +68,6 @@
       '<div class="profile-banner"' + (p.cover ? ' style="background-image:url(\'' + e(p.cover) + '\')"' : '') + '>' +
       '<span class="bub" style="width:160px;height:160px;top:-60px;inset-inline-end:12%"></span>' +
       '<span class="bub" style="width:90px;height:90px;bottom:-30px;inset-inline-start:18%"></span>' +
-      (p.isTrainer && p.whatsapp
-        ? '<button class="btn btn-primary profile-banner-contact" type="button" data-act="trainer-whatsapp" data-phone="' + e(p.whatsapp) + '">' + UI.icon('whatsapp', 16) + ' تواصل معي</button>'
-        : '') +
       '</div>' +
       '<div class="profile-body">' +
       '<div class="profile-top">' +
@@ -83,12 +80,13 @@
       '</div>' +
       '</div>' +
       (p.bio ? '<p class="bio">' + e(p.bio) + '</p>' : '') +
-      '<div class="profile-meta">' +
-      (p.website ? '<a class="pm" data-act="open-profile-website" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
-      (p.email ? '<span class="pm profile-email">' + UI.icon('message-circle', 14) + e(p.email) +
-        '<button class="profile-email-copy" type="button" data-act="copy-profile-email" data-email="' + e(p.email) +
-        '" title="' + e(t('copyEmail')) + '" aria-label="' + e(t('copyEmail')) + '">' + UI.icon('copy', 14) + '</button></span>' : '') +
-      '</div></div>' +
+      (p.website
+        ? '<div class="profile-meta"><a class="pm" data-act="open-profile-website" href="https://' +
+          e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' +
+          UI.icon('link', 14) + e(p.website) + '</a></div>'
+        : '') +
+      UI.socialLinksHTML(p.social_links || p.socials) +
+      '</div>' +
       (p.showReferralStats === true && typeof p.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
           '<div class="referral-stat referral-stat-points">' +
@@ -165,6 +163,12 @@
         label: isTrainerProfile ? 'statTrainerCourses' : 'studentProfileCertificates',
         icon: isTrainerProfile ? 'graduation-cap' : 'award'
       });
+    if (userCounts.reviewedCerts > 0) tabs.push({
+      id: 'reviewed-certificates',
+      count: userCounts.reviewedCerts,
+      label: 'studentProfileCertificates',
+      icon: 'award'
+    });
     if (userCounts.projs > 0) tabs.push({
       id: 'projects',
       count: userCounts.projs,
@@ -200,6 +204,7 @@
     var profileReturn = location.pathname + location.search + location.hash;
 
     var certHost = document.getElementById('panel-certificates');
+    var reviewedCertHost = document.getElementById('panel-reviewed-certificates');
     var projHost = document.getElementById('panel-projects');
     var savedHost = document.getElementById('panel-saved');
 
@@ -207,12 +212,21 @@
       if (isTrainerProfile) {
         /* بروفايل مدرب: نعرض دوراته هو فقط بدل الشهادات */
         certHost.innerHTML = certs.length
-          ? '<div class="card-grid profile-course-grid">' + certs.map(function (c) {
-              return window.AppPage ? AppPage.certCard(c, {
+          ? '<div class="card-grid profile-course-grid' +
+            (certs.some(function (course) {
+              return course.courseType === 'in_person' && course.status === 'published';
+            }) ? ' profile-inperson-course-grid' : '') + '">' + certs.map(function (course) {
+              if (!window.AppPage) return '';
+              if (course.courseType === 'in_person' && course.status === 'published') {
+                return AppPage.inPersonCourseCard(course, { returnTo: profileReturn });
+              }
+              return AppPage.certCard(course, {
                 course: true,
+                profileInactiveCourse: course.status !== 'published',
+                viewOnly: true,
                 from: 'all-users',
                 returnTo: profileReturn
-              }) : '';
+              });
             }).join('') + '</div>'
           : UI.emptyState('graduation-cap', t('trainerCoursesEmpty'), '', '');
       } else {
@@ -224,6 +238,17 @@
               return AppPage.certCard(c, c.earned
                 ? { returnTo: profileReturn, imageOnly: true }
                 : { course: true, from: 'all-users', returnTo: profileReturn });
+            }).join('') + '</div>'
+          : UI.emptyState('award', t('certEmpty'), '', '');
+      }
+
+      if (reviewedCertHost) {
+        var reviewedCerts = items.reviewedCerts || [];
+        reviewedCertHost.innerHTML = reviewedCerts.length
+          ? '<div class="card-grid profile-certificate-grid">' + reviewedCerts.map(function (certificate) {
+              return window.AppPage
+                ? AppPage.certCard(certificate, { manualImage: true })
+                : '';
             }).join('') + '</div>'
           : UI.emptyState('award', t('certEmpty'), '', '');
       }
@@ -257,6 +282,7 @@
   function setTab(id) {
     if (id === 'saved' && !isSelfProfile) return;
     if (id === 'certificates' && !userCounts.certs) return;
+    if (id === 'reviewed-certificates' && !userCounts.reviewedCerts) return;
     if (id === 'projects' && !userCounts.projs) return;
     activeTab = id;
     document.querySelectorAll('.panel').forEach(function (el) {
@@ -302,7 +328,7 @@
           bio: u.bio || '',
           location: u.location || '',
           website: u.website || '',
-          email: u.email || '',
+          social_links: u.social_links || u.socials || {},
           joined: u.joined || '',
           certificates: 0,
           projects: 0,
@@ -316,7 +342,8 @@
       if (!r.bio && u.bio) r.bio = u.bio;
       if (!r.location && u.location) r.location = u.location;
       if (!r.website && u.website) r.website = u.website;
-      if (!r.email && u.email) r.email = u.email;
+      if ((!r.social_links || !Object.keys(r.social_links).length) &&
+          (u.social_links || u.socials)) r.social_links = u.social_links || u.socials;
       if (!r.joined && u.joined) r.joined = u.joined;
       if (!r.name && (u.name || u.author)) r.name = u.name || u.author;
       if (u.verified) r.verified = true;
@@ -332,9 +359,7 @@
     }
 
     if (prof) add(prof);
-    var postsAll = window.Store && Store.collection ? Store.collection('posts') : [];
-    postsAll.forEach(add);
-    scan(postsAll);
+    if (EMBEDDED_PROFILE) add(EMBEDDED_PROFILE);
     scan(window.Store && Store.collection ? Store.collection('certificates') : []);
     scan(window.Store && Store.collection ? Store.collection('projects') : []);
 
@@ -343,7 +368,7 @@
     var self = !!(prof && prof.handle && keyProf === kUser);
     isSelfProfile = self;
     var tabFromHash = (location.hash || '').slice(1);
-    if (tabFromHash === 'projects') {
+    if (tabFromHash === 'projects' || tabFromHash === 'reviewed-certificates') {
       activeTab = tabFromHash;
     }
 
@@ -359,15 +384,6 @@
       var k = (p && p.handle ? String(p.handle).toLowerCase() : keyProf);
       if (k && map[k]) map[k].projects++;
     });
-    postsAll.forEach(function (p) {
-      if (p && p.status === 'draft' && !self) return;
-      var k = (p && p.handle ? String(p.handle).toLowerCase() : keyProf);
-      if (k && map[k]) {
-        map[k].posts++;
-        map[k].likes += (p.likes || 0);
-      }
-    });
-
     var user = map[kUser];
     if (EMBEDDED_PROFILE && EMBEDDED_PROFILE.handle && String(EMBEDDED_PROFILE.handle).toLowerCase() === kUser) {
       user = Object.assign({}, user || {}, {
@@ -380,8 +396,9 @@
         skills: EMBEDDED_PROFILE.skills,
         location: EMBEDDED_PROFILE.location,
         website: EMBEDDED_PROFILE.website,
-        email: EMBEDDED_PROFILE.email,
+        social_links: EMBEDDED_PROFILE.social_links || {},
         whatsapp: EMBEDDED_PROFILE.whatsapp,
+        accountPhone: EMBEDDED_PROFILE.accountPhone,
         joined: EMBEDDED_PROFILE.joined,
         adminTargetUserId: EMBEDDED_PROFILE.adminTargetUserId,
         fullNameArabic: EMBEDDED_PROFILE.fullNameArabic,
@@ -402,7 +419,11 @@
 
     /* هل صاحب البروفايل مدرب؟ عندها يُستبدل قسم الشهادات بقسم «الدورات التدريبية» */
     isTrainerProfile = !!(EMBEDDED_PROFILE && (EMBEDDED_PROFILE.isTrainer || EMBEDDED_PROFILE.roleKey === 'trainer'));
-    if (isTrainerProfile && tabFromHash !== 'projects') {
+    if (
+      isTrainerProfile &&
+      tabFromHash !== 'projects' &&
+      tabFromHash !== 'reviewed-certificates'
+    ) {
       activeTab = 'certificates';
     }
 
@@ -411,10 +432,24 @@
     (earnedCerts || []).forEach(function (c) { earnedById[c.id] = c; });
 
     var userCerts;
+    var reviewedCerts = [];
     if (isTrainerProfile) {
-      /* دورات المدرب المنشورة فقط (بدون أي شهادة أو دورات غيره) */
+      /* دورات هذا المدرب فقط، مع إخفاء غير المنشور عنه عندما يزور بروفايله */
       userCerts = certsAll.filter(function (c) {
         return c && c.handle && String(c.handle).toLowerCase() === kUser;
+      });
+      if (self) {
+        userCerts = userCerts.filter(function (course) {
+          return course.status === 'published';
+        });
+      }
+      userCerts.sort(function (a, b) {
+        return Number(b.courseType === 'in_person') - Number(a.courseType === 'in_person');
+      });
+      reviewedCerts = (earnedCerts || []).filter(function (certificate) {
+        return certificate.manual &&
+          certificate.status === 'approved' &&
+          certificate.active === true;
       });
     } else {
       /* الشهادات المكتسبة لصاحب البروفايل (تُدمج مع دوراته — نفس الاسم ونفس التفاصيل) */
@@ -439,21 +474,20 @@
       var k = (p && p.handle ? String(p.handle).toLowerCase() : keyProf);
       return k === kUser;
     });
-    var userPosts = postsAll.filter(function (p) {
-      if (p && p.status === 'draft' && !self) return false;
-      var k = (p && p.handle ? String(p.handle).toLowerCase() : keyProf);
-      return k === kUser;
-    });
-
     userCounts = {
       certs: userCerts.length,
+      reviewedCerts: reviewedCerts.length,
       projs: userProjs.length,
-      posts: userPosts.length,
+      posts: 0,
       saved: self && window.Store && Store.collection ? Store.collection('savedProjects').length : 0
     };
     renderProfileTabs();
     window.__upCounts = userCounts;
-    renderPanels({ certs: userCerts, projs: userProjs });
+    renderPanels({
+      certs: userCerts,
+      reviewedCerts: reviewedCerts,
+      projs: userProjs
+    });
     setTab(activeTab);
   }
 
@@ -476,16 +510,6 @@
     if (skillsButton) {
       profileSkillsExpanded = !profileSkillsExpanded;
       renderUserSkillsContent();
-      return;
-    }
-    var whatsappButton = ev.target.closest('[data-act="trainer-whatsapp"]');
-    if (whatsappButton) {
-      ev.preventDefault();
-      var phone = (whatsappButton.getAttribute('data-phone') || '').replace(/\D/g, '');
-      if (!phone) return;
-      if (window.confirm('سيتم فتح واتساب للتواصل مع المدرب. هل تريد المتابعة؟')) {
-        window.open('https://wa.me/' + phone, '_blank', 'noopener,noreferrer');
-      }
       return;
     }
     var adminEditButton = ev.target.closest('[data-act="edit-admin-profile"]');

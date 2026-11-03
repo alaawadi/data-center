@@ -16,7 +16,7 @@ from django.contrib.auth.views import LogoutView as BaseLogoutView
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
-from django.core.validators import EmailValidator
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -30,6 +30,7 @@ from core.context_processors import get_platform_settings
 from courses.models import StudentReferral, StudentReferralLink
 from .forms import LoginForm, ProfileEditForm, SignupForm, SocialLinkFormSet
 from .models import (
+    FreelancerCategory,
     Profile,
     ProfileSkill,
     SignupRateLimit,
@@ -37,6 +38,7 @@ from .models import (
     StudentSetupLink,
     Skill,
     SocialLink,
+    SocialPlatform,
     User,
     UserRole,
     validate_arabic_three_part_name,
@@ -48,7 +50,10 @@ from .security import (
     client_ip,
     clear_failed_logins,
     device_login_allowed,
+    login_phone_key,
     login_lock_status,
+    normalize_palestinian_phone,
+    phone_lookup_values,
     rate_limited,
     record_failed_login,
     register_device_session,
@@ -66,15 +71,10 @@ class LoginView(BaseLoginView):
     def get_default_redirect_url(self):
         if self.request.user.role == UserRole.ADMIN:
             return reverse('dashboard:home')
-        if self.request.user.role == UserRole.STUDENT:
-            return reverse(
-                'accounts:profile',
-                kwargs={'handle': self.request.user.handle},
-            )
-        return super().get_default_redirect_url()
+        return reverse('portfolio:home')
 
     def post(self, request, *args, **kwargs):
-        phone = (request.POST.get('username') or '').strip()
+        phone = login_phone_key(request.POST.get('username'))
         ip = client_ip(request)
         locked, minutes = login_lock_status(phone, ip)
         if locked:
@@ -104,7 +104,7 @@ class LoginView(BaseLoginView):
         return response
 
     def form_invalid(self, form):
-        phone = (form.data.get('username') or '').strip() if hasattr(form, 'data') else ''
+        phone = login_phone_key(form.data.get('username')) if hasattr(form, 'data') else ''
         # form.get_user() is only set when credentials were accepted, so device
         # limit / lockout rejections never count as extra failed attempts.
         if not form.get_user() and phone:
@@ -175,9 +175,9 @@ class PrivacyView(LegalPageView):
 
 
 class LogoutView(BaseLogoutView):
-    """POST logout — redirects back to the landing page."""
+    """POST logout — redirects to the login page."""
 
-    next_page = reverse_lazy('landing:home')
+    next_page = reverse_lazy('users:login')
 
     def post(self, request, *args, **kwargs):
         unregister_device_session(request.user, request.session.session_key)
@@ -269,8 +269,42 @@ def check_phone_ajax(request):
     phone = (request.GET.get('phone') or '').strip()
     if not PHONE_RE.match(phone):
         return JsonResponse({'ok': False, 'error': 'invalid'}, status=400)
-    available = not User.objects.filter(phone=phone).exists()
+    available = not User.objects.filter(phone__in=phone_lookup_values(phone)).exists()
     return JsonResponse({'ok': True, 'phone': phone, 'available': available})
+
+
+@login_required
+@require_GET
+def check_profile_whatsapp_ajax(request):
+    """Check that a profile WhatsApp number is not another user's account phone."""
+    if rate_limited(f'profilewhatsapp:{client_ip(request)}', 30, 60):
+        return JsonResponse({'ok': False, 'error': 'rate_limited'}, status=429)
+
+    target_user_id = request.GET.get('target_user_id')
+    if target_user_id:
+        if not (request.user.is_staff or request.user.is_admin_role):
+            return JsonResponse({'ok': False, 'error': 'permission_denied'}, status=403)
+        if not target_user_id.isdigit():
+            return JsonResponse({'ok': False, 'error': 'invalid_target'}, status=400)
+        target_user = get_object_or_404(
+            User,
+            pk=target_user_id,
+            role__in=(UserRole.TRAINER, UserRole.STUDENT),
+        )
+    else:
+        target_user = request.user
+
+    phone = normalize_palestinian_phone(request.GET.get('phone'))
+    if not PHONE_RE.fullmatch(phone):
+        return JsonResponse({'ok': False, 'error': 'invalid_phone'}, status=400)
+    belongs_to_another_user = User.objects.filter(
+        phone__in=phone_lookup_values(phone)
+    ).exclude(pk=target_user.pk).exists()
+    return JsonResponse({
+        'ok': True,
+        'available': not belongs_to_another_user,
+        'belongsToAnotherUser': belongs_to_another_user,
+    })
 
 
 SIGNUP_SESSION_KEY = 'signup_verification_id'
@@ -393,6 +427,7 @@ class ProfileUpdateView(LoginRequiredMixin, UpdateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.setdefault('socials', SocialLinkFormSet(instance=self.object, prefix='socials'))
+        context['freelancer_category_options'] = context['form'].freelancer_category_names
         context['profile_editing_other'] = self.object.user_id != self.request.user.pk
         context['profile_target_name'] = self.object.user.display_name
         context['profile_cancel_url'] = (
@@ -471,22 +506,79 @@ def profile_update_ajax(request):
     else:
         user = User.objects.select_for_update().get(pk=request.user.pk)
     profile_form = request.POST.get('profile_form') == '1'
-    email = (request.POST.get('email') or '').strip()
-    if profile_form and not email:
-        return JsonResponse({'ok': False, 'error': 'invalid_email'}, status=400)
-    if email:
-        try:
-            EmailValidator()(email)
-        except ValidationError:
-            return JsonResponse({'ok': False, 'error': 'invalid_email'}, status=400)
-
     whatsapp = (request.POST.get('whatsapp') or '').strip()
     if profile_form and not whatsapp:
         return JsonResponse({'ok': False, 'error': 'required_whatsapp'}, status=400)
-    if whatsapp and not re.fullmatch(r'\+?97[02][0-9]{9}', whatsapp):
+    whatsapp = normalize_palestinian_phone(whatsapp)
+    is_palestinian_whatsapp = bool(
+        re.fullmatch(r'\+97[02]5\d{8}', whatsapp)
+        or re.fullmatch(r'97[02]5\d{8}', whatsapp)
+    )
+    is_other_international_whatsapp = bool(
+        re.fullmatch(r'\+[1-9]\d{6,14}', whatsapp)
+        and not whatsapp.startswith(('+970', '+972'))
+    )
+    if whatsapp and not (is_palestinian_whatsapp or is_other_international_whatsapp):
         return JsonResponse({'ok': False, 'error': 'invalid_whatsapp'}, status=400)
+    if whatsapp and User.objects.filter(
+        phone__in=phone_lookup_values(whatsapp)
+    ).exclude(pk=user.pk).exists():
+        return JsonResponse({
+            'ok': False,
+            'error': 'whatsapp_belongs_to_another_user',
+        }, status=400)
 
     profile, _ = Profile.objects.get_or_create(user=user)
+    headline = (request.POST.get('headline') or '').strip()
+    if headline and not FreelancerCategory.objects.filter(
+        name=headline, is_active=True
+    ).exists():
+        return JsonResponse({'ok': False, 'error': 'invalid_headline'}, status=400)
+    student_specialization = (request.POST.get('student_specialization') or '').strip()
+    if (
+        user.is_student
+        and 'student_specialization' in request.POST
+        and len(student_specialization) > 30
+    ):
+        return JsonResponse({'ok': False, 'error': 'invalid_specialization'}, status=400)
+
+    social_links = None
+    if (user.is_student or user.is_trainer) and 'social_links' in request.POST:
+        try:
+            submitted_links = json.loads(request.POST['social_links'])
+        except (TypeError, ValueError):
+            return JsonResponse({'ok': False, 'error': 'invalid_social_links'}, status=400)
+        if (
+            not isinstance(submitted_links, list)
+            or len(submitted_links) > len(SocialPlatform.values) - 1
+        ):
+            return JsonResponse({'ok': False, 'error': 'invalid_social_links'}, status=400)
+        social_links = []
+        seen_platforms = set()
+        validate_social_url = URLValidator(schemes=['http', 'https'])
+        for item in submitted_links:
+            if not isinstance(item, dict):
+                return JsonResponse({'ok': False, 'error': 'invalid_social_links'}, status=400)
+            platform = str(item.get('platform') or '').strip()
+            url = str(item.get('url') or '').strip()
+            if not platform and not url:
+                continue
+            if not url:
+                continue
+            if (
+                platform not in SocialPlatform.values
+                or platform == SocialPlatform.WEBSITE
+                or platform in seen_platforms
+                or len(url) > 200
+            ):
+                return JsonResponse({'ok': False, 'error': 'invalid_social_links'}, status=400)
+            try:
+                validate_social_url(url)
+            except ValidationError:
+                return JsonResponse({'ok': False, 'error': 'invalid_social_links'}, status=400)
+            seen_platforms.add(platform)
+            social_links.append({'platform': platform, 'url': url})
+
     handle = (request.POST.get('handle') or '').strip().lstrip('@')
     if handle and handle != user.handle:
         if User.objects.filter(handle=handle).exclude(pk=user.pk).exists():
@@ -548,9 +640,6 @@ def profile_update_ajax(request):
             user.full_name_ar = full_name_ar
             user.full_name_en = full_name_en
 
-    if 'email' in request.POST:
-        user.email = email
-
     user.is_verified = user.is_trainer
     user.save()
     if target_user_id and not user.is_trainer and admin_legal_names is not None:
@@ -560,13 +649,14 @@ def profile_update_ajax(request):
             full_name_en=user.full_name_en,
         )
 
-    profile.headline = (request.POST.get('headline') or '').strip()[:35]
+    profile.headline = headline
+    if user.is_student:
+        if 'student_specialization' in request.POST:
+            profile.student_specialization = student_specialization
+    profile.specialization = headline
     profile.bio = (request.POST.get('bio') or '').strip()[:150]
     if 'city' in request.POST:
         profile.city = (request.POST.get('city') or '').strip()[:80]
-    if 'website' in request.POST:
-        profile.website = (request.POST.get('website') or '').strip()
-
     avatar_file = request.FILES.get('avatar')
     if avatar_file:
         profile.avatar = avatar_file
@@ -609,13 +699,19 @@ def profile_update_ajax(request):
             skill, _ = Skill.objects.get_or_create(name=name)
             ProfileSkill.objects.create(profile=profile, skill=skill, level=level)
 
-    for platform in ('github', 'linkedin', 'behance'):
-        if platform not in request.POST:
-            continue
-        url = (request.POST.get(platform) or '').strip()
-        SocialLink.objects.filter(profile=profile, platform=platform).delete()
-        if url:
-            SocialLink.objects.create(profile=profile, platform=platform, url=url)
+    if social_links is not None:
+        profile.social_links.exclude(platform=SocialPlatform.WEBSITE).delete()
+        SocialLink.objects.bulk_create([
+            SocialLink(profile=profile, **link) for link in social_links
+        ])
+    else:
+        for platform in ('github', 'linkedin', 'behance'):
+            if platform not in request.POST:
+                continue
+            url = (request.POST.get(platform) or '').strip()
+            SocialLink.objects.filter(profile=profile, platform=platform).delete()
+            if url:
+                SocialLink.objects.create(profile=profile, platform=platform, url=url)
 
     data = profile.to_public_dict()
     data['whatsapp'] = profile.whatsapp
@@ -631,4 +727,9 @@ def profile_update_ajax(request):
         socials[link.platform] = link.url
     data['socials'] = socials
 
-    return JsonResponse({'ok': True, 'profile': data, 'skills': data['skills']})
+    return JsonResponse({
+        'ok': True,
+        'profile': data,
+        'skills': data['skills'],
+        'profile_setup': profile.completeness(),
+    })

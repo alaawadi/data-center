@@ -8,11 +8,19 @@ from courses.models import (
     Lesson,
     CourseProgress,
     CourseStatus,
+    CourseType,
     StudentPointTransaction,
     StudentReferralLink,
 )
 from projects.models import Project, ProjectInteraction, ProjectStatus
-from users.models import User, UserRole
+from users.models import (
+    Language,
+    ProfileLanguage,
+    ProfileSkill,
+    Skill,
+    User,
+    UserRole,
+)
 
 
 class TrainerPortfolioTests(TestCase):
@@ -26,7 +34,14 @@ class TrainerPortfolioTests(TestCase):
 
     def test_trainer_gets_own_courses_payload(self):
         Course.objects.create(owner=self.trainer, title='دورتي', status=CourseStatus.PUBLISHED)
-        Course.objects.create(owner=self.trainer, title='مسودتي', status=CourseStatus.DRAFT)
+        inperson_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورتي الوجاهية',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+            profile_only=True,
+        )
+        inactive_course = Course.objects.create(owner=self.trainer, title='مسودتي')
         Course.objects.create(
             owner=User.objects.create_user(
                 phone='059800003', password='pass1234', full_name='مدرب آخر', role=UserRole.TRAINER
@@ -41,9 +56,17 @@ class TrainerPortfolioTests(TestCase):
         self.assertContains(res, 'id="panel-saved"')
         titles = [c['title'] for c in res.context['my_courses_json']]
         self.assertIn('دورتي', titles)
+        inperson_payload = next(
+            course
+            for course in res.context['my_courses_json']
+            if course['id'] == inperson_course.slug
+        )
+        self.assertEqual(inperson_payload['courseType'], CourseType.IN_PERSON)
         self.assertIn('مسودتي', titles)
         draft = next(course for course in res.context['my_courses_json'] if course['title'] == 'مسودتي')
         self.assertEqual(draft['status'], CourseStatus.DRAFT)
+        self.assertIn(inactive_course.slug, [course['id'] for course in res.context['my_courses_json']])
+        self.assertNotIn(inactive_course.slug, [course['id'] for course in res.context['courses_json']])
         self.assertNotIn('دورة مدرب آخر', titles)
 
     def test_trainer_can_view_students_and_progress_for_own_course(self):
@@ -144,6 +167,71 @@ class TrainerPortfolioTests(TestCase):
 
         self.assertContains(response, f'<title>{self.student.display_name} — مركز داتا</title>')
         self.assertNotContains(response, 'بورتفوليو — أحمد خالد الحسن')
+
+    def test_incomplete_profile_shows_account_setup_alert(self):
+        self.client.force_login(self.student)
+
+        response = self.client.get(reverse('portfolio:home'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context['server_profile']['accountPhone'],
+            self.student.phone,
+        )
+        self.assertGreater(len(response.context['country_calling_code_choices']), 200)
+        self.assertContains(response, 'id="country-calling-code-choices"')
+        self.assertIn(('+970', '🇵🇸 +970'), response.context['country_calling_code_choices'])
+        self.assertTrue(response.context['profile_setup_missing'])
+        self.assertEqual(response.context['profile_setup']['percent'], 0)
+        self.assertContains(response, 'أكمل إعدادات حسابك')
+        self.assertContains(response, 'role="progressbar"')
+        self.assertContains(response, 'aria-valuenow="0"')
+        self.assertContains(response, '0٪')
+        self.assertContains(
+            response,
+            '<button class="btn btn-primary btn-sm" type="button" data-act="edit-profile">إكمال البيانات</button>',
+        )
+        self.assertContains(response, 'رقم واتساب')
+
+    def test_complete_profile_hides_account_setup_alert(self):
+        profile = self.student.profile
+        profile.avatar = 'avatars/test-avatar.png'
+        profile.headline = 'طالب'
+        profile.bio = 'نبذة تعريفية'
+        profile.whatsapp = '+970599999999'
+        profile.save()
+        ProfileSkill.objects.create(
+            profile=profile,
+            skill=Skill.objects.create(name='البرمجة'),
+        )
+        self.client.force_login(self.student)
+
+        response = self.client.get(reverse('portfolio:home'))
+
+        self.assertEqual(response.context['profile_setup_missing'], [])
+        self.assertEqual(response.context['profile_setup']['percent'], 100)
+        self.assertNotContains(response, 'أكمل إعدادات حسابك')
+
+        completed_response = self.client.get(reverse('portfolio:home') + '?saved=1')
+
+        self.assertTrue(completed_response.context['profile_setup_complete_notice'])
+        self.assertContains(completed_response, 'تهانينا! اكتمل إعداد حسابك')
+        self.assertContains(completed_response, 'aria-valuenow="100"')
+
+    def test_trainer_completion_uses_fields_available_in_profile_modal_without_email(self):
+        profile = self.trainer.profile
+        profile.avatar = 'avatars/test-trainer-avatar.png'
+        profile.headline = 'مدرب'
+        profile.bio = 'نبذة تعريفية'
+        profile.whatsapp = '+970599999999'
+        profile.save()
+        ProfileSkill.objects.create(
+            profile=profile,
+            skill=Skill.objects.create(name='التدريب'),
+        )
+
+        self.assertEqual(profile.completeness()['percent'], 100)
+        self.assertEqual(profile.completeness()['missing'], [])
 
     def test_home_navigation_is_active_on_personal_portfolio(self):
         self.client.force_login(self.student)

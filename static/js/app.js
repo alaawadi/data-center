@@ -28,9 +28,96 @@
   function t(k, v) { return I18n.t(k, v); }
   function e(s) { return UI.esc(s); }
 
+  function getCountryCallingCodeChoices() {
+    var data = document.getElementById('country-calling-code-choices');
+    if (!data) return [];
+    try {
+      var choices = JSON.parse(data.textContent);
+      return Array.isArray(choices) ? choices : [];
+    } catch (error) {
+      console.error('Unable to read country calling code choices:', error);
+      return [];
+    }
+  }
+
+  function getProfileSetupData() {
+    var data = document.getElementById('profile-setup-data');
+    if (!data) return null;
+    try {
+      return JSON.parse(data.textContent);
+    } catch (error) {
+      console.error('Unable to read profile setup data:', error);
+      return null;
+    }
+  }
+
+  function splitPhoneNumber(value, choices) {
+    var phone = String(value || '').trim();
+    var digits = phone.replace(/\D/g, '');
+    if (!digits) return { countryCode: '+970', nationalNumber: '' };
+    if (/^0(?:59|56)\d{7}$/.test(digits)) {
+      return { countryCode: '+970', nationalNumber: digits.slice(1) };
+    }
+
+    var normalized = '+' + digits;
+    var prefixes = choices.map(function (choice) { return choice[0]; })
+      .filter(function (code, index, list) { return list.indexOf(code) === index; })
+      .sort(function (left, right) { return right.length - left.length; });
+    var prefix = prefixes.find(function (code) { return normalized.indexOf(code) === 0; });
+    if (prefix) {
+      return { countryCode: prefix, nationalNumber: normalized.slice(prefix.length) };
+    }
+    if (digits.indexOf('0') === 0) digits = digits.replace(/^0+/, '');
+    return { countryCode: '+970', nationalNumber: digits };
+  }
+
+  function dismissProfileSetupAlert(alert) {
+    if (!alert || alert.dataset.dismissScheduled === 'true') return;
+    alert.dataset.dismissScheduled = 'true';
+    window.setTimeout(function () {
+      alert.classList.add('is-dismissing');
+      window.setTimeout(function () { alert.remove(); }, 450);
+    }, 3500);
+  }
+
+  function updateProfileSetupAlert(setup, saved) {
+    var alert = document.getElementById('profileSetupAlert');
+    if (!alert || !setup) return;
+    var percent = Math.max(0, Math.min(100, Number(setup.percent) || 0));
+    var progress = alert.querySelector('[role="progressbar"]');
+    var progressFill = progress && progress.querySelector('span');
+    var percentLabel = alert.querySelector('[data-setup-percent]');
+    var title = alert.querySelector('[data-setup-title]');
+    var description = alert.querySelector('[data-setup-description]');
+    var button = alert.querySelector('[data-act="edit-profile"]');
+
+    if (progress) progress.setAttribute('aria-valuenow', String(percent));
+    if (progressFill) progressFill.style.width = percent + '%';
+    if (percentLabel) percentLabel.textContent = percent + '٪';
+
+    if (percent === 100) {
+      alert.classList.add('is-complete');
+      if (title) title.textContent = 'تهانينا! اكتمل إعداد حسابك';
+      if (description) description.textContent = 'أصبحت بيانات حسابك مكتملة بنسبة 100٪. أحسنت!';
+      if (button) button.hidden = true;
+      if (saved) dismissProfileSetupAlert(alert);
+      return;
+    }
+
+    alert.classList.remove('is-complete');
+    if (button) button.hidden = false;
+    if (title) title.textContent = 'أكمل إعدادات حسابك';
+    if (description) {
+      var missing = Array.isArray(setup.missing) ? setup.missing : [];
+      description.textContent = missing.length
+        ? 'أضف البيانات الأساسية الناقصة لتحسين ملفك الشخصي: ' + missing.join('، ') + '.'
+        : 'أضف البيانات الأساسية الناقصة لتحسين ملفك الشخصي.';
+    }
+  }
+
   /* هل المستخدم المسجّل مدرب؟ (يُبدَّل قسم الشهادات بقسم «الدورات التدريبية») */
   var IS_TRAINER = !!(SERVER_PROFILE && (SERVER_PROFILE.isTrainer || SERVER_PROFILE.roleKey === 'trainer'));
-  if (IS_TRAINER) activeTab = 'certificates';
+  if (IS_TRAINER) activeTab = 'trainer-courses';
 
   /* أزرار التعديل والحذف تظهر فقط لصاحب المشروع نفسه */
   function isOwner(p) {
@@ -38,12 +125,24 @@
   }
 
   function canManageProject(p) {
-    return !!(p && (p.adminCanEdit || isOwner(p)));
+    if (p && p.adminCanEdit) return true;
+    if (!p || !isOwner(p)) return false;
+    return !(
+      IS_TRAINER &&
+      SERVER_PROFILE.canPublishContent === false &&
+      p.visibility !== 'personal'
+    );
   }
 
   /* الدورات: صاحب الدورة فقط يعدّلها ويحذفها (الدورات المحلية بلا handle تبقى كما كانت) */
   function canManageCourse(c) {
-    return !!(c && (c.adminCanManageCourse || !c.handle || isOwner(c)));
+    if (c && c.adminCanManageCourse) return true;
+    if (
+      IS_TRAINER &&
+      SERVER_PROFILE.canPublishContent === false &&
+      isOwner(c)
+    ) return false;
+    return !!(c && (!c.handle || isOwner(c)));
   }
 
   /* شهادات الطالب المكتسبة فعلياً (null لزائر غير مسجّل → بيانات العرض التوضيحي) */
@@ -186,7 +285,7 @@
     var desc = c.description ? c.description.replace(/\s+/g, ' ').trim() : '';
     var isCourse = !!opts.course;
     var isComingSoon = isCourse && !!c.comingSoon;
-    var cardNavigation = ' data-goto="' + detailUrl + '"';
+    var cardNavigation = opts.profileInactiveCourse ? '' : ' data-goto="' + detailUrl + '"';
     var isDraftCourse = isCourse && c.status === 'draft';
     var trainerStudentsAction = opts.trainerCourse
       ? '<button class="btn-icon" data-act="trainer-course-students" data-id="' + e(c.id) +
@@ -200,34 +299,49 @@
         (isCourse ? '' : '<button class="btn-icon danger" data-act="del-cert" data-id="' + e(c.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>') +
       '</div>';
     if (isCourse && opts.homeCourseCard) {
-      return '<article class="cert-card course-home-card' + (isComingSoon ? ' is-coming-soon' : '') + '"' +
+      return '<article class="cert-card course-home-card' + (opts.activeCourse ? ' profile-active-course-card' : '') +
+        (isComingSoon ? ' is-coming-soon' : '') + '"' +
         cardNavigation + ' data-search="' + e((c.title + ' ' + c.category + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
         courseActions +
         '<div class="course-home-media">' +
         (c.image
           ? '<img class="course-home-image" src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">'
           : '<div class="course-home-image-placeholder">' + UI.icon('book-open', 40) + '</div>') +
+        (opts.activeCourse
+          ? '<span class="profile-active-course-badge">' + UI.icon('play', 12) + e(t('plContinue')) + '</span>'
+          : '') +
         (isComingSoon ? '<span class="course-coming-soon-badge">' + e(t('courseComingSoon')) + '</span>' : '') +
         '</div>' +
-        (c.price ? '<span class="course-home-price">' + e(c.price) + '</span>' : '') +
+        (c.price && !opts.activeCourse ? '<span class="course-home-price">' + e(c.price) + '</span>' : '') +
         '<div class="course-home-content"><h3>' + e(c.title) + '</h3><div class="course-home-info">' +
         (c.duration ? '<span>' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
         (c.period ? '<span>' + UI.icon('calendar', 13) + e(c.period) + '</span>' : '') +
-        '</div></div></article>';
+        '</div>' +
+        (opts.activeCourse
+          ? '<a class="profile-active-course-link" href="' + e(detailUrl) + '">' +
+            e(t('plContinue')) + UI.icon('arrow-left', 15) + '</a>'
+          : '') +
+        '</div></article>';
     }
     var foot = isCourse
       ? '<div class="cert-foot">' +
           (c.duration ? '<span class="cert-meta">' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
           (isDraftCourse
-            ? '<span class="chip warn">' + e(t('draft')) + '</span>'
+            ? '<span class="chip warn">' + e(opts.profileInactiveCourse ? t('courseNotActive') : t('draft')) + '</span>'
             : '<span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certApproved')) + '</span>') +
         '</div>'
       : '<div class="cert-foot"><time>' + e(UI.formatDate(c.date)) + '</time><span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certVerified')) + '</span></div>';
-    return '<article class="cert-card' + (isComingSoon ? ' is-coming-soon' : '') + '"' + cardNavigation + ' data-search="' + e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
+    return '<article class="cert-card' + (opts.profileInactiveCourse ? ' profile-inactive-course-card' : '') +
+      (isComingSoon ? ' is-coming-soon' : '') + '"' +
+      (opts.profileInactiveCourse ? ' aria-disabled="true"' : '') +
+      cardNavigation + ' data-search="' + e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
       courseActions +
       '<div class="cert-thumb">' +
       (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">' : '') +
       '<span class="cert-cat">' + cat + '</span>' +
+      (opts.profileInactiveCourse
+        ? '<span class="profile-inactive-course-badge">' + e(t('courseNotActive')) + '</span>'
+        : '') +
       (isCourse
         ? (c.price ? '<span class="cert-price-tag">' + e(c.price) + '</span>' : '')
         : '<span class="cert-seal">' + UI.verifiedBadge(19) + '</span>') +
@@ -240,6 +354,38 @@
       ((c.skills && c.skills.length) ? '<div class="cert-skills">' + skills + '</div>' : '') +
       foot +
       '</div></article>';
+  }
+
+  function inPersonCourseCard(course, opts) {
+    opts = opts || {};
+    var returnPath = opts.returnTo
+      ? '&return=' + encodeURIComponent(opts.returnTo)
+      : '';
+    var href = SITE.u('course', e(course.id)) + '?from=all-users' + returnPath;
+    var image = course.image || course.cover || course.courseImage;
+    var card =
+      '<a class="box inperson-course-card profile-inperson-course-link" href="' + href + '">' +
+      (image
+        ? '<img src="' + e(image) + '" alt="' + e(course.title) + '" loading="lazy" decoding="async">'
+        : '<div class="inperson-course-art">' + UI.icon('users', 40) + '<span>تعلّم وجهاً لوجه</span></div>') +
+      '<span class="course-format-badge">' + UI.icon('map-pin', 14) + ' دورة وجاهية</span>' +
+      (course.price ? '<span class="price">' + e(course.price) + '</span>' : '') +
+      '<div class="content"><h3 class="title">' + e(course.title) + '</h3>' +
+      '<div class="info">' +
+      (course.duration ? '<h3>' + UI.icon('clock', 13) + e(course.duration) + '</h3>' : '') +
+      (course.period ? '<h3>' + UI.icon('calendar', 13) + e(course.period) + '</h3>' : '') +
+      '</div></div></a>';
+
+    if (!opts.trainerCourse || !canManageCourse(course)) return card;
+
+    var actions = '<div class="card-actions">' +
+      '<button class="btn-icon" data-act="trainer-course-students" data-id="' + e(course.id) +
+      '" title="' + e(t('trainerCourseStudents')) + '" aria-label="' + e(t('trainerCourseStudents')) + '">' +
+      UI.icon('users', 15) + '</button>' +
+      '<button class="btn-icon" data-act="goto" data-url="' +
+      SITE.u('courseEdit', e(course.id)) + '" title="' + e(t('edit')) + '">' +
+      UI.icon('pencil', 15) + '</button></div>';
+    return '<article class="profile-inperson-course-item">' + actions + card + '</article>';
   }
 
   function projectDetailUrl(id) {
@@ -260,15 +406,22 @@
     var courseBadge = (p.visibility === 'courses' && p.status !== 'draft')
       ? '<span class="chip course-badge" style="position:absolute;top:10px;inset-inline-start:10px;z-index:1">' + UI.icon('award', 12) + ' ' + e(t('projectCourseBadge')) + '</span>'
       : '';
+    var personalBadge = p.visibility === 'personal' && p.status !== 'draft'
+      ? '<span class="chip" style="position:absolute;top:10px;inset-inline-start:10px;z-index:1">' + e(t('projectVisibilityPersonal')) + '</span>'
+      : '';
     return '<article class="proj-card" data-goto="' + projectDetailUrl(p.id) + '" data-search="' + e((p.title + ' ' + (p.summary || '') + ' ' + (p.tags || []).join(' ')).toLowerCase()) + '">' +
       (!opts.viewOnly && canManageProject(p) ? '<div class="card-actions">' +
       '<button class="btn-icon" data-act="goto" data-url="' + SITE.u('projectEdit', e(p.id)) + '" title="' + e(t('edit')) + '">' + UI.icon('pencil', 15) + '</button>' +
       '<button class="btn-icon danger" data-act="del-project" data-id="' + e(p.id) + '" title="' + e(t('delete')) + '">' + UI.icon('trash', 15) + '</button>' +
       '</div>' : '') +
-      '<div class="proj-cover">' + cover + draft + courseBadge + tagStrip + '</div>' +
+      '<div class="proj-cover">' + cover + draft + courseBadge + personalBadge + tagStrip + '</div>' +
       '<div class="proj-body"><h3>' + e(p.title) + '</h3><p>' + e(p.summary || '') + '</p>' +
       '<div class="proj-meta">' +
-      (p.files && p.files.length ? '<span class="pm">' + UI.icon('file', 13) + p.files.length + '</span>' : '') +
+      ((Number.isFinite(Number(p.fileCount)) ? Number(p.fileCount) : (p.files || []).length)
+        ? '<span class="pm">' + UI.icon('file', 13) +
+          (Number.isFinite(Number(p.fileCount)) ? Number(p.fileCount) : (p.files || []).length) +
+          '</span>'
+        : '') +
       '</div></div>' +
       '<div class="proj-foot">' +
       '<span class="stat' + (p.liked ? ' like-on' : '') + '">' + UI.iconFilled('heart', 14) + ' ' + (p.likes || 0) + '</span>' +
@@ -451,7 +604,7 @@
       '<div class="profile-body">' +
       '<div class="profile-top">' +
       '<div class="profile-avatar-wrap">' +
-      '<img class="profile-avatar" src="' + e(p.avatar || UI.initialsAvatar(p.name, 220)) + '" alt="' + e(p.name) + '" fetchpriority="high">' +
+      '<img class="profile-avatar" src="' + e(p.avatar || UI.profileAvatarFallback(p.name, 220)) + '" alt="' + e(p.name) + '" fetchpriority="high">' +
       '<button class="avatar-edit" data-act="edit-profile" title="' + e(t('profileEdit')) + '">' + UI.icon('camera', 14) + '</button>' +
       '</div>' +
       '<div class="profile-head">' +
@@ -464,10 +617,13 @@
       '</div>' +
       '</div>' +
       (p.bio ? '<p class="bio">' + e(p.bio) + '</p>' : '') +
-      '<div class="profile-meta">' +
-      (p.website ? '<a class="pm" data-act="confirm-profile-website" href="https://' + e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' + UI.icon('link', 14) + e(p.website) + '</a>' : '') +
-      (p.email ? '<span class="pm">' + UI.icon('message-circle', 14) + e(p.email) + '</span>' : '') +
-      '</div></div>' +
+      (p.website
+        ? '<div class="profile-meta"><a class="pm" data-act="confirm-profile-website" href="https://' +
+          e(p.website.replace(/^https?:\/\//, '')) + '" target="_blank" rel="noopener">' +
+          UI.icon('link', 14) + e(p.website) + '</a></div>'
+        : '') +
+      UI.socialLinksHTML(p.social_links || p.socials) +
+      '</div>' +
       (SERVER_PROFILE && SERVER_PROFILE.showReferralStats === true &&
         typeof SERVER_PROFILE.referral_points === 'number'
         ? '<div class="referral-summary" aria-label="إحصائيات الإحالة">' +
@@ -676,8 +832,8 @@
     if (activeCoursesHost && SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student') {
       var activeCourses = Store.activeCourses().filter(matches);
       activeCoursesHost.innerHTML = activeCourses.length
-        ? '<div class="card-grid profile-course-grid">' + activeCourses.map(function (course) {
-            return certCard(course, { course: true, homeCourseCard: true });
+        ? '<div class="card-grid profile-course-grid active-courses-grid">' + activeCourses.map(function (course) {
+            return certCard(course, { course: true, homeCourseCard: true, activeCourse: true });
           }).join('') + '</div>'
         : UI.emptyState('play', searchQuery ? t('emptySearch') : t('activeCoursesEmpty'),
           searchQuery ? '' : t('activeCoursesEmptySub'),
@@ -685,10 +841,25 @@
     }
 
     if (IS_TRAINER) {
-      var myCourses = (Store.myCourses() || []).filter(matches);
+      var myCourses = (Store.myCourses() || []).filter(matches).sort(function (a, b) {
+        return Number(b.courseType === 'in_person') - Number(a.courseType === 'in_person');
+      });
       document.getElementById('panel-trainer-courses').innerHTML = myCourses.length
-        ? '<div class="card-grid profile-course-grid">' + myCourses.map(function (c) {
-            return certCard(c, { course: true, trainerCourse: true });
+        ? '<div class="card-grid profile-course-grid' +
+          (myCourses.some(function (course) {
+            return course.courseType === 'in_person' && course.status === 'published';
+          }) ? ' profile-inperson-course-grid' : '') + '">' + myCourses.map(function (c) {
+            if (c.courseType === 'in_person' && c.status === 'published') {
+              return inPersonCourseCard(c, {
+                trainerCourse: true,
+                returnTo: location.pathname + location.search + location.hash
+              });
+            }
+            return certCard(c, {
+              course: true,
+              trainerCourse: true,
+              returnTo: location.pathname + location.search + location.hash
+            });
           }).join('') + '</div>'
         : UI.emptyState('graduation-cap', searchQuery ? t('emptySearch') : t('trainerCoursesEmpty'), searchQuery ? '' : t('trainerCoursesEmptySub'),
           searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('courseCreate') + '">' + UI.icon('plus', 16) + e(t('addCourse')) + '</a>');
@@ -825,6 +996,7 @@
         '<option value="all"' + (trainerProjectVisibility === 'all' ? ' selected' : '') + '>' + e(t('trainerProjectFilterAll')) + ' (' + trainerProjects.length + ')</option>' +
         '<option value="public"' + (trainerProjectVisibility === 'public' ? ' selected' : '') + '>' + e(t('trainerProjectFilterPublic')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'public'; }).length + ')</option>' +
         '<option value="courses"' + (trainerProjectVisibility === 'courses' ? ' selected' : '') + '>' + e(t('trainerProjectFilterCourses')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'courses'; }).length + ')</option>' +
+        '<option value="personal"' + (trainerProjectVisibility === 'personal' ? ' selected' : '') + '>' + e(t('projectVisibilityPersonal')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'personal'; }).length + ')</option>' +
         '</select></div>'
       : '';
     var projectContent = projs.length
@@ -881,9 +1053,7 @@
     if (!fab) return;
     fab.innerHTML = UI.icon('plus', 24);
     menu.innerHTML =
-      (!IS_TRAINER || !SERVER_PROFILE || SERVER_PROFILE.canPublishContent !== false
-        ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('projectCreate') + '">' + UI.icon('folder', 17) + e(t('createProjectCta')) + '</button>'
-        : '') +
+      '<button class="fab-item" data-act="goto" data-url="' + SITE.u('projectCreate') + '">' + UI.icon('folder', 17) + e(t('createProjectCta')) + '</button>' +
       (IS_TRAINER && (!SERVER_PROFILE || SERVER_PROFILE.canPublishContent !== false)
         ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('courseCreate') + '">' + UI.icon('graduation-cap', 17) + e(t('createCourseCta')) + '</button>' +
           '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>'
@@ -1533,7 +1703,7 @@
       if (ev.button !== 0) return;
       var track = ev.target.closest(SEL);
       if (!track) return;
-      if (window.innerWidth > 720 && track.matches('.cd-related-scroll, .related-projects-scroll')) return;
+      if (window.innerWidth > 720 && track.matches('.related-projects-scroll')) return;
       if (ev.target.closest('video') || ev.target.closest('.lb-img')) return;
       var btn = ev.target.closest('button');
       if (btn && !btn.classList.contains('gal-item')) return;
@@ -1629,9 +1799,13 @@
     fd.append('profile_form', '1');
     fd.append('handle', (payload.handle || '').replace(/^@/, ''));
     fd.append('headline', payload.title || '');
+    if (typeof payload.studentSpecialization === 'string') {
+      fd.append('student_specialization', payload.studentSpecialization);
+    }
     fd.append('bio', payload.bio || '');
-    fd.append('website', payload.website || '');
-    fd.append('email', payload.email || '');
+    if (Array.isArray(payload.socialLinks)) {
+      fd.append('social_links', JSON.stringify(payload.socialLinks));
+    }
     if (payload.github) fd.append('github', payload.github);
     fd.append('skills', JSON.stringify(payload.skills || []));
     if (payload.targetUserId) fd.append('target_user_id', String(payload.targetUserId));
@@ -1662,11 +1836,59 @@
     var avatarDraft = p.avatar || '';
 
     var bioInitial = (p.bio || '').slice(0, 150);
-    var titleInitial = (p.title || '').slice(0, 35);
+    var initialProfileSetup = getProfileSetupData();
+    var profileSetupSaved = false;
+    var titleCategories = Array.isArray(p.freelancerCategories) ? p.freelancerCategories : [];
+    var countryCodeChoices = getCountryCallingCodeChoices();
+    var accountPhoneParts = p.accountPhone
+      ? splitPhoneNumber(p.accountPhone, countryCodeChoices)
+      : null;
+    var whatsappParts = splitPhoneNumber(p.whatsapp || p.accountPhone || '', countryCodeChoices);
+    if (accountPhoneParts && whatsappParts.countryCode !== accountPhoneParts.countryCode) {
+      whatsappParts = accountPhoneParts;
+    }
+    var countryCodeLocked = !!accountPhoneParts;
+    var whatsappCountryCode = accountPhoneParts
+      ? accountPhoneParts.countryCode
+      : whatsappParts.countryCode;
+    var countryCodeOptions = countryCodeChoices.map(function (choice) {
+      return '<option value="' + e(choice[0]) + '"' +
+        (choice[0] === whatsappCountryCode ? ' selected' : '') + '>' +
+        e(choice[1]) + '</option>';
+    }).join('');
+    if (!countryCodeOptions) {
+      countryCodeOptions = '<option value="+970" selected>🇵🇸 +970</option>';
+    }
+    var titleInitial = [p.specialization, p.headline].find(function (value) {
+      return titleCategories.indexOf(value) >= 0;
+    }) || '';
+    var socialPlatforms = [
+      { key: 'facebook', label: 'فيسبوك' },
+      { key: 'linkedin', label: 'لينكدإن' },
+      { key: 'github', label: 'GitHub' },
+      { key: 'behance', label: 'Behance' },
+      { key: 'x', label: 'X (تويتر)' },
+      { key: 'instagram', label: 'إنستغرام' },
+      { key: 'youtube', label: 'يوتيوب' },
+      { key: 'telegram', label: 'تيليجرام' },
+      { key: 'whatsapp', label: 'واتساب' },
+      { key: 'other', label: 'أخرى' }
+    ];
+    var socialLinks = Array.isArray(p.social_links)
+      ? p.social_links.filter(function (link) {
+        return link.platform_key && link.platform_key !== 'website';
+      }).map(function (link) {
+        return { platform: link.platform_key, url: link.url || '' };
+      })
+      : Object.keys(p.socials || {}).map(function (platform) {
+        return { platform: platform, url: p.socials[platform] || '' };
+      }).filter(function (link) {
+        return socialPlatforms.some(function (item) { return item.key === link.platform; });
+      });
 
     var body =
       '<div class="pe-avatar-row">' +
-      '<div class="pe-avatar-big"><img id="peAvatar" src="' + e(avatarDraft || UI.initialsAvatar(p.name, 200)) + '" alt="">' +
+      '<div class="pe-avatar-big"><img id="peAvatar" src="' + e(avatarDraft || UI.profileAvatarFallback(p.name, 200)) + '" alt="">' +
       '<button class="btn-icon" id="peAvatarBtn" title="' + e(t('fieldAvatar')) + '">' + UI.icon('camera', 13) + '</button>' +
       '<input type="file" id="peAvatarFile" accept="image/*" class="hide"></div>' +
       '<div><div class="strong">' + e(t('fieldAvatar')) + '</div><div class="hint">' + e(t('avatarHint')) + '</div></div>' +
@@ -1680,17 +1902,32 @@
           '<p class="hint">' + (isAdminTarget ? 'يمكنك تعديل الاسم من حساب الأدمن في أي وقت.' : 'يُحفظ مرة واحدة ويظهر على النسخة العربية من شهاداتك.') + '</p></div>' +
           '<div class="field"><label class="label">الاسم الكامل بالإنجليزية</label><input class="input" id="peFullNameEnglish" dir="ltr" lang="en" autocomplete="name" maxlength="150" value="' + e(p.fullNameEnglish || '') + '" placeholder="Ahmad Mohammad Khaled Abdul Rahman Alhasan"' + (p.fullNameEnglish && !isAdminTarget ? ' disabled' : '') + '>' +
           '<p class="hint">' + (isAdminTarget ? 'يمكنك تعديل الاسم من حساب الأدمن في أي وقت.' : 'يُحفظ مرة واحدة ويظهر على النسخة الإنجليزية من شهاداتك.') + '</p></div>') +
-      '<div class="field"><label class="label">' + e(t('fieldTitle')) + '</label><input class="input" id="peTitle" maxlength="35" value="' + e(titleInitial) + '"></div>' +
-      '<div class="field"><label class="label">' + e(t('fieldEmail')) + ' <span class="req">*</span></label><input class="input" id="peEmail" type="email" dir="ltr" required autocomplete="email" placeholder="name@example.com" value="' + e(p.email || '') + '">' +
-      '<p class="hint" id="peEmailHint"></p></div>' +
-      '<div class="field"><label class="label">' + e(t('fieldWhatsapp')) + ' <span class="req">*</span></label><input class="input" id="peWhatsapp" type="tel" dir="ltr" inputmode="tel" required maxlength="13" pattern="\\+?97[02][0-9]{9}" value="' + e(p.whatsapp || '') + '" placeholder="+970599999999">' +
+      '<div class="field"><label class="label">' + e(t('fieldTitle')) + '</label><input class="input" id="peTitle" maxlength="120" value="' + e(titleInitial) + '" placeholder="ابحث عن فئة المستقل">' +
+      '<p class="hint">اكتب للبحث، ثم اختر فئة نشطة من القائمة.</p></div>' +
+      (!isTargetTrainer
+        ? '<div class="field"><label class="label">التخصص <span class="opt">(اختياري)</span></label><input class="input" id="peSpecialization" maxlength="30" value="' + e(p.studentSpecialization || '') + '" placeholder="أدخل تخصصك">' +
+          '<p class="hint" id="peSpecializationHint"></p></div>'
+        : '') +
+      '<div class="field"><label class="label">' + e(t('fieldWhatsapp')) + ' <span class="req">*</span></label>' +
+      '<div class="phone-box pe-whatsapp-phone-box" id="peWhatsappBox">' +
+      '<div class="country-code-picker" id="peWhatsappCountryCodePicker">' +
+      '<select class="input select" id="peWhatsappCountryCode"' + (countryCodeLocked ? ' disabled' : '') + '>' + countryCodeOptions + '</select>' +
+      '<button class="country-code-trigger" type="button" aria-label="اختيار مقدمة الدولة" aria-haspopup="listbox" aria-expanded="false"' +
+      (countryCodeLocked ? ' disabled' : '') + '>' +
+      '<span class="country-code-current-flag" aria-hidden="true"></span><span class="country-code-current-prefix"></span>' +
+      (countryCodeLocked ? '' : '<span class="country-code-chevron" aria-hidden="true"></span>') + '</button>' +
+      '<div class="country-code-menu" hidden><input class="country-code-search" type="search" inputmode="search" autocomplete="off" placeholder="ابحث برقم المقدمة مثل 970" aria-label="ابحث برقم مقدمة الدولة">' +
+      '<div class="country-code-options" role="listbox" aria-label="مقدمات الدول"></div>' +
+      '<p class="country-code-empty" aria-live="polite" hidden>لا توجد مقدمة مطابقة</p></div></div>' +
+      '<input class="input" id="peWhatsapp" type="tel" dir="ltr" inputmode="numeric" autocomplete="tel-national" required maxlength="14" value="' + e(whatsappParts.nationalNumber) + '" placeholder="رقمك المحلي بدون المقدمة">' +
+      '</div>' +
       '<p class="hint" id="peWhatsappHint"></p></div>' +
       '<div class="field"><label class="label">' + e(t('fieldBio')) + '</label>' +
       '<textarea class="textarea" id="peBio" rows="3" maxlength="150">' + e(bioInitial) + '</textarea>' +
       '<p class="hint" id="peBioCount"></p></div>' +
-      '<div class="field">' +
-      '<label class="label">' + e(t('fieldWebsite')) + ' <span class="opt">(' + e(t('optional')) + ')</span></label><input class="input" id="peWebsite" type="url" dir="ltr" placeholder="https://example.com" value="' + e(p.website || '') + '">' +
-      '<p class="hint" id="peWebsiteHint"></p></div>' +
+      '<div class="field"><label class="label">حسابات التواصل الاجتماعي</label><div id="peSocialLinks"></div>' +
+      '<button class="btn btn-ghost btn-sm" type="button" id="peAddSocialLink">' + UI.icon('plus', 14) + ' إضافة رابط</button>' +
+      '<p class="hint error" id="peSocialLinksHint" style="display:none"></p></div>' +
       '<hr class="divider">' +
       '<div class="row gap-8" style="margin-bottom:10px"><h3 class="strong" style="font-size:14px;display:flex;gap:7px;align-items:center">' + UI.icon('zap', 15) + e(t('manageSkills')) + '</h3><span class="spacer"></span><span class="hint">' + e(t('skillsMaxHint')) + '</span></div>' +
       '<div id="peSkills"></div>' +
@@ -1704,7 +1941,28 @@
       footer: '<button class="btn btn-ghost" id="peCancel">' + e(t('cancel')) + '</button>' +
         '<button class="btn btn-primary" id="peSave">' + UI.icon('check', 15) + e(t('saveChanges')) + '</button>'
     });
+    function restoreProfileSetupPreview() {
+      if (!profileSetupSaved && initialProfileSetup) {
+        updateProfileSetupAlert(initialProfileSetup, false);
+      }
+    }
+    m.el.addEventListener('click', function (event) {
+      if (event.target.closest('.modal-x') || event.target.classList.contains('modal-overlay')) {
+        restoreProfileSetupPreview();
+      }
+    });
+    m.el.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') restoreProfileSetupPreview();
+    });
     m.body.classList.add('pe-profile-edit');
+    if (window.mountCountryCodePicker) {
+      window.mountCountryCodePicker(m.body.querySelector('#peWhatsappCountryCodePicker'));
+    }
+    var titleInput = m.body.querySelector('#peTitle');
+    var titleValidation = null;
+    if (window.createFreelancerCategoryAutocomplete) {
+      titleValidation = window.createFreelancerCategoryAutocomplete(titleInput, titleCategories);
+    }
 
     var MAX_SKILLS = 8;
 
@@ -1729,6 +1987,7 @@
         skills[i].level = +ev.target.value;
         row.querySelector('[data-sk-pct]').textContent = skills[i].level + '%';
       }
+      refreshSave();
     });
     m.body.querySelector('#peSkills').addEventListener('click', function (ev) {
       var del = ev.target.closest('[data-sk-del]');
@@ -1736,6 +1995,7 @@
       skills.splice(+del.closest('.skill-edit-row').getAttribute('data-i'), 1);
       renderSkillsEdit();
       hideSkillAlert();
+      refreshSave();
     });
     m.body.querySelector('#peAddSkill').addEventListener('click', function () {
       var alertEl = m.body.querySelector('#peSkillAlert');
@@ -1747,6 +2007,7 @@
       alertEl.style.display = 'none';
       skills.push({ id: Store.uid('sk'), name: '', level: 60 });
       renderSkillsEdit();
+      refreshSave();
       var rows = m.body.querySelectorAll('.skill-edit-row input[data-sk-name]');
       if (rows.length) rows[rows.length - 1].focus();
     });
@@ -1770,24 +2031,59 @@
       }
     }
     bioEl.addEventListener('input', updateBioCount);
+    bioEl.addEventListener('input', refreshSave);
     updateBioCount();
 
     var nameEl = m.body.querySelector('#peName');
     var nameHintEl = m.body.querySelector('#peNameHint');
-    var emailEl = m.body.querySelector('#peEmail');
-    var emailHintEl = m.body.querySelector('#peEmailHint');
+    var specializationEl = m.body.querySelector('#peSpecialization');
+    var specializationHintEl = m.body.querySelector('#peSpecializationHint');
     var fullNameArabicEl = m.body.querySelector('#peFullNameArabic');
     var fullNameEnglishEl = m.body.querySelector('#peFullNameEnglish');
-    var websiteEl = m.body.querySelector('#peWebsite');
-    var websiteHintEl = m.body.querySelector('#peWebsiteHint');
+    var socialLinksEl = m.body.querySelector('#peSocialLinks');
+    var socialLinksHintEl = m.body.querySelector('#peSocialLinksHint');
     var whatsappEl = m.body.querySelector('#peWhatsapp');
+    var whatsappCountryCodeEl = m.body.querySelector('#peWhatsappCountryCode');
+    var whatsappBox = m.body.querySelector('#peWhatsappBox');
     var whatsappHintEl = m.body.querySelector('#peWhatsappHint');
     var saveEl = m.el.querySelector('#peSave');
+    var isSaving = false;
+    var whatsappTaken = false;
+    var whatsappCheckPending = false;
+    var whatsappCheckFailed = false;
+    var whatsappCheckTimer = null;
+    var whatsappCheckRequestId = 0;
 
-    var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+    function whatsappInternationalNumber() {
+      var countryCode = whatsappCountryCodeEl.value;
+      var nationalNumber = whatsappEl.value.replace(/\D/g, '');
+      if ((countryCode === '+970' || countryCode === '+972') &&
+          /^05\d{8}$/.test(nationalNumber)) {
+        nationalNumber = nationalNumber.slice(1);
+      }
+      return countryCode + nationalNumber;
+    }
+
+    function syncWhatsappMaxLength() {
+      var isPalestinianPrefix = whatsappCountryCodeEl.value === '+970' ||
+        whatsappCountryCodeEl.value === '+972';
+      var firstDigit = whatsappEl.value.replace(/\D/g, '').charAt(0);
+      var maxLength = isPalestinianPrefix
+        ? firstDigit === '5' ? 9 : firstDigit === '0' || !firstDigit ? 10 : 14
+        : 14;
+      whatsappEl.maxLength = maxLength;
+      if (whatsappEl.value.length > maxLength) {
+        whatsappEl.value = whatsappEl.value.slice(0, maxLength);
+      }
+    }
+
     var URL_RE = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}([:/?#]\S*)?$/i;
 
-    var nameValid = true, emailValid = false, websiteValid = true, whatsappValid = false;
+    var nameValid = true;
+    var specializationValid = true;
+    var socialLinksValid = true;
+    var whatsappValid = false;
+    var titleValid = !titleInput.value.trim() || !!(titleValidation && titleValidation.isValid());
 
     function restrictNameCharacters(input, allowedPattern) {
       if (!input) return;
@@ -1812,8 +2108,31 @@
     }
 
     function refreshSave() {
-      saveEl.disabled = !(nameValid && emailValid && websiteValid && whatsappValid);
+      saveEl.disabled = isSaving || whatsappCheckPending ||
+        whatsappTaken || whatsappCheckFailed;
+      updateProfileSetupPreview();
     }
+
+    function focusProfileEditField(input) {
+      if (!input) return;
+      m.body.querySelectorAll('.pe-validation-current').forEach(function (field) {
+        field.classList.remove('pe-validation-current');
+      });
+      var field = input.closest('.field') || input.closest('.pe-social-row') || input;
+      field.classList.add('pe-validation-current');
+      var bodyRect = m.body.getBoundingClientRect();
+      var fieldRect = field.getBoundingClientRect();
+      var top = m.body.scrollTop + fieldRect.top - bodyRect.top -
+        (m.body.clientHeight - fieldRect.height) / 2;
+      m.body.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      input.focus({ preventScroll: true });
+    }
+
+    titleInput.addEventListener('freelancer-category-validation', function (event) {
+      titleValid = event.detail.valid;
+      refreshSave();
+    });
+    titleInput.addEventListener('input', refreshSave);
 
     function checkNameLive() {
       var value = nameEl.value.trim();
@@ -1833,45 +2152,355 @@
       return nameValid;
     }
 
-    function checkEmailLive() {
-      var v = emailEl.value.trim();
-      emailValid = EMAIL_RE.test(v);
-      if (emailValid) setHint(emailHintEl, t('emailValid'), 'ok');
-      else setHint(emailHintEl, t('emailInvalid'), 'error');
+    function checkSpecializationLive() {
+      if (!specializationEl) return true;
+      var value = specializationEl.value.trim();
+      specializationValid = value.length <= 30;
+      setHint(
+        specializationHintEl,
+        value.length + '/30 حرفاً',
+        specializationValid ? '' : 'error'
+      );
       refreshSave();
-      return emailValid;
+      return specializationValid;
     }
 
-    function checkWebsiteLive() {
-      var v = websiteEl.value.trim();
-      websiteValid = true;
-      if (!v) setHint(websiteHintEl, '', '');
-      else if (URL_RE.test(v)) setHint(websiteHintEl, t('websiteValid'), 'ok');
-      else { setHint(websiteHintEl, t('websiteInvalid'), 'error'); websiteValid = false; }
+    function renderSocialLinks() {
+      if (!socialLinksEl) return;
+      socialLinksEl.innerHTML = socialLinks.length
+        ? socialLinks.map(function (link, index) {
+          var selectedByOtherRows = {};
+          socialLinks.forEach(function (otherLink, otherIndex) {
+            if (otherIndex !== index && otherLink.platform) {
+              selectedByOtherRows[otherLink.platform] = true;
+            }
+          });
+          var options = '<option value="">اختر المنصة</option>' +
+            socialPlatforms.filter(function (platform) {
+              return !selectedByOtherRows[platform.key] || platform.key === link.platform;
+            }).map(function (platform) {
+              return '<option value="' + e(platform.key) + '"' +
+                (platform.key === link.platform ? ' selected' : '') + '>' +
+                e(platform.label) + '</option>';
+            }).join('');
+          var platformOptions = socialPlatforms.filter(function (platform) {
+            return !selectedByOtherRows[platform.key] || platform.key === link.platform;
+          });
+          var platformMenu = platformOptions.map(function (platform) {
+            return '<button class="social-platform-picker-option" type="button" role="option" data-platform-option="' +
+              e(platform.key) + '" aria-label="' + e(platform.label) + '" title="' + e(platform.label) +
+              '" aria-selected="' + (platform.key === link.platform ? 'true' : 'false') + '">' +
+              UI.socialPlatformLogo(platform.key) + '</button>';
+          }).join('');
+          var selectedPlatform = socialPlatforms.find(function (platform) {
+            return platform.key === link.platform;
+          });
+          return '<div class="pe-social-row" data-social-index="' + index + '">' +
+              '<div class="social-platform-picker" data-platform-picker>' +
+              '<button class="social-platform-picker-trigger" type="button" data-platform-trigger aria-label="' +
+              (selectedPlatform ? e('المنصة المختارة: ' + selectedPlatform.label) : 'اختر المنصة') +
+              '" aria-haspopup="listbox" aria-expanded="false">' +
+              (link.platform ? UI.socialPlatformLogo(link.platform) : UI.icon('globe', 18)) +
+              UI.icon('chevron-down', 12) + '</button>' +
+              '<div class="social-platform-picker-menu" role="listbox" aria-label="المنصات">' + platformMenu + '</div>' +
+              '<select class="input select" data-social-platform aria-label="اسم المنصة">' + options + '</select>' +
+              '</div>' +
+              '<input class="input" type="url" inputmode="url" dir="ltr" data-social-url value="' + e(link.url) + '" placeholder="https://example.com">' +
+              '<button class="btn-icon sm danger" type="button" data-social-delete aria-label="حذف الرابط">' + UI.icon('trash', 14) + '</button>' +
+              '<p class="hint error" data-social-error style="display:none"></p>' +
+              '</div>';
+        }).join('')
+        : '<p class="tiny muted">لم تتم إضافة روابط بعد.</p>';
+      m.body.querySelector('#peAddSocialLink').disabled =
+        socialLinks.length >= socialPlatforms.length;
+      validateSocialLinks();
+    }
+
+    function syncSocialLinksFromDOM() {
+      if (!socialLinksEl) return;
+      socialLinks = Array.prototype.map.call(
+        socialLinksEl.querySelectorAll('.pe-social-row'),
+        function (row) {
+          return {
+            platform: row.querySelector('[data-social-platform]').value,
+            url: row.querySelector('[data-social-url]').value
+          };
+        }
+      );
+    }
+
+    function refreshSocialPlatformOptions() {
+      if (!socialLinksEl) return;
+      socialLinksEl.querySelectorAll('.pe-social-row').forEach(function (row, index, rows) {
+        var select = row.querySelector('[data-social-platform]');
+        var current = select.value;
+        var selectedByOtherRows = {};
+        Array.prototype.forEach.call(rows, function (otherRow, otherIndex) {
+          var otherPlatform = otherRow.querySelector('[data-social-platform]').value;
+          if (otherIndex !== index && otherPlatform) selectedByOtherRows[otherPlatform] = true;
+        });
+        var options = '<option value="">اختر المنصة</option>' +
+          socialPlatforms.filter(function (platform) {
+            return !selectedByOtherRows[platform.key] || platform.key === current;
+          }).map(function (platform) {
+            return '<option value="' + e(platform.key) + '">' + e(platform.label) + '</option>';
+          }).join('');
+        select.innerHTML = options;
+        select.value = current;
+          var picker = row.querySelector('[data-platform-picker]');
+          var platforms = socialPlatforms.filter(function (platform) {
+            return !selectedByOtherRows[platform.key] || platform.key === current;
+          });
+          picker.querySelector('.social-platform-picker-menu').innerHTML =
+            platforms.map(function (platform) {
+              return '<button class="social-platform-picker-option" type="button" role="option" data-platform-option="' +
+                e(platform.key) + '" aria-label="' + e(platform.label) + '" title="' + e(platform.label) +
+                '" aria-selected="' + (platform.key === current ? 'true' : 'false') + '">' +
+                UI.socialPlatformLogo(platform.key) + '</button>';
+            }).join('');
+          var selectedPlatform = socialPlatforms.find(function (platform) {
+            return platform.key === current;
+          });
+          var trigger = picker.querySelector('[data-platform-trigger]');
+          trigger.setAttribute('aria-label', selectedPlatform
+            ? 'المنصة المختارة: ' + selectedPlatform.label
+            : 'اختر المنصة');
+          trigger.innerHTML = (current ? UI.socialPlatformLogo(current) : UI.icon('globe', 18)) +
+            UI.icon('chevron-down', 12);
+      });
+    }
+
+    function validateSocialLinks() {
+      if (!socialLinksEl) return true;
+      var valid = true;
+      var usedPlatforms = {};
+      socialLinksEl.querySelectorAll('.pe-social-row').forEach(function (row) {
+        var platform = row.querySelector('[data-social-platform]').value;
+        var urlInput = row.querySelector('[data-social-url]');
+        var url = urlInput.value.trim();
+        var errorEl = row.querySelector('[data-social-error]');
+        var message = '';
+        if (url) {
+          if (!platform) message = 'اختر المنصة.';
+          else if (usedPlatforms[platform]) message = 'اختر منصة مختلفة لكل رابط.';
+          else if (
+            (url.slice(0, 7).toLowerCase() !== 'http://' &&
+              url.slice(0, 8).toLowerCase() !== 'https://') ||
+            !URL_RE.test(url)
+          ) {
+            message = 'أدخل رابطاً صحيحاً يبدأ بـ https:// أو http://.';
+          }
+          if (!message) usedPlatforms[platform] = true;
+        }
+        errorEl.textContent = message;
+        errorEl.style.display = message ? 'block' : 'none';
+        urlInput.setAttribute('aria-invalid', message ? 'true' : 'false');
+        if (message) valid = false;
+      });
+      socialLinksValid = valid;
+      if (socialLinksHintEl) socialLinksHintEl.style.display = 'none';
       refreshSave();
-      return websiteValid;
+      return valid;
+    }
+
+    function collectSocialLinks() {
+      if (!socialLinksEl) return [];
+      return Array.prototype.map.call(
+        socialLinksEl.querySelectorAll('.pe-social-row'),
+        function (row) {
+          return {
+            platform: row.querySelector('[data-social-platform]').value,
+            url: row.querySelector('[data-social-url]').value.trim()
+          };
+        }
+      ).filter(function (link) {
+        return link.platform && link.url;
+      });
+    }
+
+    if (socialLinksEl) {
+      renderSocialLinks();
+      socialLinksEl.addEventListener('input', function () {
+        syncSocialLinksFromDOM();
+        validateSocialLinks();
+      });
+      socialLinksEl.addEventListener('change', function () {
+        syncSocialLinksFromDOM();
+        refreshSocialPlatformOptions();
+        validateSocialLinks();
+      });
+      socialLinksEl.addEventListener('click', function (event) {
+        var optionButton = event.target.closest('[data-platform-option]');
+        if (optionButton) {
+          var optionRow = optionButton.closest('.pe-social-row');
+          var optionSelect = optionRow.querySelector('[data-social-platform]');
+          optionSelect.value = optionButton.dataset.platformOption;
+          var optionPicker = optionRow.querySelector('[data-platform-picker]');
+          optionPicker.classList.remove('is-open');
+          var optionTrigger = optionPicker.querySelector('[data-platform-trigger]');
+          optionTrigger.setAttribute('aria-expanded', 'false');
+          optionTrigger.focus();
+          optionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+          return;
+        }
+        var trigger = event.target.closest('[data-platform-trigger]');
+        if (trigger) {
+          var picker = trigger.closest('[data-platform-picker]');
+          var shouldOpen = !picker.classList.contains('is-open');
+          socialLinksEl.querySelectorAll('[data-platform-picker].is-open').forEach(function (openPicker) {
+            openPicker.classList.remove('is-open');
+            openPicker.querySelector('[data-platform-trigger]').setAttribute('aria-expanded', 'false');
+          });
+          picker.classList.toggle('is-open', shouldOpen);
+          trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+          return;
+        }
+        var deleteButton = event.target.closest('[data-social-delete]');
+        if (!deleteButton) return;
+        syncSocialLinksFromDOM();
+        socialLinks.splice(+deleteButton.closest('.pe-social-row').dataset.socialIndex, 1);
+        renderSocialLinks();
+      });
+      m.body.addEventListener('click', function (event) {
+        if (event.target.closest('[data-platform-picker]')) return;
+        socialLinksEl.querySelectorAll('[data-platform-picker].is-open').forEach(function (picker) {
+          picker.classList.remove('is-open');
+          picker.querySelector('[data-platform-trigger]').setAttribute('aria-expanded', 'false');
+        });
+      });
+      m.body.addEventListener('keydown', function (event) {
+        if (event.key !== 'Escape') return;
+        var picker = socialLinksEl.querySelector('[data-platform-picker].is-open');
+        if (!picker) return;
+        picker.classList.remove('is-open');
+        var trigger = picker.querySelector('[data-platform-trigger]');
+        trigger.setAttribute('aria-expanded', 'false');
+        trigger.focus();
+      });
+      m.body.querySelector('#peAddSocialLink').addEventListener('click', function () {
+        if (socialLinks.length >= socialPlatforms.length) return;
+        syncSocialLinksFromDOM();
+        socialLinks.push({ platform: '', url: '' });
+        renderSocialLinks();
+        var lastInput = socialLinksEl.querySelector('.pe-social-row:last-child [data-social-url]');
+        if (lastInput) lastInput.focus();
+      });
     }
 
     function checkWhatsappLive() {
       var value = whatsappEl.value.trim();
-      whatsappValid = /^\+?97[02][0-9]{9}$/.test(value);
+      var fullNumber = whatsappInternationalNumber();
+      var isPalestinianNumber = /^\+97[02]5\d{8}$/.test(fullNumber);
+      var isOtherInternationalNumber =
+        /^\+[1-9]\d{6,14}$/.test(fullNumber) && !/^\+97[02]/.test(fullNumber);
+      var isValidFormat = isPalestinianNumber || isOtherInternationalNumber;
+      whatsappValid = isValidFormat && !whatsappTaken &&
+        !whatsappCheckPending && !whatsappCheckFailed;
+      whatsappBox.classList.toggle('bad', !whatsappValid);
+      var hint = '';
+      var hintClass = '';
+      if (!isValidFormat) {
+        hint = value ? t('whatsappInvalid') : t('whatsappRequired');
+        hintClass = 'error';
+      } else if (whatsappTaken) {
+        hint = t('whatsappBelongsToAnotherUser');
+        hintClass = 'error';
+      } else if (whatsappCheckPending) {
+        hint = t('whatsappChecking');
+      } else if (whatsappCheckFailed) {
+        hint = t('whatsappCheckFailed');
+        hintClass = 'error';
+      }
       setHint(
         whatsappHintEl,
-        whatsappValid ? '' : (value ? t('whatsappInvalid') : t('whatsappRequired')),
-        whatsappValid ? '' : 'error'
+        hint,
+        hintClass
       );
       refreshSave();
       return whatsappValid;
     }
 
+    function checkWhatsappOwnership() {
+      if (whatsappCheckTimer) window.clearTimeout(whatsappCheckTimer);
+      var requestId = ++whatsappCheckRequestId;
+      whatsappTaken = false;
+      whatsappCheckFailed = false;
+      var fullNumber = whatsappInternationalNumber();
+      var isPalestinianNumber = /^\+97[02]5\d{8}$/.test(fullNumber);
+      var isOtherInternationalNumber =
+        /^\+[1-9]\d{6,14}$/.test(fullNumber) && !/^\+97[02]/.test(fullNumber);
+      if (!isPalestinianNumber && !isOtherInternationalNumber) {
+        whatsappCheckPending = false;
+        checkWhatsappLive();
+        return;
+      }
+
+      whatsappCheckPending = true;
+      checkWhatsappLive();
+      whatsappCheckTimer = window.setTimeout(function () {
+        var url = SITE.u('profileWhatsappCheck') +
+          '?phone=' + encodeURIComponent(fullNumber);
+        if (isAdminTarget) {
+          url += '&target_user_id=' + encodeURIComponent(p.adminTargetUserId);
+        }
+        fetch(url, { credentials: 'same-origin' })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok || !data.ok) {
+                throw new Error(data.error || 'whatsapp_check_failed');
+              }
+              return data;
+            });
+          })
+          .then(function (data) {
+            if (requestId !== whatsappCheckRequestId) return;
+            whatsappCheckPending = false;
+            whatsappTaken = data.belongsToAnotherUser === true;
+            checkWhatsappLive();
+          })
+          .catch(function () {
+            if (requestId !== whatsappCheckRequestId) return;
+            whatsappCheckPending = false;
+            whatsappCheckFailed = true;
+            checkWhatsappLive();
+          });
+      }, 300);
+    }
+
+    function updateProfileSetupPreview() {
+      var checks = [
+        ['الصورة الشخصية', !!avatarDraft],
+        ['العنوان المهني', !!titleInput.value.trim() && titleValid],
+        ['النبذة', !!bioEl.value.trim()],
+        ['المهارات', skills.some(function (skill) {
+          return !!(skill.name && skill.name.trim());
+        })],
+        ['رقم واتساب', whatsappValid]
+      ];
+      var completed = checks.filter(function (check) { return check[1]; }).length;
+      updateProfileSetupAlert({
+        percent: Math.round(completed * 100 / checks.length),
+        missing: checks.filter(function (check) { return !check[1]; })
+          .map(function (check) { return check[0]; })
+      }, false);
+    }
+
+    whatsappEl.addEventListener('input', function () {
+      var digits = whatsappEl.value.replace(/\D/g, '').slice(0, 14);
+      if (whatsappEl.value !== digits) whatsappEl.value = digits;
+      syncWhatsappMaxLength();
+      checkWhatsappOwnership();
+    });
+    whatsappCountryCodeEl.addEventListener('change', function () {
+      syncWhatsappMaxLength();
+      checkWhatsappOwnership();
+    });
     nameEl.addEventListener('input', checkNameLive);
-    emailEl.addEventListener('input', checkEmailLive);
-    websiteEl.addEventListener('input', checkWebsiteLive);
-    whatsappEl.addEventListener('input', checkWhatsappLive);
+    if (specializationEl) specializationEl.addEventListener('input', checkSpecializationLive);
     checkNameLive();
-    checkEmailLive();
-    checkWebsiteLive();
-    checkWhatsappLive();
+    checkSpecializationLive();
+    syncWhatsappMaxLength();
+    checkWhatsappOwnership();
 
     m.body.querySelector('#peAvatarBtn').addEventListener('click', function () { m.body.querySelector('#peAvatarFile').click(); });
     m.body.querySelector('#peAvatarFile').addEventListener('change', function (ev) {
@@ -1880,19 +2509,40 @@
       UI.compressImage(f, 480, 0.85).then(function (dataUrl) {
         avatarDraft = dataUrl;
         m.body.querySelector('#peAvatar').src = dataUrl;
+        refreshSave();
       });
     });
 
-    m.el.querySelector('#peCancel').addEventListener('click', m.close);
+    m.el.querySelector('#peCancel').addEventListener('click', function () {
+      restoreProfileSetupPreview();
+      m.close();
+    });
     m.el.querySelector('#peSave').addEventListener('click', function () {
       var btn = m.el.querySelector('#peSave');
       if (btn.disabled) return;
 
       var name = nameEl.value.trim() || p.name;
-      if (!checkNameLive()) { nameEl.focus(); return; }
-      if (!checkEmailLive()) { emailEl.focus(); return; }
-      if (!checkWebsiteLive()) { websiteEl.focus(); return; }
-      if (!checkWhatsappLive()) { whatsappEl.focus(); return; }
+      if (!checkNameLive()) { focusProfileEditField(nameEl); return; }
+      var fullNameArabicValue = fullNameArabicEl ? fullNameArabicEl.value.trim() : '';
+      var fullNameEnglishValue = fullNameEnglishEl ? fullNameEnglishEl.value.trim() : '';
+      if (Boolean(fullNameArabicValue) !== Boolean(fullNameEnglishValue)) {
+        focusProfileEditField(fullNameArabicValue ? fullNameEnglishEl : fullNameArabicEl);
+        return;
+      }
+      if (!titleValid) { focusProfileEditField(titleInput); return; }
+      if (!checkSpecializationLive()) { focusProfileEditField(specializationEl); return; }
+      if (!checkWhatsappLive()) { focusProfileEditField(whatsappEl); return; }
+      if (!validateSocialLinks()) {
+        var invalidSocialUrl = socialLinksEl.querySelector('[aria-invalid="true"]');
+        if (invalidSocialUrl) {
+          var invalidSocialRow = invalidSocialUrl.closest('.pe-social-row');
+          var socialSelect = invalidSocialRow.querySelector('[data-social-platform]');
+          focusProfileEditField(!socialSelect.value
+            ? invalidSocialRow.querySelector('[data-platform-trigger]')
+            : invalidSocialUrl);
+        }
+        return;
+      }
       var cleanSkills = skills.filter(function (s) { return s.name && s.name.trim(); }).map(function (s) {
         return { id: s.id || Store.uid('sk'), name: s.name.trim(), level: s.level || 50 };
       });
@@ -1907,17 +2557,18 @@
         fullNameEnglish: fullNameEnglish,
         trainerNameEnglish: trainerNameEnglish,
         title: m.body.querySelector('#peTitle').value.trim(),
+        studentSpecialization: specializationEl ? specializationEl.value.trim() : undefined,
         bio: m.body.querySelector('#peBio').value.trim(),
-        website: m.body.querySelector('#peWebsite').value.trim(),
-        email: m.body.querySelector('#peEmail').value.trim(),
-        whatsapp: whatsappEl ? whatsappEl.value.trim() : '',
+        socialLinks: socialLinksEl ? collectSocialLinks() : undefined,
+        whatsapp: whatsappInternationalNumber(),
         avatarData: avatarDraft,
         skills: cleanSkills,
         isTrainerTarget: isTargetTrainer,
         targetUserId: isAdminTarget ? p.adminTargetUserId : null
       };
 
-      btn.disabled = true;
+      isSaving = true;
+      refreshSave();
       submitProfileUpdate(payload, function (res) {
         if (isAdminTarget) {
           m.close();
@@ -1933,29 +2584,66 @@
           trainerNameEnglish: prof.trainerNameEnglish || trainerNameEnglish,
           handle: prof.handle || p.handle,
           title: prof.title || payload.title,
+          headline: typeof prof.headline === 'string' ? prof.headline : payload.title,
+          specialization: typeof prof.specialization === 'string'
+            ? prof.specialization
+            : payload.title,
+          studentSpecialization: typeof prof.studentSpecialization === 'string'
+            ? prof.studentSpecialization
+            : (payload.studentSpecialization || ''),
           bio: typeof prof.bio === 'string' ? prof.bio : payload.bio,
           location: typeof prof.location === 'string' ? prof.location : (p.location || ''),
           website: typeof prof.website === 'string' ? prof.website : (p.website || ''),
-          email: prof.email || payload.email,
+          email: typeof prof.email === 'string' ? prof.email : (p.email || ''),
           whatsapp: typeof prof.whatsapp === 'string' ? prof.whatsapp : payload.whatsapp,
           verified: !!prof.verified,
           avatar: prof.avatar || avatarDraft,
-          socials: prof.socials || (p.socials || {})
+          socials: prof.socials || (p.socials || {}),
+          social_links: prof.social_links || payload.socialLinks || p.social_links || []
         });
         Store.state.skills = Array.isArray(res.skills) ? res.skills : cleanSkills;
         Store.commit();
+        profileSetupSaved = true;
+        updateProfileSetupAlert(res.profile_setup, true);
         m.close();
         renderHome();
         UI.toast(t('savedOk'), 'success');
       }, function (err) {
-        btn.disabled = false;
-        if (err === 'invalid_name') UI.toast(t('nameInvalid'), 'error');
-        else if (err === 'invalid_email') UI.toast(t('emailInvalid'), 'error');
-        else if (err === 'required_whatsapp') UI.toast(t('whatsappRequired'), 'error');
-        else if (err === 'invalid_whatsapp') UI.toast(t('whatsappInvalid'), 'error');
-        else if (err === 'legal_name_pair_required' || err === 'invalid_legal_name') UI.toast('أدخل الاسم بالعربية والإنجليزية، من ثلاث إلى ست كلمات لكل لغة.', 'error');
-        else if (err === 'legal_name_locked') UI.toast('لا يمكن تعديل الاسم الثلاثي بعد حفظه.', 'error');
-        else if (err === 'login') UI.toast(t('loginRequiredSave'), 'error');
+        isSaving = false;
+        refreshSave();
+        if (err === 'invalid_name') {
+          focusProfileEditField(nameEl);
+          UI.toast(t('nameInvalid'), 'error');
+        } else if (err === 'required_whatsapp' || err === 'invalid_whatsapp') {
+          focusProfileEditField(whatsappEl);
+          UI.toast(err === 'required_whatsapp' ? t('whatsappRequired') : t('whatsappInvalid'), 'error');
+        } else if (err === 'whatsapp_belongs_to_another_user') {
+          whatsappTaken = true;
+          checkWhatsappLive();
+          focusProfileEditField(whatsappEl);
+          UI.toast(t('whatsappBelongsToAnotherUser'), 'error');
+        } else if (err === 'invalid_headline') {
+          focusProfileEditField(titleInput);
+          UI.toast('اختر المسمى المهني من فئات المستقلين النشطة.', 'error');
+        } else if (err === 'invalid_specialization') {
+          focusProfileEditField(specializationEl);
+          UI.toast('يجب ألا يتجاوز التخصص 30 حرفاً.', 'error');
+        } else if (err === 'invalid_social_links') {
+          var invalidSocial = socialLinksEl.querySelector('[aria-invalid="true"]');
+          if (invalidSocial) focusProfileEditField(invalidSocial);
+          UI.toast('تحقق من روابط ومنصات التواصل الاجتماعي.', 'error');
+        } else if (err === 'legal_name_pair_required' || err === 'invalid_legal_name') {
+          var legalNameTarget = !fullNameArabicValue
+            ? fullNameArabicEl
+            : !fullNameEnglishValue
+              ? fullNameEnglishEl
+              : fullNameArabicEl;
+          focusProfileEditField(legalNameTarget);
+          UI.toast('أدخل الاسم بالعربية والإنجليزية، من ثلاث إلى ست كلمات لكل لغة.', 'error');
+        } else if (err === 'legal_name_locked') {
+          focusProfileEditField(fullNameArabicEl || fullNameEnglishEl);
+          UI.toast('لا يمكن تعديل الاسم الثلاثي بعد حفظه.', 'error');
+        } else if (err === 'login') UI.toast(t('loginRequiredSave'), 'error');
         else UI.toast(t('saveFailed'), 'error');
       });
     });
@@ -2381,43 +3069,20 @@
   }
 
   function confirmCourseRegistration(courseTitle) {
-    var centerAddress = 'السرايا - مقابل شركة جوال - عمارة عنان - الطابق الاول (بجوار حلويات ابو بكر ساق الله)';
-    function registrationUrl(mode) {
-      var modeLabel = mode === 'online' ? 'أونلاين' : 'وجاهي';
-      return 'https://wa.me/972594810786?text=' +
-        encodeURIComponent('مرحبا شركة داتا، ارغب في التسجيل ' + modeLabel + ' في دورة ' + courseTitle);
-    }
+    var registrationUrl = 'https://wa.me/972594810786?text=' +
+      encodeURIComponent('مرحبا شركة داتا، ارغب في التسجيل أونلاين في دورة ' + courseTitle);
 
     var enrollModal = UI.modal({
       title: t('ucEnroll'),
       size: 'sm',
-      body: '',
-      footer: '<span></span>'
+      body: '<p class="modal-text">هل تريد تأكيد التسجيل في دورة <b>' + e(courseTitle) + '</b>؟</p>',
+      footer: '<button class="btn btn-ghost" type="button" data-enroll-cancel>إلغاء</button>' +
+        '<a class="btn btn-primary" href="' + e(registrationUrl) + '" target="_blank" rel="noopener" data-enroll-confirm>' +
+        'تأكيد التسجيل ' + UI.icon('whatsapp', 16) + '</a>'
     });
     enrollModal.el.querySelector('.modal-foot').classList.add('course-enroll-modal-foot');
-
-    function renderModeChoice() {
-      enrollModal.body.innerHTML = '<p class="modal-text">اختر طريقة التسجيل في دورة <b>' + e(courseTitle) + '</b>.</p>';
-      enrollModal.el.querySelector('.modal-foot').innerHTML =
-        '<button class="btn btn-soft" type="button" data-enroll-mode="in-person">وجاهي</button>' +
-        '<a class="btn btn-primary" href="' + e(registrationUrl('online')) + '" target="_blank" rel="noopener" data-enroll-confirm>' +
-        'أونلاين ' + UI.icon('whatsapp', 16) + '</a>';
-      enrollModal.el.querySelector('[data-enroll-confirm]').addEventListener('click', enrollModal.close);
-      enrollModal.el.querySelector('[data-enroll-mode="in-person"]').addEventListener('click', renderInPerson);
-    }
-
-    function renderInPerson() {
-      enrollModal.body.innerHTML = '<p class="modal-text">عنوان مركز داتا:</p><p class="modal-text"><b>' +
-        e(centerAddress) + '</b></p>';
-      enrollModal.el.querySelector('.modal-foot').innerHTML =
-        '<button class="btn btn-ghost" type="button" data-enroll-back>رجوع</button>' +
-        '<a class="btn btn-primary" href="' + e(registrationUrl('in-person')) + '" target="_blank" rel="noopener" data-enroll-confirm>' +
-        UI.icon('whatsapp', 16) + ' التسجيل عبر واتساب</a>';
-      enrollModal.el.querySelector('[data-enroll-back]').addEventListener('click', renderModeChoice);
-      enrollModal.el.querySelector('[data-enroll-confirm]').addEventListener('click', enrollModal.close);
-    }
-
-    renderModeChoice();
+    enrollModal.el.querySelector('[data-enroll-cancel]').addEventListener('click', enrollModal.close);
+    enrollModal.el.querySelector('[data-enroll-confirm]').addEventListener('click', enrollModal.close);
   }
 
   function renderCourseDetail() {
@@ -2427,6 +3092,11 @@
     var enrollmentData = document.getElementById('course-enrollment-data');
     if (enrollmentData) {
       try { enrolled = JSON.parse(enrollmentData.textContent) === true; } catch (err) { enrolled = false; }
+    }
+    var studentEnrolled = false;
+    var studentEnrollmentData = document.getElementById('course-student-enrollment-data');
+    if (studentEnrollmentData) {
+      try { studentEnrolled = JSON.parse(studentEnrollmentData.textContent) === true; } catch (err) { studentEnrolled = false; }
     }
     var trainerOwner = false;
     var trainerOwnerData = document.getElementById('course-trainer-owner-data');
@@ -2558,10 +3228,31 @@
        '<form class="cd-registration-form" id="inPersonRegistrationForm">' +
        '<div class="cd-registration-fields">' +
        '<label>الاسم الكامل<input class="input" name="fullName" type="text" autocomplete="name" aria-describedby="registrationFullNameError" required><span class="cd-registration-field-error" id="registrationFullNameError" aria-live="polite"></span></label>' +
-       '<label>رقم الهاتف / واتساب<input class="input" name="phone" type="tel" dir="ltr" inputmode="tel" autocomplete="tel" placeholder="972xxxxxxxxx" maxlength="13" pattern="(?:97[02][0-9]{9}|\\+97[02][0-9]{9}|05[69][0-9]{7})" title="12 رقماً تبدأ بـ970 أو 972، أو 13 خانة تبدأ بـ+970 أو +972، أو 10 أرقام تبدأ بـ059 أو 056" aria-describedby="registrationPhoneError" required><span class="cd-registration-field-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
+       '<label>رقم الهاتف / واتساب<span class="phone-box cd-registration-phone-box" id="registrationPhoneBox"><span class="country-code-picker" id="registrationCountryCodePicker">' +
+       '<select class="input select" id="registrationCountryCode" aria-label="مقدمة الدولة">' +
+       getCountryCallingCodeChoices().filter(function (choice) {
+         return choice[0] === '+970' || choice[0] === '+972';
+       }).map(function (choice) {
+         return '<option value="' + e(choice[0]) + '"' + (choice[0] === '+970' ? ' selected' : '') + '>' +
+           e(choice[1]) + '</option>';
+       }).join('') +
+       '</select><button class="country-code-trigger" type="button" aria-label="اختيار مقدمة الدولة" aria-haspopup="listbox" aria-expanded="false">' +
+       '<span class="country-code-current-flag" aria-hidden="true"></span><span class="country-code-current-prefix"></span>' +
+       '<span class="country-code-chevron" aria-hidden="true"></span></button><div class="country-code-menu" hidden>' +
+       '<div class="country-code-options" role="listbox" aria-label="مقدمات الدول"></div><p class="country-code-empty" aria-live="polite" hidden>لا توجد مقدمة مطابقة</p></div></span>' +
+       '<input class="input" id="registrationPhone" name="phone" type="tel" dir="ltr" inputmode="numeric" autocomplete="tel-national" autocapitalize="off" spellcheck="false" maxlength="10" placeholder="رقمك المحلي" aria-describedby="registrationPhoneHint registrationPhoneError" required></span>' +
+       '<span class="cd-registration-phone-hint" id="registrationPhoneHint">اختر مقدمة الدولة، ثم أدخل رقمك المحلي بدون المقدمة.</span>' +
+       '<span class="cd-registration-field-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
        '<label>التخصص<input class="input" name="specialty" type="text" aria-describedby="registrationSpecialtyError" required><span class="cd-registration-field-error" id="registrationSpecialtyError" aria-live="polite"></span></label>' +
-       '<label>السنة الدراسية<input class="input" name="studyYear" type="number" min="1" max="4294967295" step="1" inputmode="numeric" aria-describedby="registrationStudyYearError" required><span class="cd-registration-field-error" id="registrationStudyYearError" aria-live="polite"></span></label>' +
-       '<label>العنوان<input class="input" name="address" type="text" autocomplete="street-address" aria-describedby="registrationAddressError" required><span class="cd-registration-field-error" id="registrationAddressError" aria-live="polite"></span></label>' +
+       '<label class="cd-registration-study-year-label">السنة الدراسية<span class="cd-registration-study-year-wrap">' +
+       '<span class="cd-registration-study-year-icon" aria-hidden="true">' + UI.icon('graduation-cap', 19) + '</span>' +
+       '<select class="input cd-registration-study-year" name="studyYear" aria-describedby="registrationStudyYearHint registrationStudyYearError" required>' +
+       '<option value="" selected disabled>اختر السنة الدراسية</option>' +
+       '<optgroup label="طالب"><option value="1">سنة أولى</option><option value="2">سنة ثانية</option><option value="3">سنة ثالثة</option><option value="4">سنة رابعة</option><option value="5">سنة خامسة</option></optgroup>' +
+       '<optgroup label="الحالة الدراسية"><option value="graduate">خريج</option></optgroup></select>' +
+       '<span class="cd-registration-study-year-chevron" aria-hidden="true"></span></span>' +
+       '<span class="cd-registration-study-year-hint" id="registrationStudyYearHint">اختر السنة التي تدرس فيها، أو «خريج» إذا أنهيت دراستك.</span>' +
+       '<span class="cd-registration-field-error" id="registrationStudyYearError" aria-live="polite"></span></label>' +
        '<fieldset class="cd-registration-governorate" aria-describedby="registrationGovernorateError"><legend>المحافظة</legend><div class="cd-registration-governorate-options">' +
        '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="gaza" required><span class="cd-registration-governorate-button">غزة</span></label>' +
        '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="central" required><span class="cd-registration-governorate-button">الوسطى</span></label>' +
@@ -2655,8 +3346,10 @@
       '</div>' +
       (isComingSoon && !adminCourseManager && !trainerOwner
         ? '<div class="cd-btn cd-btn-buy cd-coming-soon-notice" role="status">' + UI.icon('clock', 16) + e(t('courseComingSoon')) + '</div>'
-        : enrolled || trainerOwner || adminCourseManager
-          ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
+        : studentEnrolled
+          ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plContinue')) + '</a>'
+          : enrolled || trainerOwner || adminCourseManager
+            ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
           : '<button class="cd-btn cd-btn-wa" type="button" data-act="enroll-course" data-title="' + e(c.title) + '">' + UI.icon('whatsapp', 17) + e(t('ucEnroll')) + '</button>') +
       shareButtonHTML +
       (canManageCourse(c)
@@ -2679,6 +3372,32 @@
       var registrationForm = document.getElementById('inPersonRegistrationForm');
       var registrationError = document.getElementById('inPersonRegistrationError');
       var registrationSubmit = registrationForm.querySelector('[type="submit"]');
+      var registrationPhoneInput = document.getElementById('registrationPhone');
+      var registrationCountryCodeInput = document.getElementById('registrationCountryCode');
+      var registrationCountryCodePicker = document.getElementById('registrationCountryCodePicker');
+      if (window.mountCountryCodePicker) {
+        window.mountCountryCodePicker(registrationCountryCodePicker);
+      }
+      function syncRegistrationPhoneMaxLength() {
+        var isPalestinianPrefix = registrationCountryCodeInput.value === '+970' ||
+          registrationCountryCodeInput.value === '+972';
+        var firstDigit = registrationPhoneInput.value.replace(/\D/g, '').charAt(0);
+        var maxLength = isPalestinianPrefix
+          ? firstDigit === '5' ? 9 : firstDigit === '0' || !firstDigit ? 10 : 14
+          : 14;
+        registrationPhoneInput.maxLength = maxLength;
+        if (registrationPhoneInput.value.length > maxLength) {
+          registrationPhoneInput.value = registrationPhoneInput.value.slice(0, maxLength);
+        }
+      }
+      function registrationPhoneValue() {
+        var localNumber = registrationPhoneInput.value.replace(/\D/g, '');
+        if (!/^0?(?:56|59)\d{7}$/.test(localNumber)) return '';
+        var national = localNumber.replace(/^0/, '');
+        var digits = registrationCountryCodeInput.value.slice(1) + national;
+        return digits.length >= 7 && digits.length <= 15 ? '+' + digits : '';
+      }
+      syncRegistrationPhoneMaxLength();
       var registrationFields = {
         fullName: {
           error: document.getElementById('registrationFullNameError'),
@@ -2691,15 +3410,9 @@
         },
         phone: {
           error: document.getElementById('registrationPhoneError'),
-          validate: function (value) {
-            return /^(?:97[02]\d{9}|\+97[02]\d{9}|05[69]\d{7})$/.test(value.trim())
-              ? '' : 'أدخل 12 رقماً يبدأ بـ970 أو 972، أو 13 خانة تبدأ بـ+970 أو +972، أو 10 أرقام تبدأ بـ059 أو 056.';
-          }
-        },
-        address: {
-          error: document.getElementById('registrationAddressError'),
-          validate: function (value) {
-            return value.trim() ? '' : 'أدخل العنوان.';
+          validate: function () {
+            return registrationPhoneValue()
+              ? '' : 'أدخل رقماً يبدأ بـ056 أو 059 من 10 خانات، أو 56 أو 59 من 9 خانات.';
           }
         },
         specialty: {
@@ -2711,8 +3424,8 @@
         studyYear: {
           error: document.getElementById('registrationStudyYearError'),
           validate: function (value) {
-            return /^[1-9]\d*$/.test(value.trim()) && Number(value) <= 4294967295
-              ? '' : 'أدخل السنة الدراسية كرقم صحيح موجب.';
+            return /^(?:[1-5]|graduate)$/.test(value)
+              ? '' : 'اختر السنة الدراسية.';
           }
         },
         governorate: {
@@ -2726,6 +3439,9 @@
         var field = registrationForm.elements[name];
         var error = registrationFields[name].validate(field.value);
         registrationFields[name].error.textContent = error;
+        if (name === 'phone') {
+          document.getElementById('registrationPhoneBox').classList.toggle('bad', !!error);
+        }
         Array.prototype.forEach.call(
           registrationForm.querySelectorAll('[name="' + name + '"]'),
           function (control) {
@@ -2743,6 +3459,70 @@
         registrationSubmit.disabled = !valid;
         return valid;
       }
+      var registrationCountData = document.getElementById('course-registration-count');
+      var registrationCount = registrationCountData
+        ? Math.max(0, Math.min(2, Number(registrationCountData.textContent) || 0))
+        : 0;
+      var registrationSuccessPanel = null;
+      function showRegistrationSuccess(count) {
+        registrationCount = Math.max(1, Math.min(2, Number(count) || 1));
+        registrationForm.hidden = true;
+        if (registrationSuccessPanel) registrationSuccessPanel.remove();
+        registrationSuccessPanel = document.createElement('div');
+        registrationSuccessPanel.className = 'course-registration-inline-success';
+        registrationSuccessPanel.setAttribute('role', 'status');
+        registrationSuccessPanel.innerHTML =
+          '<div class="course-registration-success-art" aria-hidden="true">' +
+          '<span class="course-registration-success-sparkle">✨</span>' +
+          '<span class="course-registration-success-icon">' + UI.icon('check', 28) + '</span>' +
+          '<span class="course-registration-success-confetti">🎉</span></div>' +
+          '<h3>تم تسجيل طلبك بنجاح ✅</h3>' +
+          '<p>سنتواصل معك خلال لحظات 📞</p>' +
+          '<span class="course-registration-success-course">' + e(c.title) + '</span>' +
+          (registrationCount < 2
+            ? '<button class="btn btn-primary course-registration-another" type="button">' +
+              UI.icon('user', 16) + 'سجّل لشخص آخر</button>'
+            : '');
+        registrationForm.parentNode.insertBefore(registrationSuccessPanel, registrationForm);
+        var anotherButton = registrationSuccessPanel.querySelector('.course-registration-another');
+        if (anotherButton) {
+          anotherButton.addEventListener('click', function () {
+            registrationSuccessPanel.remove();
+            registrationSuccessPanel = null;
+            registrationForm.hidden = false;
+            registrationForm.reset();
+            Object.keys(registrationFields).forEach(function (name) {
+              registrationFields[name].error.textContent = '';
+              Array.prototype.forEach.call(
+                registrationForm.querySelectorAll('[name="' + name + '"]'),
+                function (control) {
+                  control.removeAttribute('aria-invalid');
+                }
+              );
+            });
+            document.getElementById('registrationPhoneBox').classList.remove('bad');
+            syncRegistrationPhoneMaxLength();
+            validateRegistrationForm(false);
+            registrationForm.elements.fullName.focus();
+          });
+        }
+      }
+      registrationPhoneInput.addEventListener('input', function () {
+        var digits = registrationPhoneInput.value.replace(/\D/g, '');
+        if (registrationPhoneInput.value !== digits) registrationPhoneInput.value = digits;
+        syncRegistrationPhoneMaxLength();
+        validateRegistrationField('phone');
+        registrationSubmit.disabled = !Object.keys(registrationFields).every(function (name) {
+          return !registrationFields[name].validate(registrationForm.elements[name].value);
+        });
+        registrationError.hidden = true;
+      });
+      registrationCountryCodeInput.addEventListener('change', function () {
+        syncRegistrationPhoneMaxLength();
+        validateRegistrationField('phone');
+        validateRegistrationForm(false);
+        registrationError.hidden = true;
+      });
       Object.keys(registrationFields).forEach(function (name) {
         var field = registrationForm.elements[name];
         var controls = registrationForm.querySelectorAll('[name="' + name + '"]');
@@ -2769,6 +3549,7 @@
       registrationSubmit.disabled = !Object.keys(registrationFields).every(function (name) {
         return !registrationFields[name].validate(registrationForm.elements[name].value);
       });
+      if (registrationCount > 0) showRegistrationSuccess(registrationCount);
       registrationForm.addEventListener('submit', function (event) {
         event.preventDefault();
         if (!validateRegistrationForm(true)) {
@@ -2777,10 +3558,10 @@
         }
         var formData = new FormData(registrationForm);
         var fullName = String(formData.get('fullName') || '').trim().replace(/\s+/g, ' ');
-        var phone = String(formData.get('phone') || '').trim();
-        var address = String(formData.get('address') || '').trim();
+        var phone = registrationPhoneValue();
         var specialty = String(formData.get('specialty') || '').trim();
-        var studyYear = Number(formData.get('studyYear'));
+        var studyYearValue = String(formData.get('studyYear') || '');
+        var studyYear = studyYearValue === 'graduate' ? null : Number(studyYearValue);
         var governorate = String(formData.get('governorate') || '').trim();
         registrationError.hidden = true;
         registrationSubmit.disabled = true;
@@ -2796,9 +3577,9 @@
           body: JSON.stringify({
             fullName: fullName,
             phone: phone,
-            address: address,
             specialty: specialty,
             studyYear: studyYear,
+            studentStatus: studyYearValue === 'graduate' ? 'graduate' : 'student',
             governorate: governorate
           })
         }).then(function (response) {
@@ -2806,11 +3587,12 @@
             if (!response.ok || !data.ok) {
               var error = new Error(data.error || 'registration_failed');
               error.status = response.status;
+              error.count = data.count;
               throw error;
             }
             return data;
           });
-        }).then(function () {
+        }).then(function (data) {
           registrationForm.reset();
           Object.keys(registrationFields).forEach(function (name) {
             registrationFields[name].error.textContent = '';
@@ -2822,25 +3604,12 @@
             );
           });
           registrationSubmit.disabled = true;
-          var successModal = UI.modal({
-            title: 'تم حفظ طلب التسجيل',
-            size: 'sm',
-            body: '<div class="course-registration-success" role="status">' +
-              '<div class="course-registration-success-art" aria-hidden="true">' +
-              '<span class="course-registration-success-sparkle">✨</span>' +
-              '<span class="course-registration-success-icon">' + UI.icon('check', 30) + '</span>' +
-              '<span class="course-registration-success-confetti">🎉</span>' +
-              '</div><h4>أهلاً وسهلاً ' + e(fullName.split(' ')[0]) + '!</h4>' +
-              '<p>وصلنا طلبك بنجاح، وسنتواصل معك قريباً لإكمال خطوات التسجيل.</p>' +
-              '<span class="course-registration-success-course">' + e(c.title) + '</span></div>',
-            footer: '<button class="btn btn-primary course-registration-success-close" type="button">رائع، شكراً</button>'
-          });
-          successModal.el.classList.add('course-registration-success-modal');
-          successModal.el.querySelector('.course-registration-success-close')
-            .addEventListener('click', successModal.close);
+          showRegistrationSuccess(data.count || registrationCount + 1);
         }).catch(function (error) {
           if (error.status === 429) {
             registrationError.textContent = 'تم إرسال عدة طلبات. حاول مرة أخرى لاحقاً.';
+          } else if (error.message === 'registration_limit_reached') {
+            showRegistrationSuccess(error.count || 2);
           } else if (error.status === 404) {
             registrationError.textContent = 'هذه الدورة غير متاحة للتسجيل حالياً.';
           } else {
@@ -3165,6 +3934,8 @@
 
   function boot() {
     UI.init();
+    var completedSetupAlert = document.querySelector('#profileSetupAlert.is-complete');
+    if (completedSetupAlert) dismissProfileSetupAlert(completedSetupAlert);
     if (location.search.indexOf('saved=1') >= 0) {
       UI.toast(t('profileSaved'), 'success');
       if (window.history && history.replaceState) history.replaceState(null, '', location.pathname + location.hash);
@@ -3213,7 +3984,7 @@
     else if (page === 'project') renderProjectDetail();
   });
 
-  window.AppPage = { renderHome: renderHome, openProfileModal: openProfileModal, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, workshopCertificateCard: workshopCertificateCard, projCard: projCard, initCaptions: initCaptions, initSkillTagScroller: initSkillTagScroller };
+  window.AppPage = { renderHome: renderHome, openProfileModal: openProfileModal, openCertModal: openCertModal, renderNotFound: renderNotFound, backLink: backLink, postCard: postCard, certCard: certCard, inPersonCourseCard: inPersonCourseCard, workshopCertificateCard: workshopCertificateCard, projCard: projCard, initCaptions: initCaptions, initSkillTagScroller: initSkillTagScroller };
 
   boot();
 })();

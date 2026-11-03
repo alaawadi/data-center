@@ -13,9 +13,10 @@ from courses.models import (
     ManualCertificateStatus,
     WorkshopCertificate,
 )
+from courses.subscriptions import active_course_progress
 from courses.views import published_courses_payload
-from posts.models import Post
 from projects.models import Project, ProjectInteraction
+from users.forms import COUNTRY_CALLING_CODE_CHOICES
 from users.models import UserRole
 
 
@@ -30,11 +31,9 @@ def trainer_course_students(request, course_slug):
         return JsonResponse({'ok': False, 'message': 'الدورة غير موجودة.'}, status=404)
 
     total_lessons = course.lessons_count
-    progress_rows = (
+    progress_rows = active_course_progress(
         CourseProgress.objects.filter(course=course)
-        .select_related('student', 'student__profile')
-        .order_by('created_at', 'pk')
-    )
+    ).select_related('student', 'student__profile').order_by('created_at', 'pk')
     students = []
     for progress in progress_rows:
         completed_count = progress.done_count
@@ -66,10 +65,19 @@ class HomeView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         user = self.request.user
         if user.is_authenticated:
+            context['country_calling_code_choices'] = COUNTRY_CALLING_CODE_CHOICES
+            profile = getattr(user, 'profile', None)
+            setup = profile.completeness() if profile else {'percent': 0, 'missing': []}
+            context['profile_setup'] = setup
+            context['profile_setup_missing'] = setup['missing']
+            context['profile_setup_complete_notice'] = (
+                setup['percent'] == 100
+                and self.request.GET.get('saved') == '1'
+            )
             projects = (
                 Project.objects.filter(owner=user)
-                .select_related('owner')
-                .prefetch_related('tags', 'images', 'files')
+                .select_related('owner', 'owner__profile')
+                .prefetch_related('tags', 'files')
             )
             interactions = {
                 interaction.project_id: interaction
@@ -79,7 +87,11 @@ class HomeView(LoginRequiredMixin, TemplateView):
             }
             projects_json = []
             for project in projects:
-                data = project.to_public_dict()
+                data = project.to_public_dict(
+                    include_content=False,
+                    include_comments=False,
+                    include_attachments=False,
+                )
                 interaction = interactions.get(project.pk)
                 data['liked'] = interaction.liked if interaction else False
                 data['saved'] = interaction.saved if interaction else False
@@ -87,27 +99,32 @@ class HomeView(LoginRequiredMixin, TemplateView):
             context['projects_json'] = projects_json
             saved_interactions = (
                 ProjectInteraction.objects.filter(user=user, saved=True)
-                .select_related('project', 'project__owner')
-                .prefetch_related('project__tags', 'project__images', 'project__files')
+                .select_related(
+                    'project',
+                    'project__owner',
+                    'project__owner__profile',
+                )
+                .prefetch_related('project__tags', 'project__files')
             )
             saved_projects_json = []
             for interaction in saved_interactions:
                 project = interaction.project
-                data = project.to_public_dict()
+                data = project.to_public_dict(
+                    include_content=False,
+                    include_comments=False,
+                    include_attachments=False,
+                )
                 data['liked'] = interaction.liked
                 data['saved'] = True
                 saved_projects_json.append(data)
             context['saved_projects_json'] = saved_projects_json
-            posts = (
-                Post.objects.filter(owner=user)
-                .select_related('owner')
-                .prefetch_related('tags', 'media', 'comments')
-            )
-            context['posts_json'] = [p.to_public_dict() for p in posts]
             # الشهادات التي اكتسبها الطالب (تُدمج مع قائمة الدورات في الواجهة)
             certs = CourseCertificate.objects.filter(student=user).select_related(
-                'course', 'course__owner', 'student'
-            ).prefetch_related('course__sections__lessons')
+                'course',
+                'course__owner',
+                'course__owner__profile',
+                'student',
+            )
             manual_certs = ManualCertificate.objects.filter(
                 student=user,
                 status__in=(
@@ -119,18 +136,25 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 attendance__student=user
             ).select_related('attendance__student')
             context['my_certs_json'] = (
-                [c.to_public_dict() for c in certs]
+                [
+                    certificate.to_public_dict(
+                        include_syllabus=False,
+                        include_content=False,
+                    )
+                    for certificate in certs
+                ]
                 + [c.to_public_dict() for c in manual_certs]
                 + [c.to_public_dict() for c in workshop_certs]
             )
             if user.role == UserRole.STUDENT:
-                active_progress = (
+                active_progress = active_course_progress(
                     CourseProgress.objects.filter(
                         student=user,
                         completed=False,
                         course__status=CourseStatus.PUBLISHED,
                     )
-                    .select_related('course', 'course__owner', 'course__owner__profile')
+                ).select_related(
+                    'course', 'course__owner', 'course__owner__profile'
                 )
                 context['active_courses_json'] = [
                     progress.course.to_public_dict(

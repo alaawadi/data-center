@@ -10,19 +10,25 @@ from django.views.decorators.http import require_POST
 from django.views.generic import ListView, TemplateView
 
 from courses.models import (
+    Course,
     CourseCertificate,
     CourseStatus,
+    CourseType,
     ManualCertificate,
     ManualCertificateStatus,
     StudentPointTransaction,
     StudentReferralLink,
-    TrainingCategory,
     WorkshopCertificate,
 )
 from courses.views import published_courses_payload
-from posts.models import Post, PostStatus
 from projects.models import Project, ProjectInteraction, ProjectStatus, ProjectVisibility
-from users.models import Profile, UserRole
+from users.forms import COUNTRY_CALLING_CODE_CHOICES
+from users.models import (
+    DEFAULT_STUDENT_CATEGORY_NAME,
+    FreelancerCategory,
+    Profile,
+    UserRole,
+)
 
 
 class FreelancerListView(ListView):
@@ -34,6 +40,11 @@ class FreelancerListView(ListView):
     def get_queryset(self):
         return (
             Profile.objects.select_related('user')
+            .prefetch_related(
+                'profile_skills__skill',
+                'profile_languages__language',
+                'social_links',
+            )
             .filter(
                 is_public=True,
                 user__is_active=True,
@@ -50,6 +61,10 @@ class FreelancerListView(ListView):
                     filter=Q(
                         user__projects__status=ProjectStatus.PUBLISHED,
                         user__projects__visibility=ProjectVisibility.PUBLIC,
+                    ) | Q(
+                        user__projects__status=ProjectStatus.PUBLISHED,
+                        user__projects__visibility=ProjectVisibility.PERSONAL,
+                        user__role=UserRole.TRAINER,
                     ),
                     distinct=True,
                 ),
@@ -71,8 +86,21 @@ class FreelancerListView(ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        freelancer_specializations = Profile.objects.filter(
+            is_public=True,
+            user__is_active=True,
+            user__role__in=(UserRole.TRAINER, UserRole.STUDENT),
+        ).values('specialization')
         context['training_categories_json'] = list(
-            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+            FreelancerCategory.objects.filter(
+                is_active=True,
+            )
+            .exclude(name=DEFAULT_STUDENT_CATEGORY_NAME)
+            .filter(
+                name__in=freelancer_specializations,
+            )
+            .order_by('display_order', 'name')
+            .values_list('name', flat=True)
         )
         profiles = []
         display_orders = {}
@@ -171,8 +199,13 @@ class FreelancerDetailView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['country_calling_code_choices'] = COUNTRY_CALLING_CODE_CHOICES
         profile = get_object_or_404(
-            Profile.objects.select_related('user'),
+            Profile.objects.select_related('user').prefetch_related(
+                'profile_skills__skill',
+                'profile_languages__language',
+                'social_links',
+            ),
             user__handle=kwargs['handle'],
             user__is_active=True,
             is_public=True,
@@ -180,14 +213,11 @@ class FreelancerDetailView(TemplateView):
         context['profile'] = profile
 
         is_owner = self.request.user.is_authenticated and self.request.user.pk == profile.user_id
-        post_filter = {'owner': profile.user}
-        if not is_owner:
-            post_filter['status'] = PostStatus.PUBLISHED
 
         context['profile_json'] = profile.to_public_dict()
         context['profile_json']['skillsWithLevels'] = [
             {'id': f'sk{skill.pk}', 'name': skill.skill.name, 'level': skill.level}
-            for skill in profile.profile_skills.select_related('skill')
+            for skill in profile.profile_skills.all()
         ]
         if profile.show_referral_stats and profile.user.role == UserRole.STUDENT:
             context['profile_json']['referral_points'] = (
@@ -203,7 +233,13 @@ class FreelancerDetailView(TemplateView):
         if self.request.user.is_authenticated and (
             self.request.user.is_staff or self.request.user.is_admin_role
         ):
+            context['profile_json']['freelancerCategories'] = list(
+                FreelancerCategory.objects.filter(is_active=True)
+                .order_by('display_order', 'name')
+                .values_list('name', flat=True)
+            )
             context['profile_json']['adminTargetUserId'] = profile.user_id
+            context['profile_json']['accountPhone'] = profile.user.phone
             context['profile_json']['fullNameArabic'] = profile.user.full_name_ar
             context['profile_json']['fullNameEnglish'] = profile.user.full_name_en
             context['profile_json']['trainerNameEnglish'] = (
@@ -214,10 +250,15 @@ class FreelancerDetailView(TemplateView):
             Project.objects.filter(
                 owner=profile.user,
                 status=ProjectStatus.PUBLISHED,
-                visibility=ProjectVisibility.PUBLIC,
+            ).filter(
+                Q(visibility=ProjectVisibility.PUBLIC)
+                | Q(
+                    visibility=ProjectVisibility.PERSONAL,
+                    owner__role=UserRole.TRAINER,
+                )
             )
-            .select_related('owner')
-            .prefetch_related('tags', 'images', 'files')
+            .select_related('owner', 'owner__profile')
+            .prefetch_related('tags', 'files')
         )
         profile_interactions = {}
         if is_owner:
@@ -229,7 +270,11 @@ class FreelancerDetailView(TemplateView):
             }
         projects_json = []
         for project in profile_projects:
-            data = project.to_public_dict()
+            data = project.to_public_dict(
+                include_content=False,
+                include_comments=False,
+                include_attachments=False,
+            )
             interaction = profile_interactions.get(project.pk)
             data['liked'] = interaction.liked if interaction else False
             data['saved'] = interaction.saved if interaction else False
@@ -238,32 +283,42 @@ class FreelancerDetailView(TemplateView):
         if is_owner:
             saved_interactions = (
                 ProjectInteraction.objects.filter(user=self.request.user, saved=True)
-                .select_related('project', 'project__owner')
-                .prefetch_related('project__tags', 'project__images', 'project__files')
+                .select_related(
+                    'project',
+                    'project__owner',
+                    'project__owner__profile',
+                )
+                .prefetch_related(
+                    'project__tags',
+                    'project__files',
+                )
             )
             saved_projects_json = []
             for interaction in saved_interactions:
                 project = interaction.project
-                data = project.to_public_dict()
+                data = project.to_public_dict(
+                    include_content=False,
+                    include_comments=False,
+                    include_attachments=False,
+                )
                 data['liked'] = interaction.liked
                 data['saved'] = True
                 saved_projects_json.append(data)
             context['saved_projects_json'] = saved_projects_json
-        context['posts_json'] = [
-            p.to_public_dict()
-            for p in (
-                Post.objects.filter(**post_filter)
-                .select_related('owner')
-                .prefetch_related('tags', 'media', 'comments')
-            )
-        ]
         # الشهادات التي اكتسبها صاحب البروفايل
         certs = (
             CourseCertificate.objects.filter(student=profile.user, is_active=True)
-            .select_related('course', 'course__owner', 'student')
-            .prefetch_related('course__sections__lessons')
+            .select_related(
+                'course',
+                'course__owner',
+                'course__owner__profile',
+                'student',
+            )
         )
-        context['profile_certs_json'] = [c.to_public_dict() for c in certs]
+        context['profile_certs_json'] = [
+            certificate.to_public_dict(include_syllabus=False, include_content=False)
+            for certificate in certs
+        ]
         manual_certificates = ManualCertificate.objects.filter(
             student=profile.user,
             status=ManualCertificateStatus.APPROVED,
@@ -281,4 +336,27 @@ class FreelancerDetailView(TemplateView):
         ]
         # الدورات المنشورة تُدمج مع الشهادات المكتسبة في لائحة شهادات البروفايل
         context['courses_json'] = published_courses_payload()
+        if profile.user.is_trainer:
+            profile_only_courses = (
+                Course.objects.filter(
+                    owner=profile.user,
+                    status=CourseStatus.PUBLISHED,
+                    course_type=CourseType.IN_PERSON,
+                    profile_only=True,
+                )
+                .select_related('owner', 'owner__profile')
+            )
+            context['courses_json'].extend(
+                course.to_public_dict(include_syllabus=False, include_content=False)
+                for course in profile_only_courses
+            )
+            inactive_courses = (
+                Course.objects.filter(owner=profile.user)
+                .exclude(status=CourseStatus.PUBLISHED)
+                .select_related('owner', 'owner__profile')
+            )
+            context['courses_json'].extend(
+                course.to_public_dict(include_syllabus=False, include_content=False)
+                for course in inactive_courses
+            )
         return context

@@ -14,9 +14,12 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 phone_validator = RegexValidator(
-    regex=r'^[0-9]{10}$',
-    message='رقم الجوال يجب أن يتكوّن من 10 أرقام.',
+    regex=r'^(?:[0-9]{10}|\+[1-9][0-9]{6,14})$',
+    message='أدخل رقم جوال محلياً من 10 أرقام أو دولياً بصيغة + ورمز الدولة والرقم.',
 )
+
+
+DEFAULT_STUDENT_CATEGORY_NAME = 'طالب'
 
 
 def validate_arabic_three_part_name(value):
@@ -83,7 +86,25 @@ class SocialPlatform(models.TextChoices):
     INSTAGRAM = 'instagram', 'إنستغرام'
     YOUTUBE = 'youtube', 'يوتيوب'
     TELEGRAM = 'telegram', 'تيليجرام'
+    WHATSAPP = 'whatsapp', 'واتساب'
     OTHER = 'other', 'أخرى'
+
+
+class FreelancerCategory(models.Model):
+    """A managed specialty used to categorize public freelancer profiles."""
+
+    name = models.CharField('فئة المستقل', max_length=120, unique=True)
+    is_active = models.BooleanField('نشطة', default=True)
+    display_order = models.PositiveIntegerField('ترتيب العرض', null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField('أُنشئت في', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'فئة مستقل'
+        verbose_name_plural = 'فئات المستقلين'
+        ordering = ['display_order', 'name']
+
+    def __str__(self):
+        return self.name
 
 
 class LanguageLevel(models.TextChoices):
@@ -127,7 +148,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     """Platform user identified by phone number, with a single role."""
 
     phone = models.CharField(
-        'رقم الجوال', max_length=10, unique=True, validators=[phone_validator]
+        'رقم الجوال', max_length=16, unique=True, validators=[phone_validator]
     )
     full_name = models.CharField('الاسم الكامل', max_length=150, blank=True)
     full_name_ar = models.CharField(
@@ -318,6 +339,7 @@ class Profile(models.Model):
     intro_video = models.URLField('فيديو تعريفي', blank=True)
 
     # ── بيانات الطالب ──
+    student_specialization = models.CharField('التخصص', max_length=30, blank=True)
     education_stage = models.CharField(
         'المرحلة الدراسية', max_length=16, choices=EducationStage.choices, blank=True
     )
@@ -362,23 +384,9 @@ class Profile(models.Model):
             ('الصورة الشخصية', bool(self.avatar)),
             ('العنوان المهني', bool(self.headline)),
             ('النبذة', bool(self.bio)),
-            ('المدينة', bool(self.city)),
             ('المهارات', self.skills.exists()),
-            ('اللغات', self.languages.exists()),
-            ('وسيلة تواصل', bool(self.whatsapp or self.website or self.social_links.exists())),
+            ('رقم واتساب', bool(self.whatsapp)),
         ]
-        if self.user.is_trainer:
-            checks += [
-                ('التخصص', bool(self.specialization)),
-                ('سنوات الخبرة', self.experience_years is not None),
-                ('معدل الساعة', self.hourly_rate is not None),
-            ]
-        elif self.user.is_student:
-            checks += [
-                ('المرحلة الدراسية', bool(self.education_stage)),
-                ('المدرسة / الجامعة', bool(self.school)),
-                ('الصف / السنة', bool(self.grade)),
-            ]
         done = sum(1 for _, ok in checks if ok)
         return {
             'percent': round(done * 100 / len(checks)) if checks else 0,
@@ -391,6 +399,22 @@ class Profile(models.Model):
 
     def to_public_dict(self):
         """Shape expected by the client-side profile/list rendering."""
+        prefetched = getattr(self, '_prefetched_objects_cache', {})
+        profile_skills = (
+            prefetched['profile_skills']
+            if 'profile_skills' in prefetched
+            else self.profile_skills.select_related('skill')
+        )
+        profile_languages = (
+            prefetched['profile_languages']
+            if 'profile_languages' in prefetched
+            else self.profile_languages.select_related('language')
+        )
+        social_links = (
+            prefetched['social_links']
+            if 'social_links' in prefetched
+            else self.social_links.all()
+        )
         return {
             'handle': self.user.handle,
             'name': self.user.display_name,
@@ -410,14 +434,19 @@ class Profile(models.Model):
             'showReferralStats': self.show_referral_stats,
             'isTrainer': self.user.is_trainer,
             'specialization': self.specialization,
-            'skills': [ps.skill.name for ps in self.profile_skills.select_related('skill')],
+            'studentSpecialization': self.student_specialization,
+            'skills': [ps.skill.name for ps in profile_skills],
             'languages': [
                 {'name': pl.language.name, 'level': pl.get_level_display()}
-                for pl in self.profile_languages.select_related('language')
+                for pl in profile_languages
             ],
             'social_links': [
-                {'platform': link.get_platform_display(), 'url': link.url}
-                for link in self.social_links.all()
+                {
+                    'platform': link.get_platform_display(),
+                    'platform_key': link.platform,
+                    'url': link.url,
+                }
+                for link in social_links
             ],
         }
 
@@ -471,7 +500,7 @@ class SocialLink(models.Model):
 class LoginAttempt(models.Model):
     """A single login attempt — used for brute-force throttling."""
 
-    phone = models.CharField('رقم الجوال', max_length=10, blank=True, default='', db_index=True)
+    phone = models.CharField('رقم الجوال', max_length=16, blank=True, default='', db_index=True)
     ip = models.GenericIPAddressField('عنوان IP', null=True, blank=True)
     successful = models.BooleanField('نجاح', default=False)
     created_at = models.DateTimeField('وقت المحاولة', auto_now_add=True)
@@ -522,7 +551,7 @@ class SignupVerification(models.Model):
     sign-up never reserves the phone number or the email.
     """
 
-    phone = models.CharField('رقم الجوال', max_length=10, db_index=True)
+    phone = models.CharField('رقم الجوال', max_length=16, db_index=True)
     full_name = models.CharField('الاسم الكامل', max_length=150)
     email = models.EmailField('البريد الإلكتروني')
     password_hash = models.CharField('كلمة المرور (مشفّرة)', max_length=128)

@@ -8,11 +8,13 @@
       adminRole: 'مشرف النظام',
       viewSite: 'عرض الموقع',
       menu: 'القائمة',
+      logout: 'تسجيل الخروج',
       secOverview: 'نظرة عامة',
-      secUsers: 'الطلاب أونلاين',
+      secUsers: 'الطلاب',
       secReferralPoints: 'نقاط الإحالة',
       secTrainers: 'المدربون',
       secTrainingCategories: 'المجالات التدريبية',
+      secFreelancerCategories: 'فئات المستقلين',
       trainingCategoryDrag: 'اسحب لترتيب المجال',
       secCourses: 'الدورات الأونلاين',
       secInPersonCourses: 'الدورات الوجاهية',
@@ -21,7 +23,10 @@
       secProjects: 'المشاريع',
       secWorkshops: 'الورشات الوجاهية',
       secCourseRegistrationRequests: 'طلبات التسجيل',
-      secStudentCertificates: 'شهادات الطلاب',
+      secSubscriptions: 'الاشتراكات',
+      secStudentCertificates: 'مراجعة الشهادات',
+      secInPersonPaymentInvoices: 'إدارة اشتراكات الوجاهي',
+      secOnlineCourseInvoices: 'إدارة اشتراكات الأونلاين',
       secDailies: 'اليوميات',
       secSettings: 'الإعدادات',
       subOverview: 'ملخص أداء المنصة ومحتواها في مكان واحد',
@@ -35,6 +40,8 @@
       referralPointsResetFailed: 'تعذر تصفير نقاط الإحالة.',
       subTrainers: 'إدارة فريق التدريب وتخصصاتهم ودوراتهم',
       subTrainingCategories: 'إدارة الفئات المستخدمة في الدورات والمشاريع والمستقلين',
+      subFreelancerCategories: 'إدارة الفئات المستخدمة لتصنيف المستقلين في صفحة كل المستقلين',
+      freelancerCategoryDeleteConfirm: 'سيؤدي حذف الفئة إلى إزالة التخصص المرتبط بها من ملفات المستقلين. هل تريد المتابعة؟',
       subCourses: 'إدارة الدورات الأونلاين والمدربين المرتبطين بها',
       subInPersonCourses: 'عرض وإدارة الدورات الحضورية المنشورة والمسودات',
       subInPersonStudents: 'قائمة الطلاب المقبولين في الدورات الوجاهية',
@@ -45,6 +52,67 @@
       subProjects: 'إدارة مشاريع الطلاب وحالة نشرها',
       subWorkshops: 'إنشاء الورشات وإدارة رمز QR والحضور والشهادات',
       subCourseRegistrationRequests: 'مراجعة بيانات المتقدمين للدورات الوجاهية وطرق التواصل معهم',
+      subSubscriptions: 'إنشاء ومتابعة اشتراكات الطلاب في الدورات الوجاهية والأونلاين',
+      subscriptionAdd: 'اشتراك جديد',
+      subscriptionAddTitle: 'تسجيل اشتراك طالب',
+      subscriptionType: 'نوع الدورة',
+      subscriptionTypeOnline: 'أونلاين',
+      subscriptionTypeInPerson: 'وجاهي',
+      subscriptionCourse: 'الدورة',
+      subscriptionCourseSearch: 'ابحث عن اسم الدورة',
+      subscriptionCourseNoMatches: 'لا توجد دورات منشورة مطابقة.',
+      subscriptionStudentNoMatches: 'لا يوجد طلاب مطابقون.',
+      subscriptionCohort: 'الشعبة',
+      subscriptionCohortChoose: 'اختر الشعبة',
+      subscriptionCohortUnavailable: 'لا توجد شعبة نشطة لهذه الدورة.',
+      subscriptionPrice: 'قيمة الاشتراك',
+      subscriptionPriceHint: 'يُعبأ تلقائياً من سعر الدورة وبعملتها.',
+      subscriptionDiscount: 'قيمة الخصم (اختياري)',
+      subscriptionDiscountHint: 'اتركه فارغاً إذا لم يوجد خصم.',
+      subscriptionDiscountInvalid: 'يجب ألا يتجاوز الخصم قيمة الاشتراك.',
+      subscriptionInitialPayment: 'دفعة عند الاشتراك',
+      subscriptionCreateButton: 'تأكيد الاشتراك',
+      subscriptionCreateSuccess: 'تم تسجيل الاشتراك وإضافة الطالب إلى الدورة.',
+      subscriptionCreateFailed: 'تعذر تسجيل الاشتراك.',
+      subscriptionEmpty: 'لا توجد اشتراكات مسجلة حالياً.',
+      subscriptionFilterType: 'كل أنواع الدورات',
+      subscriptionFilterBalance: 'حالة المبلغ المتبقي',
+      subscriptionHasBalance: 'عليهم مبلغ متبقٍ',
+      subscriptionHistory: 'سجل اشتراكات الطالب',
+      subscriptionHistoryEmpty: 'لا توجد اشتراكات سابقة لهذا الطالب.',
+      subscriptionHistoryOpen: 'عرض سجل اشتراكات الطالب',
+      subscriptionHistoryAddPayment: 'دفعة جديدة',
+      subscriptionHistoryPaymentSaved: 'تم تسجيل الدفعة بنجاح.',
+      subscriptionHistoryPaymentFailed: 'تعذر تسجيل الدفعة.',
+      subInPersonPaymentInvoices: 'متابعة قيمة الاشتراك والدفعات والمبالغ المتبقية لطلاب الوجاهي',
+      inPersonPaymentInvoicesEmpty: 'لا يوجد طلاب مقبولون في الدورات الوجاهية حالياً.',
+      inPersonPaymentAmount: 'قيمة الاشتراك',
+      subOnlineCourseInvoices: 'إصدار فواتير اشتراكات الدورات الأونلاين ومتابعة الدفعات',
+      onlineCourseInvoiceEmpty: 'لا توجد فواتير اشتراكات أونلاين حالياً.',
+      onlineCourseInvoiceAdd: 'إنشاء فاتورة جديدة',
+      onlineCourseInvoiceAddTitle: 'إنشاء فاتورة اشتراك أونلاين',
+      onlineCourseInvoiceStudent: 'الطالب',
+      onlineCourseInvoiceStudentSearch: 'ابحث باسم الطالب أو رقم الهاتف أو البريد الإلكتروني',
+      onlineCourseInvoiceStudentNoMatches: 'لا توجد نتائج مطابقة.',
+      onlineCourseInvoiceCourseSearch: 'ابحث عن دورة أونلاين',
+      onlineCourseInvoiceCourseNoMatches: 'لا توجد دورات مطابقة.',
+      onlineCourseInvoiceCourse: 'الدورة الأونلاين',
+      onlineCourseInvoiceChooseCourse: 'اختر الدورة',
+      onlineCourseInvoiceDiscountType: 'نوع الخصم',
+      onlineCourseInvoiceDiscountFixed: 'مبلغ ثابت',
+      onlineCourseInvoiceDiscountPercentage: 'نسبة مئوية',
+      onlineCourseInvoiceDiscountValue: 'قيمة الخصم',
+      onlineCourseInvoiceDiscountHint: 'سعر الاشتراك يُحسب من سعر الدورة ويمكن تطبيق خصم ثابت أو نسبة مئوية.',
+      onlineCourseInvoiceNoStudents: 'لا يوجد طلاب لاختيارهم.',
+      onlineCourseInvoiceNoCourses: 'لا توجد دورات أونلاين منشورة.',
+      onlineCourseInvoiceCreateSuccess: 'تم إنشاء فاتورة الاشتراك وتسجيل الطالب في الدورة.',
+      onlineCourseInvoiceCreateFailed: 'تعذر إنشاء فاتورة الاشتراك.',
+      onlineCourseInvoicePaymentSaved: 'تمت إضافة دفعة الفاتورة.',
+      onlineCourseInvoicePaymentFailed: 'تعذرت إضافة دفعة الفاتورة.',
+      onlineCourseInvoiceDuplicate: 'توجد فاتورة بالفعل لهذا الطالب في هذه الدورة.',
+      onlineCourseInvoiceDiscountInvalid: 'أدخل قيمة خصم صحيحة.',
+      onlineCourseInvoiceCreateButton: 'إنشاء الفاتورة',
+      onlineCourseInvoiceDiscount: 'الخصم',
       registrationRequestName: 'اسم المتقدم',
       registrationRequestPhone: 'رقم الهاتف / واتساب',
       registrationRequestAddress: 'العنوان',
@@ -106,10 +174,14 @@
       studentEdit: 'تعديل بيانات الطالب',
       studentUpdated: 'تم تحديث بيانات الطالب.',
       studentAccountReady: 'الحساب جاهز',
+      studentHasOnlineAccount: 'لديه حساب بالفعل',
+      studentAccountCreatedLabel: 'تم إنشاء حساب',
       studentSetupLinkCreate: 'إنشاء رابط إعداد كلمة المرور',
       studentSetupLinkCopy: 'نسخ رابط إعداد كلمة المرور',
       studentSetupLinkShowQr: 'عرض رمز QR لرابط الإعداد',
       studentSetupLinkCreated: 'تم إنشاء رابط إعداد كلمة المرور.',
+      studentAccountCreated: 'تم إنشاء حساب جديد للطالب بنجاح',
+      studentAccountAlreadyReady: 'لديه حساب بالفعل',
       studentSetupLinkCopied: 'تم نسخ رابط إعداد كلمة المرور.',
       studentSetupLinkCopyFailed: 'تعذر نسخ الرابط من هذا المتصفح.',
       studentSetupLinkQrTitle: 'رابط إعداد حساب الطالب',
@@ -122,7 +194,7 @@
       workshopDeleteConfirm: 'سيؤدي حذف الورشة إلى حذف سجلات الحضور وشهاداتها نهائياً. هل تريد المتابعة؟',
       workshopQrRotated: 'تم تجديد الرمز وإغلاق الحضور. افتح الحضور يدوياً عند الجاهزية.',
       workshopQrConfirm: 'سيتم إبطال رمز QR الحالي وإغلاق الحضور حتى تفتحه مجدداً. متابعة؟',
-      subStudentCertificates: 'إدارة شهادات الدورات والخارجية وظهورها في الملفات العامة',
+      subStudentCertificates: 'مراجعة الشهادات اليدوية التي يضيفها الطلاب والمدربون',
       subDailies: 'إدارة يوميات الطلاب وحالة نشرها',
       subSettings: 'بيانات المنصة وخيارات التشغيل والنسخ الاحتياطي',
       groupManage: 'الإدارة',
@@ -458,7 +530,13 @@
       studentCertificatesTitle: 'الشهادات',
       studentCertificatesEmpty: 'لم يحصل الطالب على شهادات دورات أو ورشات بعد.',
       studentActiveCoursesTitle: 'الدورات النشطة',
+      studentTypeFilter: 'نوع الطالب',
+      studentTypeOnline: 'أونلاين',
+      studentTypeInPerson: 'وجاهي',
       studentActiveCoursesEmpty: 'لا توجد دورات نشطة لهذا الطالب.',
+      studentCompleted: 'منجزة',
+      studentNotCompleted: 'غير منجزة',
+      studentSubscriptionExpired: 'منتهي الاشتراك',
       progress: 'التقدم',
       certificateType: 'نوع الشهادة',
       certificateStudent: 'الطالب',
@@ -570,11 +648,13 @@
       adminRole: 'System admin',
       viewSite: 'View site',
       menu: 'Menu',
+      logout: 'Log out',
       secOverview: 'Overview',
       secUsers: 'Online students',
       secReferralPoints: 'Referral points',
       secTrainers: 'Trainers',
       secTrainingCategories: 'Training fields',
+      secFreelancerCategories: 'Freelancer categories',
       trainingCategoryDrag: 'Drag to reorder this field',
       secCourses: 'Online courses',
       secInPersonCourses: 'In-person courses',
@@ -583,7 +663,10 @@
       secProjects: 'Projects',
       secWorkshops: 'In-person workshops',
       secCourseRegistrationRequests: 'In-person course applications',
-      secStudentCertificates: 'Student certificates',
+      secSubscriptions: 'Subscriptions',
+      secStudentCertificates: 'Review certificates',
+      secInPersonPaymentInvoices: 'In-person subscriptions',
+      secOnlineCourseInvoices: 'Online subscriptions',
       secDailies: 'Journals',
       secSettings: 'Settings',
       subOverview: 'Platform performance and content at a glance',
@@ -597,6 +680,8 @@
       referralPointsResetFailed: 'Could not reset referral points.',
       subTrainers: 'Manage the training team and specialties',
       subTrainingCategories: 'Manage categories used for courses, projects, and freelancers',
+      subFreelancerCategories: 'Manage categories used to filter freelancers on the public listing',
+      freelancerCategoryDeleteConfirm: 'Deleting this category will clear the matching specialty from freelancer profiles. Continue?',
       subCourses: 'Manage online courses and their assigned trainers',
       subInPersonCourses: 'View and manage published in-person courses and drafts',
       subInPersonStudents: 'Students accepted into in-person courses',
@@ -607,6 +692,67 @@
       subProjects: 'Manage student projects and their status',
       subWorkshops: 'Create workshops and manage QR attendance and certificates',
       subCourseRegistrationRequests: 'Review applicants for in-person courses and their contact details',
+      subSubscriptions: 'Create and manage student subscriptions to in-person and online courses',
+      subscriptionAdd: 'New subscription',
+      subscriptionAddTitle: 'Create a student subscription',
+      subscriptionType: 'Course type',
+      subscriptionTypeOnline: 'Online',
+      subscriptionTypeInPerson: 'In-person',
+      subscriptionCourse: 'Course',
+      subscriptionCourseSearch: 'Search for a course',
+      subscriptionCourseNoMatches: 'No matching published courses.',
+      subscriptionStudentNoMatches: 'No matching students.',
+      subscriptionCohort: 'Cohort',
+      subscriptionCohortChoose: 'Choose a cohort',
+      subscriptionCohortUnavailable: 'No active cohort is available for this course.',
+      subscriptionPrice: 'Subscription amount',
+      subscriptionPriceHint: 'Filled automatically from the course price and currency.',
+      subscriptionDiscount: 'Discount amount (optional)',
+      subscriptionDiscountHint: 'Leave blank if there is no discount.',
+      subscriptionDiscountInvalid: 'The discount cannot exceed the subscription amount.',
+      subscriptionInitialPayment: 'Payment at enrollment',
+      subscriptionCreateButton: 'Confirm subscription',
+      subscriptionCreateSuccess: 'Subscription created and student added to the course.',
+      subscriptionCreateFailed: 'Could not create the subscription.',
+      subscriptionEmpty: 'There are no subscriptions yet.',
+      subscriptionFilterType: 'All course types',
+      subscriptionFilterBalance: 'Remaining balance',
+      subscriptionHasBalance: 'Has an outstanding balance',
+      subscriptionHistory: 'Student subscription history',
+      subscriptionHistoryEmpty: 'This student has no previous subscriptions.',
+      subscriptionHistoryOpen: 'View student subscription history',
+      subscriptionHistoryAddPayment: 'New payment',
+      subscriptionHistoryPaymentSaved: 'Payment recorded successfully.',
+      subscriptionHistoryPaymentFailed: 'Could not record the payment.',
+      subInPersonPaymentInvoices: 'Track subscription prices, payments, and remaining balances for in-person students',
+      inPersonPaymentInvoicesEmpty: 'There are no accepted in-person course students.',
+      inPersonPaymentAmount: 'Subscription price',
+      subOnlineCourseInvoices: 'Issue online course subscription invoices and track payments',
+      onlineCourseInvoiceEmpty: 'There are no online subscription invoices yet.',
+      onlineCourseInvoiceAdd: 'Create new invoice',
+      onlineCourseInvoiceAddTitle: 'Create online subscription invoice',
+      onlineCourseInvoiceStudent: 'Student',
+      onlineCourseInvoiceStudentSearch: 'Search by student name, phone, or email',
+      onlineCourseInvoiceStudentNoMatches: 'No matching students found.',
+      onlineCourseInvoiceCourseSearch: 'Search online courses',
+      onlineCourseInvoiceCourseNoMatches: 'No matching courses found.',
+      onlineCourseInvoiceCourse: 'Online course',
+      onlineCourseInvoiceChooseCourse: 'Choose a course',
+      onlineCourseInvoiceDiscountType: 'Discount type',
+      onlineCourseInvoiceDiscountFixed: 'Fixed amount',
+      onlineCourseInvoiceDiscountPercentage: 'Percentage',
+      onlineCourseInvoiceDiscountValue: 'Discount value',
+      onlineCourseInvoiceDiscountHint: 'The subscription price is based on the course price and can include a fixed or percentage discount.',
+      onlineCourseInvoiceNoStudents: 'There are no students to choose from.',
+      onlineCourseInvoiceNoCourses: 'There are no published online courses.',
+      onlineCourseInvoiceCreateSuccess: 'The subscription invoice was created and the student was enrolled.',
+      onlineCourseInvoiceCreateFailed: 'Could not create the subscription invoice.',
+      onlineCourseInvoicePaymentSaved: 'Invoice payment added.',
+      onlineCourseInvoicePaymentFailed: 'Could not add invoice payment.',
+      onlineCourseInvoiceDuplicate: 'An invoice already exists for this student in this course.',
+      onlineCourseInvoiceDiscountInvalid: 'Enter a valid discount value.',
+      onlineCourseInvoiceCreateButton: 'Create invoice',
+      onlineCourseInvoiceDiscount: 'Discount',
       registrationRequestName: 'Applicant',
       registrationRequestPhone: 'Phone / WhatsApp',
       registrationRequestAddress: 'Address',
@@ -668,10 +814,14 @@
       studentEdit: 'Edit student details',
       studentUpdated: 'Student details updated.',
       studentAccountReady: 'Account ready',
+      studentHasOnlineAccount: 'Already has an account',
+      studentAccountCreatedLabel: 'Account created',
       studentSetupLinkCreate: 'Create password setup link',
       studentSetupLinkCopy: 'Copy password setup link',
       studentSetupLinkShowQr: 'Show setup-link QR code',
       studentSetupLinkCreated: 'Password setup link created.',
+      studentAccountCreated: 'Student account created successfully',
+      studentAccountAlreadyReady: 'Already has an account',
       studentSetupLinkCopied: 'Password setup link copied.',
       studentSetupLinkCopyFailed: 'This browser could not copy the link.',
       studentSetupLinkQrTitle: 'Student account setup link',
@@ -684,7 +834,7 @@
       workshopDeleteConfirm: 'Deleting this workshop permanently removes its attendance records and certificates. Continue?',
       workshopQrRotated: 'QR code regenerated and attendance closed. Open attendance manually when ready.',
       workshopQrConfirm: 'The current QR code will be revoked and attendance closed until you reopen it. Continue?',
-      subStudentCertificates: 'Manage course and external certificates and public visibility',
+      subStudentCertificates: 'Review manual certificates submitted by students and trainers',
       subDailies: 'Manage student journals and their status',
       subSettings: 'Platform info, options and backups',
       groupManage: 'Management',
@@ -1021,7 +1171,13 @@
       studentCertificatesTitle: 'Certificates',
       studentCertificatesEmpty: 'This student has no course or workshop certificates yet.',
       studentActiveCoursesTitle: 'Active courses',
+      studentTypeFilter: 'Student type',
+      studentTypeOnline: 'Online',
+      studentTypeInPerson: 'In-person',
       studentActiveCoursesEmpty: 'This student has no active courses.',
+      studentCompleted: 'Completed',
+      studentNotCompleted: 'Not completed',
+      studentSubscriptionExpired: 'Subscription expired',
       progress: 'Progress',
       certificateType: 'Certificate type',
       certificateStudent: 'Student',
@@ -1151,7 +1307,7 @@
 
   var SECTIONS = [
     { id: 'overview', icon: 'layers', label: 'secOverview', sub: 'subOverview', group: null },
-    { id: 'in-person-students', icon: 'users', label: 'secInPersonStudents', sub: 'subInPersonStudents', group: 'groupManage' },
+    { id: 'freelancer-categories', icon: 'users', label: 'secFreelancerCategories', sub: 'subFreelancerCategories', group: 'groupManage' },
     { id: 'users', icon: 'users', label: 'secUsers', sub: 'subUsers', group: 'groupManage' },
     { id: 'trainers', icon: 'user', label: 'secTrainers', sub: 'subTrainers', group: 'groupManage' },
     { id: 'training-categories', icon: 'layers', label: 'secTrainingCategories', sub: 'subTrainingCategories', group: 'groupContent' },
@@ -1160,9 +1316,10 @@
     { id: 'in-person-course-cohorts', icon: 'clipboard', label: 'secInPersonCourseCohorts', sub: 'subInPersonCourseCohorts', group: 'groupContent', hidden: true },
     { id: 'courses', icon: 'graduation-cap', label: 'secCourses', sub: 'subCourses', group: 'groupContent' },
     { id: 'projects', icon: 'folder', label: 'secProjects', sub: 'subProjects', group: 'groupContent' },
-    { id: 'student-certificates', icon: 'award', label: 'secStudentCertificates', sub: 'subStudentCertificates', group: 'groupContent' },
     { id: 'course-registration-requests', icon: 'clipboard', label: 'secCourseRegistrationRequests', sub: 'subCourseRegistrationRequests', group: 'groupOperations' },
+    { id: 'subscriptions', icon: 'file-text', label: 'secSubscriptions', sub: 'subSubscriptions', group: 'groupOperations' },
     { id: 'referral-points', icon: 'award', label: 'secReferralPoints', sub: 'subReferralPoints', group: 'groupOperations' },
+    { id: 'student-certificates', icon: 'award', label: 'secStudentCertificates', sub: 'subStudentCertificates', group: 'groupOperations' },
     { id: 'settings', icon: 'sliders', label: 'secSettings', sub: 'subSettings', group: 'groupSystem' }
   ];
 
@@ -1210,6 +1367,7 @@
     var h = (location.hash || '').replace(/^#\/?/, '');
     if (h === 'certificate-creator') return 'student-certificates';
     if (h.indexOf('in-person-course-cohorts/') === 0) return 'in-person-course-cohorts';
+    if (h.indexOf('in-person-students/') === 0) return 'in-person-students';
     return regs[h] ? h : 'overview';
   }
 
@@ -1243,15 +1401,24 @@
   function tableView(cfg) {
     var st = ts(cfg.key);
     var rows = cfg.rows.slice();
+    (cfg.filters || []).forEach(function (f) {
+      var v = st.filters[f.k];
+      if (!v) return;
+      if (f.filterRow) {
+        rows = rows.map(function (row) { return f.filterRow(row, v); }).filter(Boolean);
+        return;
+      }
+      rows = rows.filter(function (r) {
+        var value = f.val(r);
+        return Array.isArray(value)
+          ? value.some(function (item) { return String(item) === String(v); })
+          : String(value) === String(v);
+      });
+    });
     if (st.q) {
       var q = st.q.toLowerCase();
       rows = rows.filter(function (r) { return String(cfg.search ? cfg.search(r) : '').toLowerCase().indexOf(q) >= 0; });
     }
-    (cfg.filters || []).forEach(function (f) {
-      var v = st.filters[f.k];
-      if (!v) return;
-      rows = rows.filter(function (r) { return String(f.val(r)) === String(v); });
-    });
     if (st.sort) {
       var col = cfg.columns.filter(function (c) { return c.k === st.sort; })[0];
       if (col && col.sortVal) {
@@ -1575,7 +1742,7 @@
         toolbarScrollbar.hidden = !overflowing;
         scrollbarContent.style.width = width + 'px';
         if (toolbar) {
-          card.style.setProperty('--tbl-head-top', ((topbar ? topbar.offsetHeight : 0) + toolbar.offsetHeight) + 'px');
+          card.style.setProperty('--tbl-head-top', (topbar ? topbar.offsetHeight : 0) + 'px');
         }
         if (!overflowing && table) table.style.transform = '';
         else syncHorizontalPosition();
@@ -1717,7 +1884,25 @@
     if (f.type === 'info') {
       return '<div class="form-info">' + (f.html || '') + '</div>';
     }
-    if (f.type === 'textarea') {
+    if (f.type === 'invoice-search') {
+      var searchId = f.k + '-search';
+      var resultsId = f.k + '-results';
+      return '<div class="field full online-invoice-search-field">' +
+        '<label class="label" for="' + e(searchId) + '">' + e(f.label) +
+        (f.required ? ' <span class="req">*</span>' : '') + '</label>' +
+        '<div class="online-invoice-search-picker">' +
+        '<input class="input" type="search" id="' + e(searchId) +
+        '" data-fk-search="' + e(f.k) + '" role="combobox" aria-autocomplete="list"' +
+        ' aria-expanded="false" aria-controls="' + e(resultsId) + '"' +
+        ' autocomplete="off" placeholder="' + e(f.placeholder || '') + '">' +
+        '<input type="hidden" data-fk="' + e(f.k) + '" value="' + e(val) + '">' +
+        '<div class="online-invoice-search-results" id="' + e(resultsId) +
+        '" role="listbox" hidden></div></div>' +
+        (f.required ? '<span class="hint error" data-validation-for="' + e(f.k) +
+          '" aria-live="polite"></span>' : '') +
+        (f.hint ? '<span class="hint">' + e(f.hint) + '</span>' : '') +
+        '</div>';
+    } else if (f.type === 'textarea') {
       inner = '<textarea class="textarea" rows="' + (f.rows || 3) + '" data-fk="' + f.k + '"' + ph +
         (f.readonly ? ' readonly' : '') + '>' + e(val) + '</textarea>';
     } else if (f.type === 'select') {
@@ -1725,7 +1910,7 @@
         return '<option value="' + e(o.v) + '"' + (String(o.v) === String(val) ? ' selected' : '') + '>' + e(o.l) + '</option>';
       }).join('') + '</select>';
     } else if (f.type === 'number') {
-      inner = '<input class="input" type="number" data-fk="' + f.k + '" value="' + e(val) + '"' + ph + (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') + (f.step != null ? ' step="' + f.step + '"' : '') + '>';
+      inner = '<input class="input" type="number" data-fk="' + f.k + '" value="' + e(val) + '"' + ph + (f.min != null ? ' min="' + f.min + '"' : '') + (f.max != null ? ' max="' + f.max + '"' : '') + (f.step != null ? ' step="' + f.step + '"' : '') + (f.readonly ? ' readonly' : '') + '>';
     } else if (f.type === 'date') {
       inner = '<input class="input" type="date" data-fk="' + f.k + '" value="' + e(val) + '">';
     } else if (f.type === 'switch') {
@@ -1805,14 +1990,15 @@
     function validateField(f) {
       var el = m.body.querySelector('[data-fk="' + f.k + '"]');
       if (!el) return true;
+      var control = m.body.querySelector('[data-fk-search="' + f.k + '"]') || el;
       var value = String(el.value || '').trim();
       var message = f.required && !value ? t('fieldRequired') + ' — ' + f.label : '';
       if (!message && f.validate) message = f.validate(value) || '';
       var error = m.body.querySelector('[data-validation-for="' + f.k + '"]');
       if (error) error.textContent = message;
-      el.classList.toggle('is-invalid', !!message);
-      if (message) el.setAttribute('aria-invalid', 'true');
-      else el.removeAttribute('aria-invalid');
+      control.classList.toggle('is-invalid', !!message);
+      if (message) control.setAttribute('aria-invalid', 'true');
+      else control.removeAttribute('aria-invalid');
       return !message;
     }
 
@@ -2059,12 +2245,14 @@
         UI.toast(t('fieldRequired') + ' — ' + missing.label, 'error');
         var mel = m.body.querySelector('[data-fk="' + missing.k + '"]');
         validateField(missing);
-        if (mel && mel.focus) mel.focus();
+        var missingControl = m.body.querySelector('[data-fk-search="' + missing.k + '"]') || mel;
+        if (missingControl && missingControl.focus) missingControl.focus();
         return;
       }
       var invalid = validationFields.filter(function (f) { return !validateField(f); })[0];
       if (invalid) {
-        var invalidEl = m.body.querySelector('[data-fk="' + invalid.k + '"]');
+        var invalidEl = m.body.querySelector('[data-fk-search="' + invalid.k + '"]') ||
+          m.body.querySelector('[data-fk="' + invalid.k + '"]');
         if (invalidEl && invalidEl.focus) invalidEl.focus();
         return;
       }
@@ -2073,7 +2261,8 @@
     });
 
     setTimeout(function () {
-      var first = m.body.querySelector('[data-fk]');
+      var first = m.body.querySelector('[data-fk-search]') ||
+        m.body.querySelector('[data-fk]:not([type="hidden"])');
       if (first && first.focus) first.focus();
     }, 60);
     return m;
@@ -2094,6 +2283,10 @@
     counts['referral-points'] = Store.collection('users').filter(function (user) {
       return user.role === 'student' && Number(user.referralPoints) > 0;
     }).length;
+    counts.subscriptions = AdminData.courseRegistrationRequests().filter(function (request) {
+      return request.status === 'accepted';
+    }).length + AdminData.onlineCourseInvoices().length;
+    counts['online-course-invoices'] = AdminData.onlineCourseInvoices().length;
     var cur = curSection();
     var html = '<a class="adm-brand" href="' + SITE.u('landing') + '">' +
       '<img src="' + SITE.assets('images/logo.svg') + '" alt="">' +
@@ -2121,7 +2314,6 @@
     html += '<div class="adm-side-foot">' +
       UI.avatarOf(prof, 38) +
       '<span class="who"><b>' + e(prof.name) + '</b><span>' + e(t('adminRole')) + '</span></span>' +
-      '<a class="btn-icon sm" href="' + SITE.u('portfolio') + '" title="' + e(t('viewSite')) + '" aria-label="' + e(t('viewSite')) + '">' + UI.icon('external-link', 16) + '</a>' +
       '</div>';
     return html;
   }
@@ -2132,9 +2324,10 @@
     return '<button class="btn-icon adm-burger" data-act="burger" aria-label="' + e(t('menu')) + '">' + UI.icon('sliders', 19) + '</button>' +
       '<div class="titles"><h1>' + UI.icon(m.icon, 19) + e(t(m.label)) + '</h1><p>' + e(t(m.sub)) + '</p></div>' +
       '<span class="spacer"></span>' +
-      '<button class="btn-icon" id="account-btn" title="خيارات الحساب" aria-label="خيارات الحساب" aria-haspopup="dialog" aria-expanded="false">' + UI.icon('user', 18) + '</button>' +
       '<button class="btn-icon" id="headerThemeBtn" title="' + (isDark ? 'تفعيل المظهر الفاتح' : 'تفعيل المظهر الداكن') + '" aria-label="' + (isDark ? 'تفعيل المظهر الفاتح' : 'تفعيل المظهر الداكن') + '">' + UI.icon(isDark ? 'sun' : 'moon', 18) + '</button>' +
-      '<button class="btn-icon" data-act="lang" title="' + e(I18n.t('langToggle')) + '" aria-label="' + e(I18n.t('langToggle')) + '"><span style="font-size:12.5px;font-weight:800">' + (lang() === 'ar' ? 'EN' : 'ع') + '</span></button>' +
+      '<form method="post" action="' + e(SITE.u('logout')) + '" style="margin:0">' +
+      '<input type="hidden" name="csrfmiddlewaretoken" value="' + e(window.CSRF_TOKEN || '') + '">' +
+      '<button class="btn-icon" type="submit" title="' + e(t('logout')) + '" aria-label="' + e(t('logout')) + '">' + UI.icon('log-out', 18) + '</button></form>' +
       '<a class="btn btn-soft btn-sm hide-sm" href="' + SITE.u('landing') + '">' + UI.icon('external-link', 15) + e(t('viewSite')) + '</a>';
   }
 
@@ -2188,6 +2381,23 @@
         '<iframe class="adm-certificate-creator-frame" src="' +
         e(SITE.assets('html/certificate-creator.html')) + '" title="' +
         e(t('certificateAdd')) + '" loading="lazy"></iframe>';
+      var certificateFrame = certificateHost.querySelector('.adm-certificate-creator-frame');
+      if (certificateFrame) {
+        certificateFrame.addEventListener('load', function () {
+          var frameWindow = certificateFrame.contentWindow;
+          var frameBody = certificateFrame.contentDocument.body;
+          function fitCertificateFrame() {
+            var height = Math.ceil(frameBody.scrollHeight) + 4;
+            if (certificateFrame.offsetHeight !== height) certificateFrame.style.height = height + 'px';
+          }
+          fitCertificateFrame();
+          frameWindow.addEventListener('resize', fitCertificateFrame);
+          if (typeof ResizeObserver === 'function') {
+            var observer = new ResizeObserver(fitCertificateFrame);
+            observer.observe(frameBody);
+          }
+        });
+      }
       document.title = t('certificateAdd') + ' — ' + t('brandTitle');
       return;
     }
@@ -2690,7 +2900,6 @@
     });
   }
 
-  on('lang', function () { I18n.setLang(lang() === 'ar' ? 'en' : 'ar'); });
   on('burger', function () {
     var side = document.getElementById('admSide');
     if (side.classList.contains('open')) closeSide(); else openSide();

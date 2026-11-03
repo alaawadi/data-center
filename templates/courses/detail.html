@@ -15,7 +15,10 @@
 {% endblock %}
 
 {% block content %}
+  {% if country_calling_code_choices %}{{ country_calling_code_choices|json_script:"country-calling-code-choices" }}{% endif %}
+  {{ course_registration_count|default:0|json_script:"course-registration-count" }}
   {{ is_course_enrolled|json_script:"course-enrollment-data" }}
+  {{ is_course_student_enrolled|json_script:"course-student-enrollment-data" }}
   {{ is_course_trainer_owner|json_script:"course-trainer-owner-data" }}
   {{ is_course_admin|json_script:"course-admin-data" }}
   {{ course_rewards_json|json_script:"course-rewards-data" }}

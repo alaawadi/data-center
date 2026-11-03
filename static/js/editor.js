@@ -1014,13 +1014,27 @@
     var visibilityField = document.getElementById('edVisibilityField');
     var isTrainerUser = !!(window.Store && Store.state.profile &&
       (Store.state.profile.isTrainer || Store.state.profile.roleKey === 'trainer'));
+    if (!isCourse && visibilityEl) {
+      visibilityEl.value = ['courses', 'personal'].indexOf(p.visibility) >= 0
+        ? p.visibility
+        : 'public';
+    }
     if (!isCourse && isTrainerUser && visibilityField && visibilityEl) {
       visibilityField.style.display = '';
       document.getElementById('lblVisibility').textContent = t('projectVisibilityLabel');
       document.getElementById('edVisibilityHint').textContent = t('projectVisibilityHint');
       visibilityEl.options[0].textContent = t('projectVisibilityPublic');
       visibilityEl.options[1].textContent = t('projectVisibilityCourses');
-      visibilityEl.value = (p.visibility === 'courses') ? 'courses' : 'public';
+      visibilityEl.options[2].textContent = t('projectVisibilityPersonal');
+      var personalOnly = document.body.getAttribute('data-personal-project-only') === 'true';
+      if (personalOnly) {
+        visibilityEl.innerHTML = '<option value="personal">' +
+          e(t('projectVisibilityPersonal')) + '</option>';
+        visibilityEl.value = 'personal';
+        p.visibility = 'personal';
+        document.getElementById('edVisibilityHint').textContent =
+          t('projectVisibilityPersonalHint');
+      }
     }
 
     /* بيانات الدورة (السعر/المدة/الفترة/الشهادة) — لحقلي المحرر فقط في صفحة الدورات */
@@ -1098,7 +1112,7 @@
       { label: isArabic ? 'النبذة القصيرة' : 'Short summary', done: function () { return !!summaryEl.value.trim(); } },
       { label: isArabic ? 'وصف تفصيلي (50 كلمة على الأقل)' : 'Detailed description (at least 50 words)', done: function () { return textOf(contentEl).trim().split(/\s+/).filter(Boolean).length >= 50; } },
       { label: isArabic ? 'التصنيف' : 'Category', done: function () { return !!categoryEl.value.trim(); } },
-      { label: isArabic ? 'ظهور المشروع' : 'Project visibility', done: function () { return ['public', 'courses'].indexOf(visibilityEl && visibilityEl.value || p.visibility || 'public') >= 0; } },
+      { label: isArabic ? 'ظهور المشروع' : 'Project visibility', done: function () { return ['public', 'courses', 'personal'].indexOf(visibilityEl && visibilityEl.value || p.visibility || 'public') >= 0; } },
       { label: isArabic ? 'ثلاثة تاقات على الأقل' : 'At least three tags', done: function () { return projectTagCount() >= 3; } },
       { label: isArabic ? 'التاريخ' : 'Date', done: function () { return !!dateEl.value; } }
     ];
@@ -1183,7 +1197,7 @@
         { key: 'content', missing: wordCount < 50, element: contentEl },
         { key: 'category', missing: !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
         { key: 'demo', missing: !isValidProjectUrl(demoEl.value.trim()), element: demoEl },
-        { key: 'visibility', missing: ['public', 'courses'].indexOf(visibility) < 0, element: visibilityEl },
+        { key: 'visibility', missing: ['public', 'courses', 'personal'].indexOf(visibility) < 0, element: visibilityEl },
         { key: 'tags', missing: projectTagCount() < 3, element: tagsInput },
         { key: 'date', missing: !dateEl.value, element: dateEl }
       ];
@@ -1332,6 +1346,9 @@
       }
       if (ls.type === 'project') {
         var projects = (typeof SITE.trainerProjects === 'function') ? SITE.trainerProjects() : [];
+        projects = projects.filter(function (project) {
+          return project.visibility !== 'personal';
+        });
         var current = ls.projectId || '';
         if (current && !projects.some(function (pj) { return pj.id === current; })) {
           current = '';
@@ -2118,7 +2135,7 @@
       p.category = categoryEl.value.trim();
       p.role = roleEl ? roleEl.value.trim() : '';
       if (!isCourse && visibilityEl && visibilityField && visibilityField.style.display !== 'none') {
-        p.visibility = visibilityEl.value === 'courses' ? 'courses' : 'public';
+        p.visibility = visibilityEl.value;
       }
       p.date = dateEl.value;
       p.links = { github: (p.links && p.links.github) || '', demo: demoEl.value.trim() };

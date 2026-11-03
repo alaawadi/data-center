@@ -34,6 +34,7 @@
   {{ students_json|json_script:"admin-students-data" }}
   {{ courses_json|json_script:"admin-courses-data" }}
   {{ course_progress_json|json_script:"admin-course-progress-data" }}
+  {{ admin_course_progress_history_json|json_script:"admin-course-progress-history-data" }}
   {{ admin_projects_json|json_script:"admin-projects-data" }}
   {{ admin_student_certificates_json|json_script:"admin-student-certificates-data" }}
   {{ point_redemptions_json|json_script:"admin-point-redemptions-data" }}
@@ -41,7 +42,10 @@
   {{ admin_workshops_json|json_script:"admin-workshops-data" }}
   {{ admin_inperson_cohorts_json|json_script:"admin-inperson-cohorts-data" }}
   {{ course_registration_requests_json|json_script:"admin-course-registration-requests-data" }}
+  {{ online_course_invoices_json|json_script:"admin-online-course-invoices-data" }}
+  {{ admin_subscriptions_json|json_script:"admin-subscriptions-data" }}
   {{ training_categories_json|json_script:"admin-training-categories-data" }}
+  {{ freelancer_categories_json|json_script:"admin-freelancer-categories-data" }}
   {% include "partials/js_urls.html" %}
   <script defer src="{% static_v 'js/content-protection.js' %}"></script>
   <script defer src="{% static_v 'js/page-transition.js' %}"></script>

@@ -17,6 +17,7 @@ class MaintenanceModeMiddleware:
 
     def __call__(self, request):
         settings_data = PlatformSettings.objects.filter(pk=1).values_list('data', flat=True).first()
+        request.platform_settings_data = settings_data
         path = request.path_info
         if (
             path not in ('/panel', '/django-admin')

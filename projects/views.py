@@ -33,7 +33,7 @@ from .models import (
     ProjectVisibility,
 )
 
-_PREFETCH = ('tags', 'images', 'files')
+_PREFETCH = ('tags', 'images', 'files', 'owner__profile')
 
 _DATA_URL_RE = re.compile(r'^data:(?P<mime>[^;,]+)?(?:;base64)?,(?P<data>.*)$', re.S)
 
@@ -72,7 +72,7 @@ def _published_projects():
     )
 
 
-def _projects_with_interactions(projects, user):
+def _projects_with_interactions(projects, user, include_details=True):
     projects = list(projects)
     interactions = {}
     if user.is_authenticated and projects:
@@ -85,7 +85,10 @@ def _projects_with_interactions(projects, user):
 
     result = []
     for project in projects:
-        data = project.to_public_dict()
+        data = project.to_public_dict(
+            include_content=include_details,
+            include_comments=include_details,
+        )
         interaction = interactions.get(project.pk)
         data['liked'] = interaction.liked if interaction else False
         data['saved'] = interaction.saved if interaction else False
@@ -102,6 +105,14 @@ def _find_project(key, queryset):
 
 def _can_download_project_files(project, user):
     if project.is_published and project.visibility == ProjectVisibility.PUBLIC:
+        return True
+    if (
+        project.is_published
+        and project.visibility == ProjectVisibility.PERSONAL
+        and project.owner.is_trainer
+        and project.owner.is_active
+        and getattr(getattr(project.owner, 'profile', None), 'is_public', False)
+    ):
         return True
     if not user.is_authenticated:
         return False
@@ -137,9 +148,13 @@ class ProjectListView(TemplateView):
             F('display_order').asc(nulls_last=True), '-project_date', '-created_at'
         )
         context['training_categories_json'] = list(
-            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+            TrainingCategory.objects.filter(is_active=True)
+            .order_by('display_order', 'name')
+            .values_list('name', flat=True)
         )
-        context['projects_json'] = _projects_with_interactions(queryset, self.request.user)
+        context['projects_json'] = _projects_with_interactions(
+            queryset, self.request.user, include_details=False
+        )
         context['projects_count'] = len(context['projects_json'])
         context['projects_badge'] = f"{context['projects_count']}+ مشروع"
         user = self.request.user
@@ -198,6 +213,19 @@ class ProjectDetailView(TemplateView):
         # المشاريع العامة متاحة للجميع.
         queryset = _published_projects()
         project = _find_project(key, queryset)
+        if project is None:
+            personal_projects = (
+                Project.objects.filter(
+                    status=ProjectStatus.PUBLISHED,
+                    visibility=ProjectVisibility.PERSONAL,
+                    owner__role=UserRole.TRAINER,
+                    owner__is_active=True,
+                    owner__profile__is_public=True,
+                )
+                .select_related('owner')
+                .prefetch_related(*_PREFETCH)
+            )
+            project = _find_project(key, personal_projects)
         if project is None and not self.request.user.is_authenticated:
             course_projects = (
                 Project.objects.filter(
@@ -219,6 +247,7 @@ class ProjectDetailView(TemplateView):
                         source_lesson__section__course__status=CourseStatus.PUBLISHED,
                     )
                 )
+                .exclude(visibility=ProjectVisibility.PERSONAL)
                 .select_related('owner')
                 .prefetch_related(*_PREFETCH)
             )
@@ -272,17 +301,12 @@ class ProjectDetailView(TemplateView):
 def project_editor_context(request, key=None):
     context = {
         'training_categories_json': list(
-            TrainingCategory.objects.order_by('display_order', 'name').values_list('name', flat=True)
+            TrainingCategory.objects.filter(is_active=True)
+            .order_by('display_order', 'name')
+            .values_list('name', flat=True)
         )
     }
     is_admin = request.user.is_staff or request.user.role == UserRole.ADMIN
-    if (
-        request.user.is_trainer
-        and not is_admin
-        and not request.user.can_publish_content
-        and key is None
-    ):
-        raise PermissionDenied('صلاحية إنشاء المشاريع متوقفة.')
     queryset = Project.objects.all() if is_admin else Project.objects.filter(owner=request.user)
     queryset = queryset.select_related('owner').prefetch_related(*_PREFETCH)
     project = None
@@ -290,8 +314,18 @@ def project_editor_context(request, key=None):
         project = queryset.filter(slug=key).first()
         if project is None and str(key).isdigit():
             project = queryset.filter(pk=key).first()
+        if project is None:
+            raise Http404('المشروع غير موجود')
+    personal_project_only = bool(
+        request.user.is_trainer
+        and not is_admin
+        and not request.user.can_publish_content
+    )
+    if personal_project_only and project and project.visibility != ProjectVisibility.PERSONAL:
+        raise PermissionDenied('صلاحية تعديل المشاريع العامة أو المرتبطة بالدورات متوقفة.')
     context['projects_json'] = [project.to_public_dict()] if project else []
     context['is_admin_project_editor'] = is_admin
+    context['personal_project_only'] = personal_project_only
     if is_admin:
         owners = User.objects.order_by('full_name', 'phone')
         context['admin_project_owners'] = [
@@ -343,19 +377,6 @@ def project_save(request):
             project = queryset.filter(pk=key).first()
 
     status = ProjectStatus.PUBLISHED if payload.get('status') == ProjectStatus.PUBLISHED else ProjectStatus.DRAFT
-    if (
-        request.user.is_trainer
-        and not is_admin
-        and not request.user.can_publish_content
-        and (
-            project is None
-            or (
-                status == ProjectStatus.PUBLISHED
-                and project.status != ProjectStatus.PUBLISHED
-            )
-        )
-    ):
-        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
     owner = request.user
     if is_admin:
         owner_id = str(payload.get('ownerId') or '').strip()
@@ -366,6 +387,34 @@ def project_save(request):
                 return JsonResponse({'ok': False, 'error': 'invalid_owner'}, status=400)
         elif project is not None:
             owner = project.owner
+    visibility = str(payload.get('visibility') or '').strip()
+    if not visibility:
+        visibility = (
+            project.visibility
+            if project
+            else ProjectVisibility.PERSONAL
+            if request.user.is_trainer and not request.user.can_publish_content and not is_admin
+            else ProjectVisibility.PUBLIC
+        )
+    allowed_visibilities = {
+        ProjectVisibility.PUBLIC,
+        ProjectVisibility.COURSES,
+        ProjectVisibility.PERSONAL,
+    }
+    if visibility not in allowed_visibilities:
+        return JsonResponse({'ok': False, 'error': 'invalid_visibility'}, status=400)
+    if visibility == ProjectVisibility.PERSONAL and not owner.is_trainer:
+        return JsonResponse({'ok': False, 'error': 'invalid_visibility'}, status=400)
+    if (
+        request.user.is_trainer
+        and not is_admin
+        and not request.user.can_publish_content
+        and (
+            visibility != ProjectVisibility.PERSONAL
+            or (project is not None and project.visibility != ProjectVisibility.PERSONAL)
+        )
+    ):
+        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
 
     raw_title = payload.get('title')
     title = str(
@@ -404,7 +453,6 @@ def project_save(request):
             )
     date_value = str(payload.get('date') or '').strip()
     project_date = parse_date(date_value) if date_value else None
-    visibility = str(payload.get('visibility') or '').strip()
     raw_tags = payload.get('tags')
     tag_names = []
     seen_tags = set()
@@ -433,7 +481,11 @@ def project_save(request):
             missing.append('content')
         if not category_is_valid:
             missing.append('category')
-        if visibility not in (ProjectVisibility.PUBLIC, ProjectVisibility.COURSES):
+        if not str(payload.get('visibility') or '').strip() or (
+            visibility not in allowed_visibilities
+        ) or (
+            visibility == ProjectVisibility.PERSONAL and not owner.is_trainer
+        ):
             missing.append('visibility')
         if len(tag_names) < 3:
             missing.append('tags')
@@ -459,11 +511,9 @@ def project_save(request):
     project.github_url = github_url
     project.demo_url = demo_url
     project.status = status
-    # الظهور: «مخصّص للدورات» يُسمح به للمدرب فقط، وإلا يبقى «عام».
-    if project.owner.is_trainer and visibility == ProjectVisibility.COURSES:
-        project.visibility = ProjectVisibility.COURSES
-    else:
-        project.visibility = ProjectVisibility.PUBLIC
+    project.visibility = (
+        visibility if project.owner.is_trainer else ProjectVisibility.PUBLIC
+    )
     project.save()
 
     if decoded_cover:
@@ -588,6 +638,12 @@ def project_delete(request):
         project = Project.objects.filter(pk=key, owner=request.user).first()
     if project is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+    if (
+        request.user.is_trainer
+        and not request.user.can_publish_content
+        and project.visibility != ProjectVisibility.PERSONAL
+    ):
+        return JsonResponse({'ok': False, 'error': 'content_creation_disabled'}, status=403)
 
     project.delete()
     return JsonResponse({'ok': True, 'url': reverse('portfolio:home')})
@@ -618,12 +674,22 @@ def project_interaction(request):
 
     with transaction.atomic():
         accessible = Project.objects.select_for_update().filter(
-            Q(status=ProjectStatus.PUBLISHED)
-            | Q(owner=request.user)
+            Q(
+                status=ProjectStatus.PUBLISHED,
+                visibility__in=(ProjectVisibility.PUBLIC, ProjectVisibility.COURSES),
+            )
+            | Q(
+                status=ProjectStatus.PUBLISHED,
+                visibility=ProjectVisibility.PERSONAL,
+                owner__role=UserRole.TRAINER,
+                owner__is_active=True,
+                owner__profile__is_public=True,
+            )
             | Q(
                 visibility=ProjectVisibility.COURSES,
                 source_lesson__section__course__status=CourseStatus.PUBLISHED,
             )
+            | Q(owner=request.user)
         )
         project = _find_project(key, accessible)
         if project is None:

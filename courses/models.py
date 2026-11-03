@@ -1,5 +1,6 @@
 """Course models — الدورات التدريبية وأقسامها ودروسكها وتقدّم الطلاب وشهاداتهم."""
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models, transaction
@@ -33,6 +34,7 @@ class TrainingCategory(models.Model):
     """A shared training field used to categorize courses, projects, and profiles."""
 
     name = models.CharField('المجال التدريبي', max_length=120, unique=True)
+    is_active = models.BooleanField('نشط', default=True)
     display_order = models.PositiveIntegerField('ترتيب العرض', null=True, blank=True, db_index=True)
     created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
 
@@ -82,6 +84,7 @@ class Course(models.Model):
     course_type = models.CharField(
         'نوع الدورة', max_length=16, choices=CourseType.choices, default=CourseType.ONLINE
     )
+    profile_only = models.BooleanField('تظهر في بروفايل المدرب فقط', default=False)
     display_order = models.PositiveIntegerField(
         'ترتيب العرض', null=True, blank=True, db_index=True
     )
@@ -143,7 +146,14 @@ class Course(models.Model):
     def lessons_count(self):
         return Lesson.objects.filter(section__course=self).count()
 
-    def to_public_dict(self, include_answers=False, include_syllabus=True, include_content=True):
+    def to_public_dict(
+        self,
+        include_answers=False,
+        include_syllabus=True,
+        include_content=True,
+        include_lesson_content=True,
+        include_related_projects=True,
+    ):
         """Shape expected by the client-side course pages (cards/detail/playlist/editor).
 
         include_answers=True يُستخدم في محرر الدورة (لصاحبها فقط) ليحمل نصوص
@@ -163,11 +173,11 @@ class Course(models.Model):
                         'duration': lesson.duration,
                         'type': lesson.type,
                         'free': lesson.is_free,
-                        'content': lesson.content,
+                        'content': lesson.content if include_lesson_content else '',
                         'videoUrl': lesson.video_url,
                         'projectId': lesson.linked_project.slug if lesson.linked_project_id else '',
                         'project': lesson.linked_project.to_public_dict()
-                        if lesson.linked_project_id
+                        if lesson.linked_project_id and include_related_projects
                         else None,
                         'quiz': lesson.quiz_dict(include_answers=include_answers),
                     }
@@ -343,8 +353,21 @@ class CourseRegistrationRequest(models.Model):
         related_name='inperson_course_registration_requests',
         verbose_name='حساب الطالب',
     )
+    course_price_amount = models.DecimalField(
+        'سعر الدورة عند التسجيل',
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
+    discount_amount = models.DecimalField(
+        'قيمة الخصم',
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal('0.00'),
+    )
     full_name = models.CharField('الاسم الثلاثي', max_length=200)
-    phone = models.CharField('الهاتف / واتساب', max_length=13)
+    phone = models.CharField('الهاتف / واتساب', max_length=16)
     address = models.CharField('العنوان', max_length=255)
     specialty = models.CharField('التخصص', max_length=150)
     governorate = models.CharField(
@@ -387,6 +410,7 @@ class CourseRegistrationPayment(models.Model):
         verbose_name='طلب التسجيل',
     )
     amount = models.DecimalField('المبلغ', max_digits=10, decimal_places=2)
+    is_historical_balance = models.BooleanField('رصيد تاريخي دون تفاصيل دفعة موثوقة', default=False)
     created_at = models.DateTimeField('تاريخ الدفعة', auto_now_add=True)
 
     class Meta:
@@ -492,7 +516,10 @@ class Lesson(models.Model):
         """بيانات الكويز مربوطة بهذا الدرس (أو None إذا لم يكن درس اختبار)."""
         if self.type != LessonType.QUIZ:
             return None
-        quiz = Quiz.objects.filter(lesson=self).prefetch_related('questions__choices').first()
+        if 'quiz' in self._state.fields_cache:
+            quiz = self._state.fields_cache['quiz']
+        else:
+            quiz = Quiz.objects.filter(lesson=self).prefetch_related('questions__choices').first()
         if quiz is None:
             return None
         return quiz.to_dict(include_answers=include_answers)
@@ -546,23 +573,24 @@ class Quiz(models.Model):
     def to_dict(self, include_answers=False):
         """بيانات الكويز — الأسئلة والإجابات فقط لصاحب الدورة (المحرر)."""
         questions = []
-        for question in self.questions.all():
-            choices = [
-                {
-                    'id': choice.pk,
-                    'text': choice.text,
-                    **({'correct': choice.is_correct} if include_answers else {}),
-                }
-                for choice in question.choices.all()
-            ]
-            questions.append(
-                {
-                    'id': question.pk,
-                    'text': question.text,
-                    **({'explanation': question.explanation} if include_answers else {}),
-                    'choices': choices,
-                }
-            )
+        if include_answers:
+            for question in self.questions.all():
+                choices = [
+                    {
+                        'id': choice.pk,
+                        'text': choice.text,
+                        'correct': choice.is_correct,
+                    }
+                    for choice in question.choices.all()
+                ]
+                questions.append(
+                    {
+                        'id': question.pk,
+                        'text': question.text,
+                        'explanation': question.explanation,
+                        'choices': choices,
+                    }
+                )
         return {
             'maxAttempts': self.max_attempts,
             'questionsCount': self.questions_count,
@@ -658,6 +686,7 @@ class CourseProgress(models.Model):
     )
     completed_ids = models.JSONField('الدروس المكتملة', default=list, blank=True)
     completed = models.BooleanField('أنهى الدورة', default=False)
+    expires_at = models.DateTimeField('ينتهي الاشتراك في', null=True, blank=True, db_index=True)
 
     created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
     updated_at = models.DateTimeField('حُدّث في', auto_now=True)
@@ -707,6 +736,60 @@ class CourseProgress(models.Model):
             self.completed = True
             return True
         return False
+
+
+class OnlineCourseInvoice(models.Model):
+    class DiscountType(models.TextChoices):
+        FIXED = 'fixed', 'مبلغ ثابت'
+        PERCENTAGE = 'percentage', 'نسبة مئوية'
+
+    progress = models.OneToOneField(
+        CourseProgress,
+        on_delete=models.CASCADE,
+        related_name='online_invoice',
+        verbose_name='تسجيل الدورة',
+    )
+    course_price = models.DecimalField('سعر الدورة وقت إصدار الفاتورة', max_digits=10, decimal_places=2)
+    discount_type = models.CharField(
+        'نوع الخصم',
+        max_length=12,
+        choices=DiscountType.choices,
+        default=DiscountType.FIXED,
+    )
+    discount_value = models.DecimalField('قيمة الخصم', max_digits=10, decimal_places=2, default=0)
+    total_amount = models.DecimalField('قيمة الاشتراك بعد الخصم', max_digits=10, decimal_places=2)
+    currency = models.CharField(
+        'العملة', max_length=3, choices=CourseCurrency.choices, default=CourseCurrency.ILS
+    )
+    created_at = models.DateTimeField('تاريخ إصدار الفاتورة', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'فاتورة دورة أونلاين'
+        verbose_name_plural = 'فواتير الدورات الأونلاين'
+        ordering = ['-created_at', '-pk']
+
+    def __str__(self):
+        return f'{self.progress.student_id} — {self.progress.course_id} — {self.total_amount}'
+
+
+class OnlineCourseInvoicePayment(models.Model):
+    invoice = models.ForeignKey(
+        OnlineCourseInvoice,
+        on_delete=models.CASCADE,
+        related_name='payments',
+        verbose_name='الفاتورة',
+    )
+    amount = models.DecimalField('المبلغ', max_digits=10, decimal_places=2)
+    is_historical_balance = models.BooleanField('رصيد تاريخي دون تفاصيل دفعة موثوقة', default=False)
+    created_at = models.DateTimeField('تاريخ الدفعة', auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'دفعة فاتورة دورة أونلاين'
+        verbose_name_plural = 'دفعات فواتير الدورات الأونلاين'
+        ordering = ['created_at', 'pk']
+
+    def __str__(self):
+        return f'{self.invoice.progress.student_id} — {self.amount}'
 
 
 class StudentReferralLink(models.Model):
@@ -874,9 +957,14 @@ class CourseCertificate(models.Model):
             self.code = _generate_certificate_code()
         super().save(*args, **kwargs)
 
-    def to_public_dict(self):
+    def to_public_dict(self, include_syllabus=True, include_content=True):
         """نسخة الدورة كاملة + حقول الشهادة (نفس الاسم ونفس التفاصيل)."""
-        data = self.course.to_public_dict()
+        data = self.course.to_public_dict(
+            include_syllabus=include_syllabus,
+            include_content=include_content,
+            include_lesson_content=include_content,
+            include_related_projects=include_content,
+        )
         student = self.student
         data.update(
             {
