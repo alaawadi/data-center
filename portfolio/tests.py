@@ -41,6 +41,13 @@ class TrainerPortfolioTests(TestCase):
             course_type=CourseType.IN_PERSON,
             profile_only=True,
         )
+        homepage_inperson_course = Course.objects.create(
+            owner=self.trainer,
+            title='دورتي الوجاهية المعروضة في الرئيسية',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+            profile_only=False,
+        )
         inactive_course = Course.objects.create(owner=self.trainer, title='مسودتي')
         Course.objects.create(
             owner=User.objects.create_user(
@@ -62,6 +69,10 @@ class TrainerPortfolioTests(TestCase):
             if course['id'] == inperson_course.slug
         )
         self.assertEqual(inperson_payload['courseType'], CourseType.IN_PERSON)
+        self.assertIn(
+            homepage_inperson_course.slug,
+            [course['id'] for course in res.context['my_courses_json']],
+        )
         self.assertIn('مسودتي', titles)
         draft = next(course for course in res.context['my_courses_json'] if course['title'] == 'مسودتي')
         self.assertEqual(draft['status'], CourseStatus.DRAFT)

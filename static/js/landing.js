@@ -232,7 +232,10 @@
 
     function renderCourseCard(course, isInPerson) {
       var image = course.image || course.cover || course.courseImage;
-      return '<a class="box' + (isInPerson ? ' inperson-course-card' : '') + '" href="' + SITE.u('course', esc(course.id)) + '">' +
+      var returnTo = isInPerson
+        ? '?return=' + encodeURIComponent(location.pathname + location.search + location.hash)
+        : '';
+      return '<a class="box' + (isInPerson ? ' inperson-course-card' : '') + '" href="' + SITE.u('course', esc(course.id)) + returnTo + '">' +
         (image
           ? '<img src="' + esc(image) + '" alt="' + esc(course.title) + '" loading="lazy" decoding="async">'
           : isInPerson

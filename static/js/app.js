@@ -140,7 +140,8 @@
     if (
       IS_TRAINER &&
       SERVER_PROFILE.canPublishContent === false &&
-      isOwner(c)
+      isOwner(c) &&
+      c.profileOnly !== true
     ) return false;
     return !!(c && (!c.handle || isOwner(c)));
   }
@@ -274,10 +275,27 @@
         '</article>';
     }
     if (opts.manualImage) {
-      return '<article class="cert-card cert-card-uploaded" data-goto="' + detailUrl + '" data-search="' +
+      var manualStatus = c.status || 'approved';
+      var manualStatusLabel = c.statusLabel || t(
+        manualStatus === 'rejected'
+          ? 'certStatusRejected'
+          : manualStatus === 'approved'
+            ? 'certStatusApproved'
+            : 'certStatusPending'
+      );
+      var needsStatusModal = manualStatus === 'pending' || manualStatus === 'rejected';
+      var manualStatusBadge = '<span class="manual-cert-status manual-cert-status-' + e(manualStatus) + '">' +
+        e(manualStatusLabel) + '</span>';
+      return '<article class="cert-card cert-card-uploaded' + (needsStatusModal ? ' manual-cert-status-card' : '') + '"' +
+        (needsStatusModal
+          ? ' role="button" tabindex="0" data-act="manual-cert-status-info" data-status="' + e(manualStatus) +
+            '" data-reason="' + e(c.rejectionReason || '') + '" aria-label="' +
+            e((c.title || '') + ' — ' + manualStatusLabel) + '"'
+          : ' data-goto="' + detailUrl + '"') +
+        ' data-search="' +
         e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (c.studentName || '')).toLowerCase()) + '">' +
         '<img src="' + e(c.image || '') + '" alt="' + e(c.title) + '" loading="lazy" decoding="async">' +
-        (c.status === 'pending' ? '<span class="manual-cert-status">' + e(c.statusLabel || t('certPendingReviewStatus')) + '</span>' : '') +
+        manualStatusBadge +
         '</article>';
     }
     var cat = e(c.category || t('certCategory'));
@@ -1220,6 +1238,16 @@
     return walk(post.comments || []);
   }
 
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    var statusCard = ev.target.closest
+      ? ev.target.closest('[data-act="manual-cert-status-info"]')
+      : null;
+    if (!statusCard) return;
+    ev.preventDefault();
+    statusCard.click();
+  });
+
   document.addEventListener('click', function (ev) {
     var target = ev.target;
 
@@ -1277,6 +1305,7 @@
       act === 'toggle-skills' || act === 'edit-profile' || act === 'share-profile' ||
       act === 'confirm-profile-website' ||
       act === 'trainer-course-students' ||
+      act === 'manual-cert-rejection-reason' || act === 'manual-cert-status-info' ||
       act === 'new-cert' || act === 'search-tag' || act === 'copy-id' || act === 'lightbox' ||
       act === 'print-cert' || act === 'certificate-language' ||
       act === 'del-file' || act === 'like-post-detail' || act === 'save-post-detail' ||
@@ -1367,6 +1396,29 @@
       case 'edit-cert':
         openCertModal(actEl.getAttribute('data-id'));
         break;
+
+      case 'manual-cert-rejection-reason':
+        UI.modal({
+          title: t('certRejectionReasonTitle'),
+          size: 'sm',
+          body: '<p class="modal-text">' + e(
+            actEl.getAttribute('data-reason') || t('certRejectionReasonUnavailable')
+          ) + '</p>'
+        });
+        break;
+
+      case 'manual-cert-status-info': {
+        var manualStatus = actEl.getAttribute('data-status');
+        var rejected = manualStatus === 'rejected';
+        UI.modal({
+          title: t(rejected ? 'certRejectionReasonTitle' : 'certStatusPending'),
+          size: 'sm',
+          body: '<p class="modal-text">' + e(rejected
+            ? (actEl.getAttribute('data-reason') || t('certRejectionReasonUnavailable'))
+            : t('certPendingReviewMessage')) + '</p>'
+        });
+        break;
+      }
 
       case 'del-cert':
         UI.confirm(t('deleteConfirm')).then(function (ok) {
@@ -3403,7 +3455,8 @@
           error: document.getElementById('registrationFullNameError'),
           validate: function (value) {
             var parts = value.trim().split(/\s+/).filter(Boolean);
-            return parts.length >= 3 && parts.length <= 6 && parts.every(function (part) {
+            if (parts.length < 3) return 'أدخل اسمك ثلاثي';
+            return parts.length <= 6 && parts.every(function (part) {
               return /^[\p{L}\p{M}]+$/u.test(part);
             }) ? '' : 'يرجى التحقق من الاسم المدخل.';
           }

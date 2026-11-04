@@ -76,6 +76,18 @@ class LoginSecurityTests(TestCase):
             len(response.context['form'].fields['country_code'].choices), 200
         )
 
+    def test_login_and_signup_pages_include_the_shared_tab_bar(self):
+        for url in (self.url, reverse('users:signup')):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'id="bottomNavbar"')
+                self.assertContains(response, 'id="coursesFabBtn"')
+                self.assertContains(response, 'id="coursesSheetOverlay"')
+                self.assertContains(response, 'data-hide-pwa-install')
+                self.assertContains(response, 'SiteChrome.mount()')
+
     def test_successful_login_registers_device(self):
         response = self._post()
         self.assertEqual(response.status_code, 302)

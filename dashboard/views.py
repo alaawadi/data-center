@@ -2822,11 +2822,6 @@ def trainer_set_content_permission(request, pk):
         return _admin_api_error('المدرب غير موجود.', 404)
     trainer.can_publish_content = payload['allowed']
     trainer.save(update_fields=['can_publish_content'])
-    if not trainer.can_publish_content:
-        Course.objects.filter(owner=trainer).update(
-            profile_only=True,
-            updated_at=timezone.now(),
-        )
     return JsonResponse({'ok': True, 'canPublishContent': trainer.can_publish_content})
 
 
@@ -3332,33 +3327,68 @@ def certificate_set_active(request, certificate_key):
         payload = json.loads(request.body)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
-    if not isinstance(payload, dict) or not isinstance(payload.get('active'), bool):
+    if not isinstance(payload, dict):
         return _admin_api_error('حالة الشهادة غير صالحة.', 400)
 
     kind, separator, raw_pk = certificate_key.partition('-')
     if not separator or kind not in ('course', 'manual') or not raw_pk.isdigit():
         return _admin_api_error('الشهادة غير موجودة.', 404)
     model = CourseCertificate if kind == 'course' else ManualCertificate
+    requested_status = payload.get('status')
+    if kind == 'manual' and requested_status is not None:
+        if requested_status not in ManualCertificateStatus.values:
+            return _admin_api_error('حالة الشهادة غير صالحة.', 400)
+        rejection_reason = str(payload.get('rejectionReason') or '').strip()
+        if (
+            requested_status == ManualCertificateStatus.REJECTED
+            and not rejection_reason
+        ):
+            return _admin_api_error('يرجى إدخال سبب رفض الشهادة.', 400)
+    elif not isinstance(payload.get('active'), bool):
+        return _admin_api_error('حالة الشهادة غير صالحة.', 400)
     try:
         with transaction.atomic():
             certificate = model.objects.select_for_update().get(pk=raw_pk)
-            if (
-                kind == 'manual'
-                and payload['active']
-                and certificate.status == ManualCertificateStatus.REJECTED
-            ):
-                return _admin_api_error('لا يمكن إظهار شهادة مرفوضة.', 400)
-
-            certificate.is_active = payload['active']
-            update_fields = ['is_active']
-            if (
-                kind == 'manual'
-                and payload['active']
-                and certificate.status == ManualCertificateStatus.PENDING
-            ):
-                certificate.status = ManualCertificateStatus.APPROVED
+            if kind == 'manual' and requested_status is not None:
+                certificate.status = requested_status
+                certificate.is_active = (
+                    requested_status == ManualCertificateStatus.APPROVED
+                )
+                certificate.rejection_reason = (
+                    rejection_reason
+                    if requested_status == ManualCertificateStatus.REJECTED
+                    else ''
+                )
                 certificate.reviewed_at = timezone.now()
-                update_fields.extend(['status', 'reviewed_at'])
+                update_fields = [
+                    'status',
+                    'is_active',
+                    'rejection_reason',
+                    'reviewed_at',
+                ]
+            else:
+                if (
+                    kind == 'manual'
+                    and payload['active']
+                    and certificate.status == ManualCertificateStatus.REJECTED
+                ):
+                    return _admin_api_error('لا يمكن إظهار شهادة مرفوضة.', 400)
+
+                certificate.is_active = payload['active']
+                update_fields = ['is_active']
+                if (
+                    kind == 'manual'
+                    and payload['active']
+                    and certificate.status == ManualCertificateStatus.PENDING
+                ):
+                    certificate.status = ManualCertificateStatus.APPROVED
+                    certificate.rejection_reason = ''
+                    certificate.reviewed_at = timezone.now()
+                    update_fields.extend([
+                        'status',
+                        'rejection_reason',
+                        'reviewed_at',
+                    ])
             certificate.save(update_fields=update_fields)
     except model.DoesNotExist:
         return _admin_api_error('الشهادة غير موجودة.', 404)
@@ -3367,6 +3397,7 @@ def certificate_set_active(request, certificate_key):
         response.update({
             'reviewStatus': certificate.status,
             'reviewStatusLabel': certificate.get_status_display(),
+            'rejectionReason': certificate.rejection_reason,
         })
     return JsonResponse(response)
 
@@ -3651,6 +3682,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'code': certificate.credential_id,
                 'reviewStatus': certificate.status,
                 'reviewStatusLabel': certificate.get_status_display(),
+                'rejectionReason': certificate.rejection_reason,
                 'category': certificate.category,
                 'active': certificate.is_active,
                 'image': certificate.image.url if certificate.image else '',

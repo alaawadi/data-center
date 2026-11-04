@@ -561,6 +561,15 @@
       certificateIssuer: 'الجهة المانحة',
       certificateCourseTitle: 'الدورة / الورشة',
       certificateReviewStatus: 'حالة الاعتماد',
+      certificateReviewPending: 'قيد المراجعة',
+      certificateReviewApproved: 'معروضة في البروفايل',
+      certificateReviewRejected: 'مرفوضة',
+      certificateRejectionReason: 'سبب الرفض',
+      certificateRejectionReasonRequired: 'يرجى كتابة سبب رفض الشهادة.',
+      certificateRejectionTitle: 'سبب رفض الشهادة',
+      certificateReviewSaved: 'تم تحديث حالة الشهادة.',
+      certificateReviewSave: 'حفظ الحالة',
+      certificateReviewCancel: 'إلغاء',
       certificateIssued: 'صادرة',
       certificateDate: 'تاريخ الإصدار',
       certificateCode: 'رقم الشهادة',
@@ -1220,6 +1229,15 @@
       certificateIssuer: 'Issuer',
       certificateCourseTitle: 'Course / Workshop',
       certificateReviewStatus: 'Review status',
+      certificateReviewPending: 'Pending review',
+      certificateReviewApproved: 'Shown on profile',
+      certificateReviewRejected: 'Rejected',
+      certificateRejectionReason: 'Rejection reason',
+      certificateRejectionReasonRequired: 'Enter a reason for rejecting the certificate.',
+      certificateRejectionTitle: 'Certificate rejection reason',
+      certificateReviewSaved: 'Certificate status updated.',
+      certificateReviewSave: 'Save status',
+      certificateReviewCancel: 'Cancel',
       certificateIssued: 'Issued',
       certificateDate: 'Issue date',
       certificateCode: 'Certificate ID',
@@ -2884,6 +2902,7 @@
       var actEl = ev.target.closest('[data-act]');
       if (!actEl) return;
       var act = actEl.getAttribute('data-act');
+      if (actEl.matches('select[data-act="certificate-review-status"]')) return;
       var fn = handlers[act];
       if (!fn) return;
       ev.preventDefault();
@@ -2909,7 +2928,14 @@
     document.addEventListener('change', function (ev) {
       var el = ev.target;
       if (!el.matches) return;
-      if (el.matches('[data-fk="brandPalette"]')) {
+      if (el.matches('[data-act="certificate-review-status"]')) {
+        var reviewHandler = handlers[el.getAttribute('data-act')];
+        if (reviewHandler) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          reviewHandler(el, ev);
+        }
+      } else if (el.matches('[data-fk="brandPalette"]')) {
         var paletteColors = {
           current: ['#2563eb', '#4f46e5', '#ff9f1a'],
           ocean: ['#2563eb', '#4f46e5', '#60a5fa'],

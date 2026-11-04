@@ -1435,6 +1435,11 @@ class AdminTrainerListTests(TestCase):
             title='دورة سابقة منشورة',
             status=CourseStatus.PUBLISHED,
         )
+        profile_course = Course.objects.create(
+            owner=trainer,
+            title='دورة خاصة بالبروفايل',
+            profile_only=True,
+        )
         self.client.force_login(self.admin)
 
         response = self.client.post(
@@ -1448,7 +1453,9 @@ class AdminTrainerListTests(TestCase):
         trainer.refresh_from_db()
         self.assertFalse(trainer.can_publish_content)
         course.refresh_from_db()
-        self.assertTrue(course.profile_only)
+        self.assertFalse(course.profile_only)
+        profile_course.refresh_from_db()
+        self.assertTrue(profile_course.profile_only)
 
     def test_non_admin_cannot_toggle_trainer_content_permission(self):
         trainer = User.objects.create_user(

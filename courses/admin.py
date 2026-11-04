@@ -26,6 +26,7 @@ class ManualCertificateAdmin(admin.ModelAdmin):
     fields = (
         'student', 'title', 'issuer', 'category', 'date', 'image',
         'credential_id', 'verify_url', 'description', 'skills', 'status',
+        'rejection_reason',
         'created_at', 'reviewed_at',
     )
 

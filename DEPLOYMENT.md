@@ -35,8 +35,10 @@ directories in a persistent, writable location. Add the production site's
 the PythonAnywhere Web tab.
 
 Keep `DJANGO_DEBUG` set to `False` in the PythonAnywhere WSGI configuration.
-Django only serves the custom `404.html` instead of its technical debug 404
-when debug mode is disabled. The settings enable HTTPS redirects and secure
+When `DJANGO_DEBUG` is omitted, the project defaults to debug mode only if no
+`DJANGO_SECRET_KEY` is configured; providing the production secret therefore
+disables debug output by default. Django only serves the custom `404.html`
+instead of its technical debug 404 when debug mode is disabled. The settings enable HTTPS redirects and secure
 cookies in this mode and trust `X-Forwarded-Proto` by default for
 PythonAnywhere's HTTPS proxy. One-year HSTS is enabled, but subdomain coverage
 and browser preload remain disabled; enable those only after confirming all

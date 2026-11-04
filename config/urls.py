@@ -10,6 +10,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from core.seo import robots_txt, sitemap_xml
+from config.views import page_not_found
 
 urlpatterns = [
     path('django-admin/', admin.site.urls),
@@ -29,3 +30,7 @@ handler404 = 'config.views.page_not_found'
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+urlpatterns += [
+    path('<path:unmatched_path>', page_not_found),
+]

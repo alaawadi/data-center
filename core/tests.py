@@ -10,6 +10,18 @@ from .models import PlatformSettings, SiteVisitDaily
 
 class CustomErrorPageTests(TestCase):
     @override_settings(
+        DEBUG=True,
+        ALLOWED_HOSTS=['testserver'],
+        SECURE_SSL_REDIRECT=False,
+    )
+    def test_unknown_url_renders_custom_not_found_page_while_debugging(self):
+        response = self.client.get('/this-page-does-not-exist/')
+
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, 'لم نعثر على هذه الصفحة', status_code=404)
+        self.assertNotContains(response, 'Page not found', status_code=404)
+
+    @override_settings(
         DEBUG=False,
         ALLOWED_HOSTS=['testserver'],
         SECURE_SSL_REDIRECT=False,

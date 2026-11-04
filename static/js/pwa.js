@@ -164,6 +164,7 @@
   }
 
   registerServiceWorker();
+  if (document.body.hasAttribute('data-hide-pwa-install')) return;
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mount);
   } else {

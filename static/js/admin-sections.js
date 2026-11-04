@@ -1145,11 +1145,6 @@
         return response.json().then(function (data) {
           if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
           tr.canPublishContent = data.canPublishContent;
-          if (!data.canPublishContent) {
-            Store.collection('certificates').forEach(function (course) {
-              if (String(course.trainerId) === String(tr.id)) course.profileOnly = true;
-            });
-          }
           Store.save(true);
           UI.toast(t('statusUpd'), 'success');
           Admin.renderAll();
@@ -5939,33 +5934,27 @@
             csv: function (certificate) { return certificate.title; }
           },
           {
-            k: 'review', label: t('certificateReviewStatus'),
-            sortVal: function (certificate) { return certificate.reviewStatus || 'approved'; },
+            k: 'status', label: t('colStatus'),
+            sortVal: function (certificate) { return certificate.reviewStatus || 'pending'; },
             render: function (certificate) {
-              return '<span class="tiny muted">' + e(
-                certificate.reviewStatusLabel ||
-                  (certificate.type === 'workshop'
-                    ? t('certificateIssued')
-                    : t('certificateCourse'))
-              ) + '</span>';
+              return '<select class="input select certificate-review-select" data-act="certificate-review-status" ' +
+                'data-id="' + e(certificate.id) + '" aria-label="' + e(t('colStatus')) + '">' +
+                '<option value="pending"' + (certificate.reviewStatus === 'pending' ? ' selected' : '') + '>' +
+                e(t('certificateReviewPending')) + '</option>' +
+                '<option value="approved"' + (certificate.reviewStatus === 'approved' ? ' selected' : '') + '>' +
+                e(t('certificateReviewApproved')) + '</option>' +
+                '<option value="rejected"' + (certificate.reviewStatus === 'rejected' ? ' selected' : '') + '>' +
+                e(t('certificateReviewRejected')) + '</option></select>';
             },
             csv: function (certificate) {
-              return certificate.reviewStatusLabel ||
-                (certificate.type === 'workshop' ? t('certificateIssued') : '');
-            }
-          },
-          {
-            k: 'active', label: t('colStatus'),
-            sortVal: function (certificate) { return certificate.active ? 1 : 0; },
-            render: function (certificate) {
-              return '<button type="button" class="st st-toggle ' +
-                (certificate.active ? 'st-ok' : 'st-mute') +
-                '" data-act="certificate-toggle" data-id="' + e(certificate.id) +
-                '" aria-label="' + e(t(certificate.active ? 'certificateDeactivate' : 'certificateActivate')) +
-                '" title="' + e(t(certificate.active ? 'certificateDeactivate' : 'certificateActivate')) + '">' +
-                e(t(certificate.active ? 'certificateVisible' : 'certificateHidden')) + '</button>';
+              return t(
+                certificate.reviewStatus === 'approved'
+                  ? 'certificateReviewApproved'
+                  : certificate.reviewStatus === 'rejected'
+                    ? 'certificateReviewRejected'
+                    : 'certificateReviewPending'
+              );
             },
-            csv: function (certificate) { return t(certificate.active ? 'certificateVisible' : 'certificateHidden'); }
           },
           {
             k: 'date', label: t('colDate'),
@@ -6020,8 +6009,21 @@
         ? '<div class="if-row"><span class="k">' + e(t('certificateReviewStatus')) + '</span><span class="v">' +
           e(certificate.reviewStatusLabel || t('certificateIssued')) + '</span></div>'
         : '') +
-      '<div class="if-row"><span class="k">' + e(t('colStatus')) + '</span><span class="v">' +
-      e(t(certificate.active ? 'certificateVisible' : 'certificateHidden')) + '</span></div>' +
+      (certificate.type === 'manual'
+        ? '<div class="if-row"><span class="k">' + e(t('colStatus')) + '</span><span class="v">' +
+          e(t(
+            certificate.reviewStatus === 'approved'
+              ? 'certificateReviewApproved'
+              : certificate.reviewStatus === 'rejected'
+                ? 'certificateReviewRejected'
+                : 'certificateReviewPending'
+          )) + '</span></div>' +
+          (certificate.rejectionReason
+            ? '<div class="if-row"><span class="k">' + e(t('certificateRejectionReason')) +
+              '</span><span class="v">' + e(certificate.rejectionReason) + '</span></div>'
+            : '')
+        : '<div class="if-row"><span class="k">' + e(t('colStatus')) + '</span><span class="v">' +
+          e(t(certificate.active ? 'certificateVisible' : 'certificateHidden')) + '</span></div>') +
       (certificate.description ? '<div class="if-row"><span class="k">' + e(t('certificateDescription')) + '</span><span class="v">' + e(certificate.description) + '</span></div>' : '') +
       '</div>' +
       (skills ? '<div style="margin-top:12px"><b>' + e(t('certificateSkills')) + '</b><div class="row-tags" style="margin-top:8px">' + skills + '</div></div>' : '') +
@@ -6109,11 +6111,7 @@
     });
   });
 
-  Admin.on('certificate-toggle', function (el) {
-    var certificate = AdminData.studentCertificates().filter(function (item) {
-      return item.id === el.getAttribute('data-id');
-    })[0];
-    if (!certificate || certificate.type !== 'manual') return;
+  function saveCertificateReviewStatus(el, certificate, status, rejectionReason) {
     el.disabled = true;
     fetch(SITE.u('certificateStatus', certificate.id), {
       method: 'POST',
@@ -6122,22 +6120,64 @@
         'Content-Type': 'application/json',
         'X-CSRFToken': window.CSRF_TOKEN || ''
       },
-      body: JSON.stringify({ active: !certificate.active })
+      body: JSON.stringify({
+        status: status,
+        rejectionReason: rejectionReason
+      })
     }).then(function (response) {
       return response.json().then(function (data) {
-        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
-        certificate.active = data.active;
-        if (data.reviewStatus) {
-          certificate.reviewStatus = data.reviewStatus;
-          certificate.reviewStatusLabel = data.reviewStatusLabel;
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || data.error || t('saveError'));
         }
+        certificate.reviewStatus = data.reviewStatus;
+        certificate.reviewStatusLabel = data.reviewStatusLabel;
+        certificate.rejectionReason = data.rejectionReason;
+        certificate.active = data.active;
         Admin.renderAll();
-        UI.toast(t(data.active ? 'certificateVisible' : 'certificateHidden'), 'success');
+        UI.toast(t('certificateReviewSaved'), 'success');
       });
     }).catch(function (error) {
+      el.value = certificate.reviewStatus || 'pending';
       el.disabled = false;
       UI.toast(error.message || t('saveError'), 'error');
     });
+  }
+
+  Admin.on('certificate-review-status', function (el) {
+    var certificate = AdminData.studentCertificates().filter(function (item) {
+      return item.id === el.getAttribute('data-id');
+    })[0];
+    if (!certificate || certificate.type !== 'manual') return;
+    var status = el.value;
+    if (status === 'rejected') {
+      var previousStatus = certificate.reviewStatus || 'pending';
+      var dialog = UI.modal({
+        title: t('certificateRejectionTitle'),
+        size: 'sm',
+        body: '<div class="field"><label class="label" for="certificateRejectionReason">' +
+          e(t('certificateRejectionReason')) + '</label><textarea class="textarea" id="certificateRejectionReason" ' +
+          'rows="4" maxlength="2000" required></textarea></div>',
+        footer: '<button class="btn btn-ghost" type="button" data-certificate-review-cancel>' +
+          e(t('certificateReviewCancel')) + '</button><button class="btn btn-danger" type="button" data-certificate-review-save>' +
+          e(t('certificateReviewSave')) + '</button>'
+      });
+      dialog.el.querySelector('[data-certificate-review-cancel]').addEventListener('click', function () {
+        el.value = previousStatus;
+        dialog.close();
+      });
+      dialog.el.querySelector('[data-certificate-review-save]').addEventListener('click', function () {
+        var reason = dialog.el.querySelector('#certificateRejectionReason').value.trim();
+        if (!reason) {
+          UI.toast(t('certificateRejectionReasonRequired'), 'error');
+          dialog.el.querySelector('#certificateRejectionReason').focus();
+          return;
+        }
+        dialog.close();
+        saveCertificateReviewStatus(el, certificate, status, reason);
+      });
+      return;
+    }
+    saveCertificateReviewStatus(el, certificate, status, '');
   });
 
   Admin.register('dailies', {

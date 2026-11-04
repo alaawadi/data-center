@@ -30,7 +30,7 @@ def trainer_course_students(request, course_slug):
     if course is None:
         return JsonResponse({'ok': False, 'message': 'الدورة غير موجودة.'}, status=404)
 
-    total_lessons = course.lessons_count
+    total_lessons = course.target_lessons_count
     progress_rows = active_course_progress(
         CourseProgress.objects.filter(course=course)
     ).select_related('student', 'student__profile').order_by('created_at', 'pk')
@@ -46,7 +46,7 @@ def trainer_course_students(request, course_slug):
             'completed': progress.completed,
             'completedLessons': completed_count,
             'totalLessons': total_lessons,
-            'progress': round(completed_count * 100 / total_lessons) if total_lessons else 0,
+            'progress': progress.percent,
         })
 
     return JsonResponse({
@@ -130,6 +130,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 status__in=(
                     ManualCertificateStatus.PENDING,
                     ManualCertificateStatus.APPROVED,
+                    ManualCertificateStatus.REJECTED,
                 ),
             ).select_related('student')
             workshop_certs = WorkshopCertificate.objects.filter(

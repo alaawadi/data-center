@@ -1,4 +1,5 @@
 """Course models — الدورات التدريبية وأقسامها ودروسكها وتقدّم الطلاب وشهاداتهم."""
+import re
 import uuid
 from decimal import Decimal
 
@@ -84,6 +85,7 @@ class Course(models.Model):
     course_type = models.CharField(
         'نوع الدورة', max_length=16, choices=CourseType.choices, default=CourseType.ONLINE
     )
+    is_complete = models.BooleanField('الدورة مكتملة', default=True)
     profile_only = models.BooleanField('تظهر في بروفايل المدرب فقط', default=False)
     display_order = models.PositiveIntegerField(
         'ترتيب العرض', null=True, blank=True, db_index=True
@@ -145,6 +147,14 @@ class Course(models.Model):
     @property
     def lessons_count(self):
         return Lesson.objects.filter(section__course=self).count()
+
+    @property
+    def target_lessons_count(self):
+        period = (self.period or '').translate(
+            str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
+        )
+        match = re.fullmatch(r'\s*(\d+)(?:\s*لقاءات?)?\s*', period)
+        return int(match.group(1)) if match else self.lessons_count
 
     def to_public_dict(
         self,
@@ -212,6 +222,8 @@ class Course(models.Model):
             'verifyUrl': self.verify_url,
             'status': self.status,
             'courseType': self.course_type,
+            'isComplete': self.is_complete,
+            'targetLessons': self.target_lessons_count,
             'profileOnly': self.profile_only,
             'comingSoon': self.is_coming_soon,
             'handle': owner.handle if owner else '',
@@ -705,14 +717,20 @@ class CourseProgress(models.Model):
 
     @property
     def done_count(self):
-        return len(self.completed_ids or [])
+        completed_ids = self.completed_ids or []
+        if not completed_ids:
+            return 0
+        return Lesson.objects.filter(
+            pk__in=completed_ids,
+            section__course_id=self.course_id,
+        ).count()
 
     @property
     def percent(self):
-        total = self.course.lessons_count
+        total = self.course.target_lessons_count
         if not total:
             return 0
-        return round(self.done_count * 100 / total)
+        return min(100, round(self.done_count * 100 / total))
 
     def set_lesson(self, lesson_id, done):
         """إضافة/إزالة درس من قائمة المكتمل (idempotent) — ويعيد ما إذا تغيّر شيء."""
@@ -729,13 +747,22 @@ class CourseProgress(models.Model):
         return True
 
     def check_completion(self):
-        """إن أنهى كل الدروس → علّم «مكتملة» ويعيد True عند الإتمام الأول فقط."""
+        """Complete only after the configured, complete course has been finished."""
         if self.completed:
             return False
-        total = self.course.lessons_count
-        if total and self.done_count >= total:
+        total = self.course.target_lessons_count
+        eligible = (
+            self.course.is_complete
+            and total > 0
+            and self.course.lessons_count == total
+            and self.done_count >= total
+        )
+        if eligible and not self.completed:
             self.completed = True
-            return True
+            return not CourseCertificate.objects.filter(
+                student_id=self.student_id,
+                course_id=self.course_id,
+            ).exists()
         return False
 
 
@@ -993,8 +1020,8 @@ class CourseCertificate(models.Model):
 
 
 class ManualCertificateStatus(models.TextChoices):
-    PENDING = 'pending', 'بانتظار المراجعة'
-    APPROVED = 'approved', 'معتمدة'
+    PENDING = 'pending', 'قيد المراجعة'
+    APPROVED = 'approved', 'مقبولة'
     REJECTED = 'rejected', 'مرفوضة'
 
 
@@ -1022,6 +1049,7 @@ class ManualCertificate(models.Model):
         choices=ManualCertificateStatus.choices,
         default=ManualCertificateStatus.PENDING,
     )
+    rejection_reason = models.TextField('سبب الرفض', blank=True)
     is_active = models.BooleanField('تظهر في الملف العام', default=False)
     created_at = models.DateTimeField('تاريخ الإضافة', auto_now_add=True)
     reviewed_at = models.DateTimeField('تاريخ المراجعة', null=True, blank=True)
@@ -1053,6 +1081,7 @@ class ManualCertificate(models.Model):
             'manual': True,
             'status': self.status,
             'statusLabel': self.get_status_display(),
+            'rejectionReason': self.rejection_reason,
             'active': self.is_active,
             'addedAt': self.created_at.isoformat(),
         }

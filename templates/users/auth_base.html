@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="{% static_v 'css/auth.css' %}">
 {% endblock %}
 
-{% block body_attrs %}class="auth-body"{% endblock %}
+{% block body_attrs %}class="auth-body" data-hide-pwa-install{% endblock %}
 
 {% block content %}
   {% if messages %}
@@ -19,9 +19,14 @@
   {% endif %}
   {% block auth_content %}{% endblock %}
   <div id="toastRoot" class="toast-root"></div>
+  {% include "partials/bottom_nav.html" %}
+  {% include "partials/courses_sheet.html" %}
 {% endblock %}
 
 {% block scripts %}
+  <script src="{% static_v 'js/ui.js' %}"></script>
+  <script src="{% static_v 'js/site-chrome.js' %}"></script>
+  <script>SiteChrome.mount();</script>
   <script src="{% static_v 'js/country-code-picker.js' %}"></script>
   <script src="{% static_v 'js/auth.js' %}"></script>
 {% endblock %}

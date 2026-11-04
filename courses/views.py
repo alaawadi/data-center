@@ -144,9 +144,10 @@ def course_sheet_data(request):
     courses = Course.objects.filter(
         status=CourseStatus.PUBLISHED,
         profile_only=False,
+        course_type=CourseType.IN_PERSON,
     ).only(
         'pk', 'slug', 'title', 'cover', 'duration', 'period', 'price'
-    ).order_by('-created_at', '-pk')
+    ).order_by(F('display_order').asc(nulls_last=True), '-created_at')
     return JsonResponse([
         {
             'id': course.slug or str(course.pk),
@@ -740,7 +741,7 @@ class PlaylistView(TemplateView):
             ).first()
             context['progress_json'] = {
                 'done': list(progress.completed_ids or []) if progress else [],
-                'complete': bool(progress.completed) if progress else False,
+                'complete': bool(progress and progress.completed and course.is_complete),
             }
         if self.request.user.is_authenticated:
             # حالة محاولات الكويز (لصفحة المشاهدة): لكل درس اختبار محاولات سابقة
@@ -769,6 +770,13 @@ def course_editor_context(request, key=None):
         course = _find_course(key, queryset)
         if course is None:
             raise Http404('الدورة غير موجودة')
+        if (
+            request.user.is_trainer
+            and not is_admin
+            and not request.user.can_publish_content
+            and not course.profile_only
+        ):
+            raise PermissionDenied('صلاحية تعديل الدورات المعروضة على المنصة متوقفة.')
         # محرر الدورة يحتاج نصوص الأسئلة والإجابات الصحيحة.
         course_data = course.to_public_dict(include_answers=True)
         course_data['coverStorageName'] = course.cover.name if course.cover else ''
@@ -780,7 +788,7 @@ def course_editor_context(request, key=None):
         context['courses_json'] = []
         context['course_title_en'] = ''
     context['is_admin_editor'] = is_admin
-    context['can_select_course_type'] = request.user.is_trainer or is_admin
+    context['can_select_course_type'] = is_admin
     context['admin_trainers'] = (
         User.objects.filter(role=UserRole.TRAINER, is_active=True).order_by('full_name', 'pk')
         if is_admin else []
@@ -868,6 +876,15 @@ def course_discard_changes(request):
     course = _find_course(key, queryset)
     if course is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+    if (
+        not is_admin
+        and not request.user.can_publish_content
+        and not course.profile_only
+    ):
+        return JsonResponse(
+            {'ok': False, 'error': 'content_creation_disabled'},
+            status=403,
+        )
 
     latest_version = CourseVersion.objects.filter(course=course).order_by(
         '-version_number'
@@ -1338,6 +1355,16 @@ def course_save(request):
         course = _find_course(key, queryset)
         if course is None:
             return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+        if (
+            request.user.is_trainer
+            and not is_admin
+            and not request.user.can_publish_content
+            and not course.profile_only
+        ):
+            return JsonResponse(
+                {'ok': False, 'error': 'content_creation_disabled'},
+                status=403,
+            )
 
     status = CourseStatus.PUBLISHED if payload.get('status') == CourseStatus.PUBLISHED else CourseStatus.DRAFT
     raw_title = payload.get('title')
@@ -1367,6 +1394,16 @@ def course_save(request):
     currency = payload.get('currency', CourseCurrency.ILS)
     if currency not in CourseCurrency.values:
         return JsonResponse({'ok': False, 'error': 'invalid_currency'}, status=400)
+    is_complete = payload.get(
+        'isComplete', course.is_complete if course is not None else True
+    )
+    if not isinstance(is_complete, bool):
+        return JsonResponse({'ok': False, 'error': 'invalid_completion_status'}, status=400)
+    coming_soon = payload.get(
+        'comingSoon', course.is_coming_soon if course is not None else False
+    )
+    if not isinstance(coming_soon, bool):
+        return JsonResponse({'ok': False, 'error': 'invalid_coming_soon'}, status=400)
     price_match = re.fullmatch(r'\d+(?:\.\d{1,2})?', price)
     duration = str(payload.get('duration') or '').strip()
     normalized_duration = duration.translate(str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789'))
@@ -1466,16 +1503,24 @@ def course_save(request):
         'duration': duration_ar,
         'duration_en': duration_en,
         'period': _format_course_period(payload.get('period')),
+        'is_complete': is_complete,
+        'is_coming_soon': coming_soon,
         'credential_id': str(payload.get('credentialId') or payload.get('credential_id') or '').strip()[:60],
         'verify_url': str(payload.get('verifyUrl') or payload.get('verify_url') or '').strip()[:200],
         'status': status,
     }
-    if is_admin or request.user.is_trainer:
+    if is_admin:
         raw_course_type = payload.get(
             'courseType', course.course_type if course is not None else CourseType.ONLINE
         )
         if raw_course_type not in CourseType.values:
             return JsonResponse({'ok': False, 'error': 'invalid_course_type'}, status=400)
+    elif request.user.is_trainer:
+        raw_course_type = (
+            course.course_type
+            if course is not None
+            else CourseType.ONLINE
+        )
     else:
         raw_course_type = course.course_type if course is not None else CourseType.ONLINE
     course_fields['course_type'] = raw_course_type
@@ -1566,6 +1611,11 @@ def course_delete(request):
     course = _find_course(key, Course.objects.filter(owner=request.user))
     if course is None:
         return JsonResponse({'ok': False, 'error': 'not_found'}, status=404)
+    if request.user.is_trainer and not request.user.can_publish_content and not course.profile_only:
+        return JsonResponse(
+            {'ok': False, 'error': 'content_creation_disabled'},
+            status=403,
+        )
     course.delete()
     return JsonResponse({'ok': True, 'url': reverse('courses:list')})
 
@@ -1837,13 +1887,14 @@ def _apply_lesson_completion(user, course, lesson, done):
     if done and lesson.type == LessonType.PROJECT:
         project, project_created = _ensure_project_for_lesson(user, course, lesson)
 
-    total = course.lessons_count
+    total = course.target_lessons_count
+    complete = bool(progress.completed and course.is_complete)
     return {
         'ok': True,
         'done': progress.done_count,
         'total': total,
-        'percent': round(progress.done_count * 100 / total) if total else 0,
-        'complete': progress.completed,
+        'percent': progress.percent,
+        'complete': complete,
         'newlyCompleted': newly_completed,
         'certificate': certificate.to_public_dict() if certificate else None,
         'project': project.to_public_dict() if project else None,

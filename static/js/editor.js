@@ -610,6 +610,7 @@
       id: Store.uid('c'), title: '', slug: '', cover: '', summary: '', content: '',
         issuer: '', description: '', skills: [], image: '', credentialId: '', verifyUrl: '',
         price: '', currency: 'ILS', duration: '', period: '', syllabus: [], courseType: 'online',
+        isComplete: true,
       category: '', date: new Date().toISOString().slice(0, 10),
       links: { github: '', demo: '' }, files: [], gallery: [],
       views: 0, likes: 0, comments: [],
@@ -1045,11 +1046,19 @@
     var currencyEl = document.getElementById('edCurrency');
     var durationEl = document.getElementById('edDuration');
     var periodEl = document.getElementById('edPeriod');
+    var courseCompletionEl = document.getElementById('edCourseCompletion');
     var courseMetaEls = [];
     if (isCourse) {
       document.getElementById('lblPrice').textContent = t('priceLabel');
       document.getElementById('lblDuration').textContent = t('durationLabel');
       document.getElementById('lblPeriod').textContent = t('periodLabel');
+      document.getElementById('lblCourseCompletion').textContent = t('courseCompletionLabel');
+      courseCompletionEl.options[0].textContent = t('courseCompletionComplete');
+      courseCompletionEl.options[1].textContent = t('courseCompletionIncomplete');
+      courseCompletionEl.options[2].textContent = t('courseCompletionComingSoon');
+      courseCompletionEl.value = p.comingSoon
+        ? 'coming_soon'
+        : (p.isComplete === false ? 'incomplete' : 'complete');
       priceEl.value = String(p.price || '').replace(/[₪$\s]/g, '');
       if (currencyEl) {
         currencyEl.value = p.currency === 'USD' || String(p.price || '').indexOf('$') === 0
@@ -1063,7 +1072,9 @@
           return String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10);
         })
         : '';
-      courseMetaEls = [priceEl, currencyEl, durationEl, periodEl];
+      courseMetaEls = [
+        priceEl, currencyEl, durationEl, periodEl, courseCompletionEl
+      ];
       /* المدرّب هو صاحب الدورة — الحقل للعرض فقط، والدورات لا تملك روابط GitHub/تاريخ إصدار */
       if (trainerEl) {
         document.getElementById('lblRole').textContent = t('instructorLabel');
@@ -1265,11 +1276,6 @@
           renderTags(); markDirty();
         });
       });
-      var sug = document.getElementById('edTagsSuggest');
-      var known = Store.allTags().concat(['React', 'JavaScript', 'Node.js', 'Python', 'Figma', 'UI/UX', 'Git', 'PWA']).filter(function (x, i, arr) { return arr.indexOf(x) === i; });
-      sug.innerHTML = known.slice(0, 10).filter(function (x) { return p.tags.indexOf(x) < 0; }).map(function (x) {
-        return '<button class="chip chip-btn" data-sug="' + e(x) + '">+ ' + e(x) + '</button>';
-      }).join('');
       updateChecklist();
     }
     function addTag(val) {
@@ -1282,10 +1288,6 @@
     });
     tagsBox.addEventListener('click', function (ev) {
       if (ev.target === tagsBox || ev.target === tagsInput) tagsInput.focus();
-    });
-    document.getElementById('edTagsSuggest').addEventListener('click', function (ev) {
-      var b = ev.target.closest('[data-sug]');
-      if (b) addTag(b.getAttribute('data-sug'));
     });
     renderTags();
 
@@ -1904,6 +1906,8 @@
                 : 'ILS';
               p.duration = snapshot.duration || '';
               p.period = snapshot.period || '';
+              p.isComplete = snapshot.isComplete !== false;
+              p.comingSoon = snapshot.comingSoon === true;
               p.credentialId = snapshot.credentialId || '';
               p.verifyUrl = snapshot.verifyUrl || '';
               p.tags = Array.isArray(snapshot.skills) ? snapshot.skills.slice() : [];
@@ -1929,6 +1933,11 @@
                   return String('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹'.indexOf(digit) % 10);
                 })
                 : '';
+              if (courseCompletionEl) {
+                courseCompletionEl.value = p.comingSoon
+                  ? 'coming_soon'
+                  : (p.isComplete ? 'complete' : 'incomplete');
+              }
               if (trainerEl && snapshot.trainerId) trainerEl.value = String(snapshot.trainerId);
               renderCover();
               renderTags();
@@ -2152,6 +2161,10 @@
         p.currency = currencyEl ? currencyEl.value : 'ILS';
         p.duration = durationEl.value.trim();
         p.period = periodEl.value;
+        if (courseCompletionEl.value !== 'coming_soon') {
+          p.isComplete = courseCompletionEl.value === 'complete';
+        }
+        p.comingSoon = courseCompletionEl.value === 'coming_soon';
         if (syllabusDirty) {
           p.syllabus = (p.syllabus || []).map(function (sec) {
             var cleanSection = Object.assign({}, sec, {
@@ -2239,6 +2252,8 @@
         currency: p.currency || 'ILS',
         duration: p.duration,
         period: p.period,
+        isComplete: p.isComplete,
+        comingSoon: p.comingSoon,
         credentialId: p.credentialId,
         verifyUrl: p.verifyUrl,
         tags: p.tags,

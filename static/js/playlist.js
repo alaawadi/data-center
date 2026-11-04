@@ -163,8 +163,21 @@
     return flat.filter(function (f) { return progress[f.key]; }).length;
   }
 
+  function targetLessonsCount() {
+    if (!course || course.targetLessons == null) return flat.length;
+    var target = Number(course.targetLessons);
+    return isNaN(target) ? flat.length : Math.max(0, target);
+  }
+
+  function completionEligible() {
+    var target = targetLessonsCount();
+    return !!course && course.isComplete !== false && target > 0 &&
+      flat.length === target && doneCount() >= target;
+  }
+
   function pct() {
-    return flat.length ? Math.round(doneCount() * 100 / flat.length) : 0;
+    var total = targetLessonsCount();
+    return total ? Math.min(100, Math.round(doneCount() * 100 / total)) : 0;
   }
 
   function sectionIsDone(sectionIndex) {
@@ -582,7 +595,7 @@
       '</div>' +
       (trainerMode ? '' :
         '<div class="pl-progress-box">' +
-        '<div class="pl-progress-label">' + e(t('plProgress')) + ' <b>' + pct() + '%</b> · ' + doneCount() + ' ' + e(t('plOf')) + ' ' + flat.length + '</div>' +
+        '<div class="pl-progress-label">' + e(t('plProgress')) + ' <b>' + pct() + '%</b> · ' + doneCount() + ' ' + e(t('plOf')) + ' ' + targetLessonsCount() + '</div>' +
         '<div class="pl-bar"><span style="width:' + pct() + '%"></span></div>' +
         certBtnHTML() +
         '</div>') +
@@ -675,7 +688,7 @@
         s.style.width = q + '%';
       });
       var lbl = document.querySelector('.pl-progress-label');
-      if (lbl) lbl.innerHTML = e(t('plProgress')) + ' <b>' + q + '%</b> · ' + doneCount() + ' ' + e(t('plOf')) + ' ' + flat.length;
+      if (lbl) lbl.innerHTML = e(t('plProgress')) + ' <b>' + q + '%</b> · ' + doneCount() + ' ' + e(t('plOf')) + ' ' + targetLessonsCount();
       var lp = document.querySelector('.pl-list-pct');
       if (lp) lp.textContent = q + '%';
       syncCertBtn();
@@ -710,7 +723,7 @@
   }
 
   function celebrate() {
-    if (trainerMode || completeFlag) return;
+    if (trainerMode || completeFlag || !completionEligible()) return;
     completeFlag = true;
     progress._complete = 1;
     saveProgress();
@@ -961,7 +974,7 @@
 
     if (serverProgress && lessonId != null) {
       pushProgress(lessonId, true);
-    } else if (flat.length && doneCount() === flat.length) {
+    } else if (completionEligible()) {
       celebrate();
     }
     UI.toast(t('plDone'), 'success');
@@ -1109,9 +1122,9 @@
         var k = idKeyMap[String(id)];
         if (k) progress[k] = 1;
       });
-      completeFlag = !!serverProgress.complete;
+      completeFlag = !!serverProgress.complete && course.isComplete !== false;
       saveProgress();
-    } else if (progress._complete) {
+    } else if (progress._complete && completionEligible()) {
       completeFlag = true;
     }
     var wanted = params.get('l');

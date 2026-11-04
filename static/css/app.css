@@ -383,8 +383,9 @@ body[data-page="user-profile"] #profileHost .profile-card .bio {
 }
 
 .profile-tabs {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .profile-tab {
@@ -392,7 +393,8 @@ body[data-page="user-profile"] #profileHost .profile-card .bio {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  min-width: 0;
+  min-width: 180px;
+  max-width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -596,6 +598,10 @@ html[dir='rtl'] .tabbar { direction: rtl; }
 }
 .cert-card-uploaded img { object-fit: contain; }
 .cert-card-uploaded { cursor: pointer; }
+.manual-cert-status-card:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
 .manual-cert-status {
   position: absolute;
   inset-block-start: 10px;
@@ -608,6 +614,23 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   color: #92400e;
   font-size: 11px;
   font-weight: 800;
+}
+.manual-cert-status-approved {
+  border-color: rgba(5, 150, 105, .3);
+  background: rgba(236, 253, 245, .96);
+  color: #047857;
+}
+.manual-cert-status-rejected {
+  border-color: rgba(220, 38, 38, .3);
+  background: rgba(254, 242, 242, .97);
+  color: #b91c1c;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+.manual-cert-status-rejected:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 .profile-certificate-grid .cert-card-preview {
   aspect-ratio: 1123 / 794;
@@ -2208,9 +2231,9 @@ html[dir='rtl'] .prose blockquote { border-radius: var(--r-md) 0 0 var(--r-md); 
   .profile-actions .btn { flex: 1; }
   .name-row h1 { font-size: 20px; }
   .skills-grid { grid-template-columns: 1fr; }
-  .profile-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .profile-tabs { justify-content: center; gap: 8px; }
   .profile-tab {
-    min-width: 0;
+    min-width: min(180px, 100%);
     min-height: 64px;
     flex-direction: row;
     gap: 7px;

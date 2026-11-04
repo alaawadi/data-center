@@ -352,6 +352,13 @@ class FreelancerListTests(TestCase):
             course_type=CourseType.IN_PERSON,
             profile_only=True,
         )
+        homepage_course = Course.objects.create(
+            owner=trainer,
+            title='دورة وجاهية معروضة في الرئيسية',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+            profile_only=False,
+        )
         profile_only_online_course = Course.objects.create(
             owner=trainer,
             title='دورة أونلاين للبروفايل فقط',
@@ -378,6 +385,11 @@ class FreelancerListTests(TestCase):
         courses = response.context['courses_json']
         courses_by_id = {course['id']: course for course in courses}
         self.assertIn(profile_only_course.slug, courses_by_id)
+        self.assertIn(homepage_course.slug, courses_by_id)
+        self.assertEqual(
+            courses_by_id[homepage_course.slug]['courseType'],
+            CourseType.IN_PERSON,
+        )
         self.assertIn(profile_only_online_course.slug, courses_by_id)
         self.assertEqual(
             courses_by_id[profile_only_course.slug]['courseType'],

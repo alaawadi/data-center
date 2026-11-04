@@ -14,6 +14,7 @@ from courses.models import (
     Course,
     CourseCertificate,
     CourseStatus,
+    CourseType,
     ManualCertificate,
     ManualCertificateStatus,
     StudentPointTransaction,
@@ -342,11 +343,13 @@ class FreelancerDetailView(TemplateView):
             certificate.to_public_dict(include_syllabus=False, include_content=False)
             for certificate in certs
         ]
-        manual_certificates = ManualCertificate.objects.filter(
-            student=profile.user,
-            status=ManualCertificateStatus.APPROVED,
-            is_active=True,
-        ).select_related('student')
+        manual_certificates = ManualCertificate.objects.filter(student=profile.user)
+        if not is_owner:
+            manual_certificates = manual_certificates.filter(
+                status=ManualCertificateStatus.APPROVED,
+                is_active=True,
+            )
+        manual_certificates = manual_certificates.select_related('student')
         context['profile_certs_json'] += [
             certificate.to_public_dict()
             for certificate in manual_certificates
@@ -360,17 +363,19 @@ class FreelancerDetailView(TemplateView):
         # الدورات المنشورة تُدمج مع الشهادات المكتسبة في لائحة شهادات البروفايل
         context['courses_json'] = published_courses_payload()
         if profile.user.is_trainer:
-            profile_only_courses = (
+            trainer_profile_courses = (
                 Course.objects.filter(
                     owner=profile.user,
                     status=CourseStatus.PUBLISHED,
-                    profile_only=True,
+                )
+                .filter(
+                    Q(profile_only=True) | Q(course_type=CourseType.IN_PERSON)
                 )
                 .select_related('owner', 'owner__profile')
             )
             context['courses_json'].extend(
                 course.to_public_dict(include_syllabus=False, include_content=False)
-                for course in profile_only_courses
+                for course in trainer_profile_courses
             )
             inactive_courses = (
                 Course.objects.filter(owner=profile.user)

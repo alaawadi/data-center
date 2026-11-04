@@ -7,10 +7,7 @@
       var editableTarget = target instanceof Element
         ? target.closest('input, textarea, select, [contenteditable="true"]')
         : null;
-      if (
-        editableTarget &&
-        editableTarget.closest('.pe-profile-edit, .editor-page')
-      ) {
+      if (editableTarget) {
         return;
       }
       event.preventDefault();

@@ -447,9 +447,10 @@
         return Number(b.courseType === 'in_person') - Number(a.courseType === 'in_person');
       });
       reviewedCerts = (earnedCerts || []).filter(function (certificate) {
-        return certificate.manual &&
+        return certificate.manual && (self || (
           certificate.status === 'approved' &&
-          certificate.active === true;
+          certificate.active === true
+        ));
       });
     } else {
       /* الشهادات المكتسبة لصاحب البروفايل (تُدمج مع دوراته — نفس الاسم ونفس التفاصيل) */
