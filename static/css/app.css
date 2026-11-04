@@ -2231,26 +2231,59 @@ html[dir='rtl'] .prose blockquote { border-radius: var(--r-md) 0 0 var(--r-md); 
   .profile-actions .btn { flex: 1; }
   .name-row h1 { font-size: 20px; }
   .skills-grid { grid-template-columns: 1fr; }
-  .profile-tabs { justify-content: center; gap: 8px; }
+  .profile-tabs {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    width: 100%;
+    gap: 6px;
+  }
   .profile-tab {
-    min-width: min(180px, 100%);
-    min-height: 64px;
-    flex-direction: row;
+    flex: 0 0 44px;
+    min-width: 44px;
+    max-width: none;
+    min-height: 48px;
+    gap: 0;
+    padding: 8px;
+    border-radius: 14px;
+    transition: flex-basis .28s var(--ease), min-width .28s var(--ease),
+      padding .28s var(--ease), gap .2s var(--ease), border-color .18s,
+      color .18s, background .18s, box-shadow .18s;
+  }
+  .profile-tab.is-active {
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 7px;
-    padding: 10px 8px;
-    text-align: start;
-    font-size: 12px;
+    padding-inline: 12px;
   }
   .profile-tab-label {
     min-width: 0;
-    max-width: 100%;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    line-height: 1.4;
-    overflow-wrap: anywhere;
+    max-width: 0;
+    opacity: 0;
+    transform: translateX(4px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: max-width .28s var(--ease), opacity .18s ease, transform .28s var(--ease);
   }
-  .profile-tab-count { flex: none; min-width: 23px; height: 23px; }
+  .profile-tab.is-active .profile-tab-label {
+    max-width: 160px;
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .profile-tab-count { display: none; }
+  .panel.active { animation: profilePanelEnter .28s var(--ease) both; }
+  @keyframes profilePanelEnter {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .profile-tab,
+    .profile-tab-label,
+    .panel.active {
+      transition-duration: .01ms;
+      animation-duration: .01ms;
+    }
+  }
   .pstat b { font-size: 17px; }
   .tab-btn { width: 52px; height: 44px; }
   .card-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
