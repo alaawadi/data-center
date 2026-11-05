@@ -599,6 +599,16 @@ section.cd-hero { padding: 0; }
 
 .course-format-badge .ic { width: 1.5rem; height: 1.5rem; }
 
+.course-format-badge-online {
+  background: #2563eb;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, .3);
+}
+
+[data-theme='dark'] .course .course-format-badge-online {
+  color: #fff;
+  background: #2563eb;
+}
+
 .inperson-course-art {
   height: 15rem;
   display: flex;
@@ -682,6 +692,7 @@ html[data-theme='dark'] .course .inperson-course-card:hover {
 }
 
 html[data-theme='dark'] .course-format-badge { color: #422006; background: #fbbf24; }
+html[data-theme='dark'] .course .course-format-badge-online { color: #fff; background: #2563eb; }
 html[data-theme='dark'] .inperson-course-art { color: #fcd34d; }
 
 /* ============================================================
@@ -758,6 +769,14 @@ html[data-theme='dark'] .inperson-course-art { color: #fcd34d; }
    BRAND / PARTNERS (marquee)
    ============================================================ */
 .brand-container { text-align: center; overflow: hidden; }
+
+.brand-marquee-viewport {
+  box-sizing: content-box;
+  width: 70%;
+  margin-inline: auto;
+  padding-inline: 15px;
+  overflow: hidden;
+}
 
 .brand-marquee {
   display: flex;
@@ -928,7 +947,7 @@ html[data-theme='dark'] .inperson-course-art { color: #fcd34d; }
   transition: color .2s ease, background .2s ease;
 }
 
-.bottom-navbar a.active { color: var(--main); }
+.bottom-navbar a.active { color: var(--main); background: var(--main-soft); }
 .bottom-navbar a:active { background: var(--main-soft); }
 
 .bottom-navbar .tab-ind {

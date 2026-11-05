@@ -1,6 +1,7 @@
 import hashlib
 import json
 import base64
+import re
 from decimal import Decimal
 from datetime import timedelta
 from io import BytesIO
@@ -102,6 +103,7 @@ class AdminCourseRegistrationRequestTests(TestCase):
         response = self.client.get(reverse('dashboard:home'))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'data-hide-pwa-install')
         self.assertEqual(response.context['admin_current_user_name'], self.admin.display_name)
         self.assertContains(response, 'id="admin-current-user-name"')
         self.assertContains(response, json.dumps(self.admin.display_name))
@@ -239,6 +241,20 @@ class AdminCourseRegistrationRequestTests(TestCase):
         )
 
     def test_course_editor_from_dashboard_uses_admin_layout_for_create_and_edit(self):
+        def embedded_json(response, element_id):
+            match = re.search(
+                rf'<script id="{re.escape(element_id)}" type="application/json">(.*?)</script>',
+                response.content.decode(response.charset),
+                re.DOTALL,
+            )
+            self.assertIsNotNone(match, f'Missing {element_id} JSON data')
+            return json.loads(match.group(1))
+
+        active_category = TrainingCategory.objects.create(name='تحليل البيانات')
+        inactive_category = TrainingCategory.objects.create(
+            name='التصميم',
+            is_active=False,
+        )
         self.client.force_login(self.admin)
 
         create_response = self.client.get(reverse('dashboard:course-editor-create'))
@@ -248,12 +264,44 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertContains(create_response, 'id="admSide"')
         self.assertContains(create_response, 'id="edTitle"')
         self.assertContains(create_response, 'data-admin-course-editor="true"')
+        self.assertContains(create_response, 'data-hide-pwa-install')
         self.assertContains(create_response, 'id="editor-object-data"')
         self.assertNotContains(create_response, 'class="header"')
         self.assertNotContains(create_response, 'id="siteFooter"')
         self.assertEqual(len(create_response.context['courses_json']), 1)
         self.assertEqual(create_response.context['editor_course_json'], [])
+        self.assertCountEqual(
+            create_response.context['editor_training_categories_json'],
+            [active_category.name, inactive_category.name],
+        )
+        self.assertCountEqual(
+            embedded_json(create_response, 'training-categories-data'),
+            [active_category.name, inactive_category.name],
+        )
         self.assertContains(create_response, 'admin-courses-data')
+
+        dashboard_response = self.client.get(reverse('dashboard:home'))
+        self.assertContains(dashboard_response, 'id="admin-training-categories-data"')
+        self.assertCountEqual(
+            [category['name'] for category in embedded_json(
+                dashboard_response, 'admin-training-categories-data'
+            )],
+            [active_category.name, inactive_category.name],
+        )
+
+        ajax_response = self.client.get(
+            reverse('dashboard:course-editor-create'),
+            HTTP_X_REQUESTED_WITH='XMLHttpRequest',
+        )
+        self.assertEqual(ajax_response.status_code, 200)
+        self.assertCountEqual(
+            ajax_response.context['editor_training_categories_json'],
+            [active_category.name, inactive_category.name],
+        )
+        self.assertCountEqual(
+            embedded_json(ajax_response, 'training-categories-data'),
+            [active_category.name, inactive_category.name],
+        )
 
         edit_response = self.client.get(
             reverse('dashboard:course-editor-edit', kwargs={'pk': self.course.slug})
@@ -265,6 +313,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(edit_response.context['editor_course_json'][0]['id'], self.course.slug)
         self.assertContains(edit_response, 'admin-courses-data')
         self.assertContains(edit_response, 'id="editor-object-data"')
+        self.assertContains(edit_response, 'id="lblCourseDescription"')
+        self.assertContains(edit_response, 'aria-labelledby="lblCourseDescription"')
         self.assertContains(edit_response, f'href="{reverse("dashboard:home")}#courses"')
 
     def test_dashboard_course_editor_is_restricted_to_admins(self):
@@ -284,6 +334,7 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertContains(create_response, 'id="admSide"')
         self.assertContains(create_response, 'id="edTitle"')
         self.assertContains(create_response, 'data-admin-project-editor="true"')
+        self.assertContains(create_response, 'data-hide-pwa-install')
         self.assertContains(create_response, 'id="editor-object-data"')
         self.assertNotContains(create_response, 'class="header"')
         self.assertNotContains(create_response, 'id="siteFooter"')
@@ -2335,6 +2386,54 @@ class StudentPersistenceTests(TestCase):
         self.client.force_login(self.student)
         response = self.post_json(self.payload())
         self.assertEqual(response.status_code, 403)
+
+
+class AdminInPersonProgressTests(TestCase):
+    def test_inperson_progress_remains_active_in_admin_dashboard(self):
+        admin = User.objects.create_user(
+            phone='0591010091',
+            password='admin-password',
+            full_name='مدير الدورات الوجاهية',
+            role=UserRole.ADMIN,
+        )
+        trainer = User.objects.create_user(
+            phone='0591010092',
+            password='trainer-password',
+            full_name='مدرب الدورة الوجاهية',
+            role=UserRole.TRAINER,
+        )
+        student = User.objects.create_user(
+            phone='0591010093',
+            password='student-password',
+            full_name='طالب الدورة الوجاهية',
+            role=UserRole.STUDENT,
+        )
+        course = Course.objects.create(
+            owner=trainer,
+            title='دورة وجاهية مستمرة',
+            course_type=CourseType.IN_PERSON,
+            status=CourseStatus.PUBLISHED,
+        )
+        progress = CourseProgress.objects.create(
+            student=student,
+            course=course,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        self.assertIsNone(progress.expires_at)
+        expired_at = timezone.now() - timedelta(days=1)
+        CourseProgress.objects.filter(pk=progress.pk).update(expires_at=expired_at)
+        self.client.force_login(admin)
+
+        response = self.client.get(reverse('dashboard:home'))
+
+        self.assertIn(
+            str(progress.pk),
+            {item['id'] for item in response.context['course_progress_json']},
+        )
+        course_data = next(
+            item for item in response.context['courses_json'] if item['id'] == course.slug
+        )
+        self.assertEqual(course_data['enrollmentCount'], 1)
 
 
 class AdminCourseStudentEnrollmentTests(TestCase):
@@ -4432,6 +4531,43 @@ class AdminDisplayOrderTests(TestCase):
 
         stale = self.post_order('courses', [self.courses[0].pk])
         self.assertEqual(stale.status_code, 409)
+
+    def test_admin_can_reorder_inperson_courses_for_the_homepage(self):
+        inperson_courses = [
+            Course.objects.create(
+                owner=self.trainers[0],
+                title=f'دورة وجاهية {number}',
+                status=CourseStatus.PUBLISHED,
+                course_type=CourseType.IN_PERSON,
+            )
+            for number in (1, 2)
+        ]
+        expected_order = [course.pk for course in reversed(inperson_courses)]
+
+        response = self.post_order('inperson-courses', expected_order)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(
+                Course.objects.filter(course_type=CourseType.IN_PERSON)
+                .order_by('display_order')
+                .values_list('pk', flat=True)
+            ),
+            expected_order,
+        )
+        self.assertEqual(
+            Course.objects.filter(
+                pk__in=[course.pk for course in self.courses],
+                display_order__isnull=True,
+            ).count(),
+            len(self.courses),
+            'Reordering in-person courses must not change online-course order.',
+        )
+        homepage = self.client.get(reverse('landing:home'))
+        self.assertEqual(
+            [course['id'] for course in homepage.context['inperson_courses_json']],
+            [Course.objects.get(pk=pk).slug for pk in expected_order],
+        )
 
     def test_non_admin_cannot_reorder(self):
         self.client.force_login(self.students[0])

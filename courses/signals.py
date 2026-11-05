@@ -8,6 +8,11 @@ from .subscriptions import add_calendar_months
 
 @receiver(post_save, sender=CourseProgress)
 def set_online_subscription_expiry(sender, instance, created, **kwargs):
+    if instance.course.course_type == CourseType.IN_PERSON:
+        if instance.expires_at is not None:
+            CourseProgress.objects.filter(pk=instance.pk).update(expires_at=None)
+            instance.expires_at = None
+        return
     if not created or instance.course.course_type != CourseType.ONLINE:
         return
     expires_at = add_calendar_months(instance.created_at)

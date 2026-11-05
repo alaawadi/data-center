@@ -205,6 +205,11 @@ class HomePageTests(TestCase):
             [course['id'] for course in all_courses.context['courses_json']],
             [online_course.slug],
         )
+        self.assertEqual(
+            [course['id'] for course in all_courses.context['inperson_courses_json']],
+            [inperson_course.slug],
+        )
+        self.assertContains(all_courses, 'id="inperson-courses-data"')
 
     def test_homepage_courses_follow_the_saved_all_courses_order(self):
         trainer = get_user_model().objects.create_user(

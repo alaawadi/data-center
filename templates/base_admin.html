@@ -22,7 +22,7 @@
   {% endblock %}
   {% include "partials/pwa_head.html" %}
 </head>
-<body {% block body_attrs %}data-page="admin"{% endblock %}>
+<body {% block body_attrs %}data-page="admin" data-hide-pwa-install{% endblock %}>
   {% include "partials/page_transition_bootstrap.html" %}
   {% include "partials/page_transition_skeleton.html" %}
   {% block content %}{% endblock %}

@@ -434,7 +434,12 @@
       if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
           window.Admin && typeof window.Admin.navigate === 'function') {
         event.preventDefault();
-        window.Admin.navigate(page === 'edit-course' ? 'courses' : 'projects');
+        var courseTypeInput = document.getElementById('edCourseType');
+        var isInPersonCourse = document.body.classList.contains('in-person-course-editor') ||
+          (courseTypeInput && courseTypeInput.value === 'in_person');
+        window.Admin.navigate(page === 'edit-course'
+          ? (isInPersonCourse ? 'in-person-courses' : 'courses')
+          : 'projects');
         return;
       }
       if (page === 'edit-course') {
@@ -592,6 +597,74 @@
 
   function initProjectEditor() {
     var isCourse = page === 'edit-course';
+    document.body.classList.remove('in-person-course-editor');
+    var mobileLayout = null;
+    var syncMobileCourseMetaLayout = null;
+    var syncMobileCourseAxesLayout = null;
+    if (isCourse) {
+      var mobileChecklist = document.querySelector('.editor-checklist-mobile');
+      var editorGrid = document.querySelector('.editor-grid');
+      var courseMetaBox = document.getElementById('edCourseMetaBox');
+      var courseAxesBox = document.getElementById('edAxesBox');
+      var coverHost = document.getElementById('edCoverHost');
+      if (mobileChecklist && editorGrid && window.matchMedia) {
+        var checklistPlaceholder = document.createComment('course-checklist-original-position');
+        mobileChecklist.parentNode.insertBefore(checklistPlaceholder, mobileChecklist);
+        var courseMetaPlaceholder = courseMetaBox
+          ? document.createComment('course-meta-original-position')
+          : null;
+        var courseAxesPlaceholder = courseAxesBox
+          ? document.createComment('course-axes-original-position')
+          : null;
+        if (courseMetaBox) {
+          courseMetaBox.parentNode.insertBefore(courseMetaPlaceholder, courseMetaBox);
+        }
+        if (courseAxesBox) {
+          courseAxesBox.parentNode.insertBefore(courseAxesPlaceholder, courseAxesBox);
+        }
+        mobileLayout = window.matchMedia('(max-width: 640px)');
+        function syncMobileCourseEditorLayout() {
+          if (mobileLayout.matches) {
+            editorGrid.appendChild(mobileChecklist);
+          } else {
+            checklistPlaceholder.parentNode.insertBefore(
+              mobileChecklist,
+              checklistPlaceholder.nextSibling
+            );
+          }
+        }
+        syncMobileCourseMetaLayout = function () {
+          if (!courseMetaBox || !coverHost || !courseMetaPlaceholder) return;
+          if (mobileLayout.matches) {
+            coverHost.parentNode.insertBefore(courseMetaBox, coverHost.nextSibling);
+          } else {
+            courseMetaPlaceholder.parentNode.insertBefore(
+              courseMetaBox,
+              courseMetaPlaceholder.nextSibling
+            );
+          }
+        };
+        syncMobileCourseAxesLayout = function () {
+          if (!courseAxesBox || !courseAxesPlaceholder) return;
+          if (mobileLayout.matches) {
+            if (courseMetaBox && courseMetaBox.parentNode) {
+              courseMetaBox.parentNode.insertBefore(courseAxesBox, courseMetaBox.nextSibling);
+            }
+          } else {
+            courseAxesPlaceholder.parentNode.insertBefore(
+              courseAxesBox,
+              courseAxesPlaceholder.nextSibling
+            );
+          }
+        };
+        syncMobileCourseEditorLayout();
+        if (mobileLayout.addEventListener) {
+          mobileLayout.addEventListener('change', syncMobileCourseEditorLayout);
+        } else if (mobileLayout.addListener) {
+          mobileLayout.addListener(syncMobileCourseEditorLayout);
+        }
+      }
+    }
     var COL = isCourse ? 'certificates' : 'projects';
     var coursePathId = isCourse ? window.location.pathname.match(/\/courses\/edit\/([^/]+)\/?$/) : null;
     var id = activeAdminEditorId || SITE.param('id') || (coursePathId ? coursePathId[1] : '');
@@ -645,6 +718,7 @@
       p.verifyUrl = p.verifyUrl || '';
     }
     var isNew = !existing;
+    var isInPersonCourseEditor = isCourse && !!existing && p.courseType === 'in_person';
     var createdDuringSession = false;
     var initialCourseSnapshot = isCourse && existing
       ? JSON.parse(JSON.stringify(p))
@@ -671,15 +745,33 @@
     }
 
     var chromeTitles = [];
-    if (isCourse) chromeTitles.push({ icon: 'list', title: t('syllabusLabel') });
-    chromeTitles.push({ icon: 'check-circle', title: t('checklist') });
-    chromeTitles.push({ icon: 'layers', title: t(isCourse ? 'courseTemplates' : 'templates') });
-    if (isCourse) chromeTitles.push({ icon: 'award', title: t('courseMetaLabel') });
-    chromeTitles.push({ icon: 'sliders', title: t(isCourse ? 'certEditorTitle' : 'projectMetaLabel') });
-    chromeTitles.push({ icon: 'hash', title: t(isCourse ? 'courseAxesLabel' : 'tagsLabel') });
-    if (!isCourse) chromeTitles.push({ icon: 'file', title: t('projFiles') });
+    if (isCourse) {
+      chromeTitles.push({ icon: 'list', title: t('syllabusLabel') });
+      chromeTitles.push({ icon: 'check-circle', title: t('checklist') });
+      chromeTitles.push({ icon: 'layers', title: t('courseTemplates') });
+      chromeTitles.push({ icon: 'award', title: t('courseMetaLabel') });
+      chromeTitles.push({ icon: 'info', title: t('courseInfoLabel') });
+      chromeTitles.push({ icon: 'hash', title: t('courseAxesLabel') });
+    } else {
+      chromeTitles.push({ icon: 'check-circle', title: t('checklist') });
+      chromeTitles.push({ icon: 'layers', title: t('templates') });
+      chromeTitles.push({ icon: 'sliders', title: t('projectMetaLabel') });
+      chromeTitles.push({ icon: 'hash', title: t('tagsLabel') });
+      chromeTitles.push({ icon: 'file', title: t('projFiles') });
+    }
 
     fillChrome({ titles: chromeTitles });
+    if (isCourse && syncMobileCourseMetaLayout) {
+      syncMobileCourseMetaLayout();
+      syncMobileCourseAxesLayout();
+      if (mobileLayout.addEventListener) {
+        mobileLayout.addEventListener('change', syncMobileCourseMetaLayout);
+        mobileLayout.addEventListener('change', syncMobileCourseAxesLayout);
+      } else if (mobileLayout.addListener) {
+        mobileLayout.addListener(syncMobileCourseMetaLayout);
+        mobileLayout.addListener(syncMobileCourseAxesLayout);
+      }
+    }
     if (isNew || p.status === 'draft') setStatusDraft(); else setStatus('saved');
 
     var titleEl = document.getElementById('edTitle');
@@ -751,6 +843,23 @@
         console.error('تعذر تحميل قائمة المجالات التدريبية.', error);
       }
     }
+    if (!trainingCategories.length) {
+      var adminTrainingCategoriesDataEl = document.getElementById('admin-training-categories-data');
+      if (adminTrainingCategoriesDataEl) {
+        try {
+          var adminTrainingCategories = JSON.parse(adminTrainingCategoriesDataEl.textContent);
+          if (Array.isArray(adminTrainingCategories)) {
+            trainingCategories = adminTrainingCategories.filter(function (category) {
+              return category && typeof category.name === 'string' && category.name.trim();
+            }).map(function (category) {
+              return category.name.trim();
+            });
+          }
+        } catch (error) {
+          console.error('تعذر تحميل مجالات لوحة الإدارة.', error);
+        }
+      }
+    }
     function normalizeTrainingCategory(value) {
       return String(value || '').toLocaleLowerCase()
         .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
@@ -759,7 +868,8 @@
         .trim();
     }
     function isValidTrainingCategory() {
-      return !categoryUnavailable && trainingCategories.indexOf(categoryEl.value) !== -1;
+      return isInPersonCourseEditor ||
+        (!categoryUnavailable && trainingCategories.indexOf(categoryEl.value) !== -1);
     }
     function updateTrainingCategoryValidation(force) {
       if (!categorySearchEl || !categoryValidationEl) return isValidTrainingCategory();
@@ -816,11 +926,13 @@
       categorySearchEl.setAttribute('aria-expanded', 'false');
       categorySearchEl.removeAttribute('aria-activedescendant');
     }
-    function openTrainingCategoryOptions() {
+    function openTrainingCategoryOptions(query) {
       if (!categoryOptionsEl || !categorySearchEl) return;
       categoryOptionsEl.hidden = false;
       categorySearchEl.setAttribute('aria-expanded', 'true');
-      renderTrainingCategoryOptions(categorySearchEl.value);
+      renderTrainingCategoryOptions(
+        typeof query === 'string' ? query : categorySearchEl.value
+      );
     }
     function chooseTrainingCategory(category) {
       var changed = categoryEl.value !== category;
@@ -843,7 +955,9 @@
         trainingCategories.indexOf(currentTrainingCategory) === -1;
       categoryTouched = categoryUnavailable;
       categorySearchEl.placeholder = t('categorySearchPlaceholder');
-      categorySearchEl.addEventListener('focus', openTrainingCategoryOptions);
+      categorySearchEl.addEventListener('focus', function () {
+        openTrainingCategoryOptions(categoryUnavailable ? '' : categorySearchEl.value);
+      });
       categorySearchEl.addEventListener('input', function () {
         categoryTouched = true;
         categoryUnavailable = false;
@@ -1015,21 +1129,20 @@
     var visibilityField = document.getElementById('edVisibilityField');
     var isTrainerUser = !!(window.Store && Store.state.profile &&
       (Store.state.profile.isTrainer || Store.state.profile.roleKey === 'trainer'));
-    var isTrainerUser = !!(window.Store && Store.state.profile &&
-      (Store.state.profile.isTrainer || Store.state.profile.roleKey === 'trainer'));
     if (!isCourse && visibilityEl) {
-      if (!existing && isTrainerUser) p.visibility = 'personal';
+      if (isTrainerUser) {
+        p.visibility = p.visibility === 'courses' ? 'courses' : 'personal';
+      }
       visibilityEl.value = ['courses', 'personal'].indexOf(p.visibility) >= 0
         ? p.visibility
-        : 'public';
+        : 'personal';
     }
     if (!isCourse && isTrainerUser && visibilityField && visibilityEl) {
       visibilityField.style.display = '';
       document.getElementById('lblVisibility').textContent = t('projectVisibilityLabel');
       document.getElementById('edVisibilityHint').textContent = t('projectVisibilityHint');
-      visibilityEl.options[0].textContent = t('projectVisibilityPublic');
+      visibilityEl.options[0].textContent = t('projectVisibilityPersonal');
       visibilityEl.options[1].textContent = t('projectVisibilityCourses');
-      visibilityEl.options[2].textContent = t('projectVisibilityPersonal');
       var personalOnly = document.body.getAttribute('data-personal-project-only') === 'true';
       if (personalOnly) {
         visibilityEl.innerHTML = '<option value="personal">' +
@@ -1090,6 +1203,25 @@
       dateEl.closest('.field').style.display = 'none';
       demoEl.closest('.field').style.display = 'none';
     }
+    if (isInPersonCourseEditor) {
+      document.body.classList.add('in-person-course-editor');
+      document.getElementById('lblCourseDescription').textContent = t('ucDesc');
+      var inPersonSummaryHost = document.getElementById('edInPersonSummaryHost');
+      var summaryField = summaryEl.closest('.field');
+      if (inPersonSummaryHost && summaryField) {
+        inPersonSummaryHost.appendChild(summaryField);
+        inPersonSummaryHost.hidden = false;
+        document.getElementById('lblSummary').textContent = t('inPersonBannerSummaryLabel');
+      }
+      tagsInput.placeholder = I18n.getLang() === 'en'
+        ? 'Add a course topic and press Enter'
+        : 'أضف محوراً ثم اضغط Enter';
+      if (trainerEl) {
+        var trainerField = document.getElementById('edTrainerField');
+        var courseMetaBox = document.getElementById('edCourseMetaBox');
+        if (trainerField && courseMetaBox) courseMetaBox.appendChild(trainerField);
+      }
+    }
 
     initToolbar(document.getElementById('edToolbar'), contentEl, markDirty);
 
@@ -1117,9 +1249,7 @@
       { label: isArabic ? 'الوصف الطويل (50 كلمة على الأقل)' : 'Long description (at least 50 words)', done: function () { return textOf(contentEl).trim().split(/\s+/).filter(Boolean).length >= 50; } },
       { label: isArabic ? 'التصنيف' : 'Category', done: function () { return !!categoryEl.value.trim(); } },
       { label: isArabic ? 'السعر' : 'Price', done: function () { return !!priceEl.value.trim(); } },
-      { label: isArabic ? 'المدة' : 'Duration', done: function () { return Number(durationEl.value) > 0; } },
-      { label: isArabic ? 'تاق واحد على الأقل' : 'At least one tag', done: function () { return p.tags.length > 0; } },
-      { label: isArabic ? 'قسم ودرس واحد على الأقل' : 'At least one section and lesson', done: function () { return p.syllabus.some(function (section) { return !!String(section.title || '').trim() && (section.lessons || []).some(function (lesson) { return !!String(lesson.title || '').trim(); }); }); } }
+      { label: isArabic ? 'المدة' : 'Duration', done: function () { return Number(durationEl.value) > 0; } }
     ] : [
       { label: isArabic ? 'اسم المشروع' : 'Project title', done: function () { return !!titleEl.value.trim(); } },
       { label: isArabic ? 'صورة الغلاف' : 'Cover image', done: function () { return !!p.cover; } },
@@ -1130,6 +1260,21 @@
       { label: isArabic ? 'ثلاثة تاقات على الأقل' : 'At least three tags', done: function () { return projectTagCount() >= 3; } },
       { label: isArabic ? 'التاريخ' : 'Date', done: function () { return !!dateEl.value; } }
     ];
+    if (isCourse && !isInPersonCourseEditor) {
+      CHECKS.splice(CHECKS.length - 1, 0, {
+        label: isArabic ? 'تاق واحد على الأقل' : 'At least one tag',
+        done: function () { return p.tags.length > 0; }
+      });
+      CHECKS.push({
+        label: isArabic ? 'قسم ودرس واحد على الأقل' : 'At least one section and lesson',
+        done: function () {
+          return p.syllabus.some(function (section) {
+            return !!String(section.title || '').trim() &&
+              (section.lessons || []).some(function (lesson) { return !!String(lesson.title || '').trim(); });
+          });
+        }
+      });
+    }
     function currentChecklist() {
       var checks = CHECKS.slice();
       if (!isCourse && roleEl && roleEl.value.trim()) {
@@ -1176,12 +1321,12 @@
         { key: 'titleEnglish', missing: !titleEnglishEl.value.trim(), element: titleEnglishEl },
         { key: 'cover', missing: !p.cover, element: coverHost },
         { key: 'summary', missing: !summaryEl.value.trim(), element: summaryEl },
-        { key: 'content', missing: wordCount < 50, element: contentEl },
-        { key: 'category', missing: !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
+        { key: 'content', missing: !isInPersonCourseEditor && wordCount < 50, element: contentEl },
+        { key: 'category', missing: !isInPersonCourseEditor && !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
         { key: 'price', missing: !priceEl.value.trim(), element: priceEl },
         { key: 'duration', missing: !(Number(durationEl.value) > 0), element: durationEl },
-        { key: 'tags', missing: !p.tags.length, element: tagsInput },
-        { key: 'syllabus', missing: !hasSyllabus, element: document.getElementById('edSecAdd') }
+        { key: 'tags', missing: !isInPersonCourseEditor && !p.tags.length, element: tagsInput },
+        { key: 'syllabus', missing: !isInPersonCourseEditor && !hasSyllabus, element: document.getElementById('edSecAdd') }
       ].filter(function (field) { return field.missing; });
     }
     function coursePublishMessageKey(field) {
@@ -1313,6 +1458,14 @@
       return 'editor:' + entity._editorKey;
     }
 
+    function lessonContentHTML(content) {
+      var value = String(content || '');
+      if (/<\/?[a-z][^>]*>/i.test(value)) {
+        return UI.sanitize(value);
+      }
+      return e(value).replace(/\r?\n/g, '<br>');
+    }
+
     function persistDeletionHistory() {
       try {
         if (pendingDeletionHistory.length) {
@@ -1344,8 +1497,34 @@
           return '<option value="' + o.v + '"' + (ls.type === o.v ? ' selected' : '') + '>' + e(o.l) + '</option>';
         }).join('') + '</select>';
 
-      var body = '<textarea class="textarea" rows="2" data-k="content" placeholder="' +
-        e(ls.type === 'project' ? t('projectTaskLabel') : t('lessonContentLabel')) + '">' + e(ls.content || '') + '</textarea>';
+      var body = '';
+      if (ls.type === 'video' || ls.type === 'article') {
+        var lessonToolbar = [
+          { command: 'bold', icon: 'bold', title: 'editorBold' },
+          { command: 'italic', icon: 'italic', title: 'editorItalic' },
+          { command: 'formatBlock', value: '<h2>', icon: 'heading', title: 'editorHeading' },
+          { command: 'insertUnorderedList', icon: 'list', title: 'editorBulletedList' },
+          { command: 'insertOrderedList', icon: 'list-ordered', title: 'editorNumberedList' },
+          { command: 'formatBlock', value: '<blockquote>', icon: 'quote', title: 'editorQuote' },
+          { command: 'removeFormat', icon: 'x', title: 'editorRemoveFormatting' }
+        ].map(function (item) {
+          return '<button type="button" class="tb-btn" data-syl-cmd="' + item.command +
+            '"' + (item.value ? ' data-syl-value="' + e(item.value) + '"' : '') +
+            ' title="' + e(t(item.title)) + '" aria-label="' + e(t(item.title)) + '">' +
+            UI.icon(item.icon, 16) + '</button>';
+        }).join('');
+        body = '<div class="syl-lesson-rich-editor">' +
+          '<div class="editor-toolbar syl-lesson-toolbar" role="toolbar" aria-label="' +
+          e(t('lessonContentLabel')) + '">' + lessonToolbar + '</div>' +
+          '<div class="editable syl-lesson-editable" contenteditable="true" role="textbox" ' +
+          'aria-multiline="true" spellcheck="true" data-k="content" data-ph="' +
+          e(t('lessonContentLabel')) + '">' + lessonContentHTML(ls.content) + '</div>' +
+          '</div>';
+      } else {
+        body = '<textarea class="textarea" rows="2" data-k="content" placeholder="' +
+          e(ls.type === 'project' ? t('projectTaskLabel') : t('lessonContentLabel')) + '">' +
+          e(ls.content || '') + '</textarea>';
+      }
       if (ls.type === 'video') {
         body += '<input class="input" data-k="videoUrl" value="' + e(ls.videoUrl || '') + '" placeholder="' + e(t('lessonVideoLabel')) + '" dir="ltr">';
       }
@@ -1620,6 +1799,20 @@
             '</div>' +
             '</div>';
         }).join('');
+        host.querySelectorAll('.syl-lesson-toolbar').forEach(function (toolbar) {
+          toolbar.addEventListener('pointerdown', function (event) {
+            var editable = toolbar.parentElement.querySelector('[data-k="content"]');
+            var selection = document.getSelection();
+            if (editable && selection && selection.rangeCount &&
+              editable.contains(selection.anchorNode) && editable.contains(selection.focusNode)) {
+              toolbar._lessonSelection = selection.getRangeAt(0).cloneRange();
+            }
+            if (event.pointerType === 'mouse') event.preventDefault();
+          });
+          toolbar.addEventListener('mousedown', function (event) {
+            event.preventDefault();
+          });
+        });
         renderDeletionHistory();
         updateChecklist();
       }
@@ -1686,6 +1879,7 @@
         var ls2 = lessons[+lesEl.getAttribute('data-li')];
         if (!ls2) return;
         if (k === 'free') ls2.free = !!el.checked;
+        else if (k === 'content' && el.isContentEditable) ls2[k] = UI.sanitize(el.innerHTML);
         else ls2[k] = el.value;
         if (k === 'type') {
           if (ls2.type === 'quiz' && !ls2.quiz) ls2.quiz = defaultQuiz();
@@ -1700,6 +1894,34 @@
       host.addEventListener('change', onEdit);
 
       host.addEventListener('click', function (ev) {
+        var formatButton = ev.target.closest ? ev.target.closest('[data-syl-cmd]') : null;
+        if (formatButton) {
+          ev.preventDefault();
+          var lessonEditor = formatButton.closest('.syl-lesson-rich-editor');
+          var editable = lessonEditor && lessonEditor.querySelector('[data-k="content"]');
+          var lesson = lessonFromEl(formatButton);
+          if (!editable || !lesson) return;
+          editable.focus();
+          var toolbar = formatButton.closest('.syl-lesson-toolbar');
+          var selection = document.getSelection();
+          if (toolbar && toolbar._lessonSelection && selection) {
+            selection.removeAllRanges();
+            selection.addRange(toolbar._lessonSelection);
+            toolbar._lessonSelection = null;
+          }
+          try {
+            executeEditorCommand(
+              formatButton.getAttribute('data-syl-cmd'),
+              formatButton.getAttribute('data-syl-value')
+            );
+            lesson.content = UI.sanitize(editable.innerHTML);
+            markSyllabusDirty();
+          } catch (error) {
+            console.error('تعذر تنسيق محتوى الدرس.', error);
+            UI.toast(t('editorCommandFailed'), 'error');
+          }
+          return;
+        }
         var qBtn = ev.target.closest ? ev.target.closest('[data-qact]') : null;
         if (qBtn) {
           var lesEl = qBtn.closest('.syl-lesson');
@@ -2144,7 +2366,9 @@
       if (titleEnglishEl) p.titleEnglish = titleEnglishEl.value.trim();
       p.summary = summaryEl.value.trim();
       if (isCourse && courseTypeEl) p.courseType = courseTypeEl.value;
-      p.category = categoryEl.value.trim();
+      p.category = isInPersonCourseEditor
+        ? (categoryEl.value.trim() || p.category)
+        : categoryEl.value.trim();
       p.role = roleEl ? roleEl.value.trim() : '';
       if (!isCourse && visibilityEl && visibilityField && visibilityField.style.display !== 'none') {
         p.visibility = visibilityEl.value;
@@ -2247,7 +2471,7 @@
         summary: p.summary,
         courseType: p.courseType || 'online',
         content: p.content,
-        category: p.category,
+        category: isInPersonCourseEditor ? undefined : p.category,
         price: p.price,
         currency: p.currency || 'ILS',
         duration: p.duration,
@@ -2371,6 +2595,14 @@
         if (isCourse && res.cover && p.cover === submittedCover) {
           p.cover = res.cover;
           p.image = res.cover;
+          if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
+              window.Store && typeof window.Store.find === 'function') {
+            var savedCourse = window.Store.find('certificates', previousId || p.id);
+            if (savedCourse) {
+              savedCourse.cover = res.cover;
+              savedCourse.image = res.cover;
+            }
+          }
         }
         if (submittedVersion === changeVersion) {
           dirty = isCourse && syllabusDirty && !syllabusIncluded;
@@ -2392,7 +2624,9 @@
           }
           if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
               window.Admin && typeof window.Admin.navigate === 'function') {
-            window.Admin.navigate(isCourse ? 'courses' : 'projects');
+            window.Admin.navigate(isCourse
+              ? (p.courseType === 'in_person' ? 'in-person-courses' : 'courses')
+              : 'projects');
             return;
           }
           location.href = res.url;

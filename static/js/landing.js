@@ -241,7 +241,9 @@
           : isInPerson
             ? '<div class="inperson-course-art">' + icon('users', 40) + '<span>تعلّم وجهاً لوجه</span></div>'
             : '<div class="workshop-art">' + icon('book-open', 40) + '</div>') +
-        (isInPerson ? '<span class="course-format-badge">' + icon('map-pin', 14) + ' دورة وجاهية</span>' : '') +
+        '<span class="course-format-badge' + (isInPerson ? '' : ' course-format-badge-online') + '">' +
+          icon(isInPerson ? 'map-pin' : 'laptop', 14) +
+          (isInPerson ? ' دورة وجاهية' : ' دورة أونلاين') + '</span>' +
         (course.price ? '<span class="price">' + esc(course.price) + '</span>' : '') +
         '<div class="content"><h3 class="title">' + esc(course.title) + '</h3>' +
         '<div class="info">' +
@@ -518,10 +520,13 @@
     var marquee = $('.brand-marquee');
     if (!marquee) return;
     var logos = [
-      ['swb_org.avif', 'SWB'],
-      ['msf_org.svg', 'MSF'],
-      ['eac_org.svg', 'EAC'],
-      ['interpal_org.svg', 'Interpal']
+      ['partner-batd.webp', 'الأكاديمية البريطانية للتدريب والتطوير'],
+      ['partner-arab-parliament.webp', 'البرلمان العربي لخبراء التدريب'],
+      ['partner-arab-union.webp', 'الاتحاد العربي للتدريب'],
+      ['partner-ministry-education.png', 'وزارة التربية والتعليم الفلسطينية'],
+      ['partner-ministry-labor.jpg', 'وزارة العمل الفلسطينية'],
+      ['partner-palestinian-trainers-union.webp', 'اتحاد المدربين الفلسطينيين'],
+      ['partner-trainers-association.webp', 'نقابة المدربين الفلسطينيين']
     ];
     var html = logos.map(function (l) {
       return '<img src="' + SITE.assets('images/' + l[0]) + '" alt="' + l[1] + '" loading="lazy" decoding="async">';
@@ -603,9 +608,6 @@
      نموذج التسجيل
      ---------------------------------------------------------- */
   function initNav() {
-    var headerLinks = $$('.navbar a:not([data-goto-tab]), .bottom-navbar a[href^="#"], .bottom-navbar a[href*="#"]');
-    var sections = $$('section[id]');
-    var bottomTabs = $$('.bottom-navbar a');
     var indicator = $('#bottomTabIndicator');
 
     function moveIndicator(tab) {
@@ -615,33 +617,12 @@
       indicator.style.transform = 'translateX(' + tab.offsetLeft + 'px)';
     }
 
-    function setActive(id) {
-      headerLinks.forEach(function (a) {
-        var href = a.getAttribute('href') || '';
-        a.classList.toggle('active', href.indexOf('#' + id) !== -1);
-      });
-      bottomTabs.forEach(function (a) {
-        var href = a.getAttribute('href') || '';
-        var on = href.indexOf('#' + id) !== -1;
-        a.classList.toggle('active', on);
-        if (on) moveIndicator(a);
-      });
-    }
-
-    function onScroll() {
-      var current = sections.length ? sections[0].id : '';
-      sections.forEach(function (s) {
-        if (s.getBoundingClientRect().top <= 160) current = s.id;
-      });
-      setActive(current);
-    }
-
-    window.addEventListener('scroll', onScroll, { passive: true });
+    var activeTab = $('.bottom-navbar a.active');
+    moveIndicator(activeTab);
     window.addEventListener('resize', function () {
       var active = $('.bottom-navbar a.active');
       if (active) moveIndicator(active);
     });
-    onScroll();
   }
 
   /* ----------------------------------------------------------

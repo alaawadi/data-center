@@ -22,6 +22,8 @@
   {{ is_course_student_enrolled|json_script:"course-student-enrollment-data" }}
   {{ is_course_trainer_owner|json_script:"course-trainer-owner-data" }}
   {{ is_course_admin|json_script:"course-admin-data" }}
+  {{ course_detail_json|json_script:"course-detail-data" }}
+  {% if course_registration_status_counts %}{{ course_registration_status_counts|json_script:"course-registration-status-counts" }}{% endif %}
   {{ course_rewards_json|json_script:"course-rewards-data" }}
   <main class="container detail-page" id="detailHost"></main>
 {% endblock %}

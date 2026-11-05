@@ -301,6 +301,25 @@ html[dir='ltr'] .slug-row { justify-content: flex-start; }
   overflow-x: auto;
   font-size: 13px;
 }
+.syl-lesson-rich-editor {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+}
+.syl-lesson-rich-editor:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
+}
+.syl-lesson-toolbar {
+  position: static;
+  padding: 5px 7px;
+}
+.syl-lesson-editable {
+  min-height: 120px;
+  padding: 12px 14px;
+}
+.syl-lesson-editable:focus { outline: none; }
 .editable img { border-radius: 10px; max-width: 100%; margin: 8px 0; }
 .editable a { font-weight: 700; }
 
@@ -334,6 +353,37 @@ html[dir='ltr'] .slug-row { justify-content: flex-start; }
 .side-card-box .field { margin-bottom: 11px; }
 .side-card-box .field:last-child { margin-bottom: 0; }
 .side-card-box .input, .side-card-box .select { padding: 8px 11px; font-size: 13.5px; }
+body.in-person-course-editor #edContentPanel,
+body.in-person-course-editor #edCourseTypeField,
+body.in-person-course-editor #edCategoryField,
+body.in-person-course-editor #edCourseCompletionField,
+body.in-person-course-editor #edAxesBox,
+body.in-person-course-editor .course-templates-box,
+body.in-person-course-editor .editor-checklist-box {
+  display: none !important;
+}
+body.in-person-course-editor .editor-description-label {
+  margin: 0 0 -8px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+}
+body.in-person-course-editor #edTagsBox {
+  flex-direction: column;
+  align-items: stretch;
+}
+body.in-person-course-editor #edTagsBox > .chip,
+body.in-person-course-editor #edTagsInput {
+  box-sizing: border-box;
+  width: 100%;
+}
+body.in-person-course-editor #edTagsBox > .chip {
+  justify-content: space-between;
+}
+body.in-person-course-editor #edTagsInput {
+  flex: none;
+  min-width: 0;
+}
 #edCourseMetaBox .field-row { grid-template-columns: minmax(0, 1fr); }
 .course-type-options {
   display: grid;
@@ -662,6 +712,10 @@ body[data-page='edit-project'] .editor-side #edRole:-webkit-autofill {
   .editor-checklist-box { order: 99; }
   .editor-checklist-desktop { display: none; }
   .editor-checklist-mobile { display: block; order: 0; }
+  .editor-side #edCourseMetaBox { order: 1; }
+  .editor-side .editor-tags-box { order: 2; }
+  .editor-side #edAxesBox { order: 3; }
+  .editor-side .editor-checklist-mobile { order: 4; }
 }
 
 @media (max-width: 640px) {
@@ -683,14 +737,17 @@ body[data-page='edit-project'] .editor-side #edRole:-webkit-autofill {
   margin-bottom: 12px;
   background: var(--bg);
 }
-.syl-sec-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-.syl-sec-head .input { flex: 1; font-weight: 700; }
+.syl-sec-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.syl-sec-head .input { flex: 1 1 240px; min-width: 0; font-weight: 700; }
 .syl-section-toggle { flex: none; }
 .syl-section-toggle-icon { display: flex; transition: transform .16s ease; }
 .syl-section-toggle[aria-expanded='true'] .syl-section-toggle-icon { transform: rotate(180deg); }
 .syl-section-lessons[hidden] { display: none !important; }
 .syl-lessons { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .syl-section-lessons > .btn { margin-top: 10px; }
+@media (max-width: 640px) {
+  .syl-sec-head .syl-sec-title { flex-basis: 100%; }
+}
 .syl-lesson {
   border: 1px dashed var(--line);
   border-radius: var(--r-sm);

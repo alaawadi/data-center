@@ -10,6 +10,15 @@
   var reorderTools = document.getElementById('courseReorderTools');
   var reorderMode = false;
   var orderedCourses = Store.collection('certificates').slice();
+  var inPersonCoursesData = document.getElementById('inperson-courses-data');
+  var pinnedInPersonCourses = [];
+  if (inPersonCoursesData) {
+    try {
+      pinnedInPersonCourses = JSON.parse(inPersonCoursesData.textContent) || [];
+    } catch (error) {
+      console.error('Could not read in-person courses for the all-courses page.', error);
+    }
+  }
   var originalOrder = [];
   var draggedCourseId = '';
 
@@ -118,15 +127,20 @@
     if (!host) return;
     host.classList.toggle('is-reordering', reorderMode);
     var query = normalizeSearchText(searchQuery);
-    var list = orderedCourses.filter(function (course) {
+    var matches = function (course) {
       return matchesSearch(course, query) && matchesCategory(course, selectedCategory);
-    });
-    var visibleCourses = reorderMode ? list : list.slice(0, visibleLimit);
+    };
+    var pinnedCourses = pinnedInPersonCourses.filter(matches);
+    var onlineCourses = orderedCourses.filter(matches);
+    var visibleOnlineCourses = reorderMode ? onlineCourses : onlineCourses.slice(0, visibleLimit);
+    var visibleCourses = pinnedCourses.concat(visibleOnlineCourses);
     host.innerHTML = visibleCourses.length
       ? visibleCourses.map(function (course) {
           return AppPage.certCard(course, {
             course: true,
             homeCourseCard: true,
+            pinnedInPersonCourse: course.courseType === 'in_person',
+            courseListingBadge: true,
             allowComingSoon: !!reorderTools,
             from: 'all-courses',
             returnTo: location.pathname + location.search + location.hash
@@ -139,9 +153,9 @@
         ''
       );
     if (reorderTools) addComingSoonControls(host, visibleCourses);
-    if (reorderMode) addReorderControls(host, visibleCourses);
+    if (reorderMode) addReorderControls(host, visibleOnlineCourses);
     var moreWrap = document.getElementById('coursesMoreWrap');
-    if (moreWrap) moreWrap.hidden = reorderMode || list.length <= visibleLimit;
+    if (moreWrap) moreWrap.hidden = reorderMode || onlineCourses.length <= visibleLimit;
   }
 
   function addComingSoonControls(host, courses) {
@@ -198,7 +212,7 @@
   }
 
   function addReorderControls(host, courses) {
-    host.querySelectorAll('.cert-card').forEach(function (card, index) {
+    host.querySelectorAll('.cert-card:not(.course-inperson-pinned)').forEach(function (card, index) {
       var course = courses[index];
       if (!course) return;
       card.dataset.courseId = course.id;
@@ -462,7 +476,7 @@
       if (comingSoonButton) {
         event.preventDefault();
         event.stopPropagation();
-        var course = orderedCourses.find(function (item) {
+        var course = orderedCourses.concat(pinnedInPersonCourses).find(function (item) {
           return item.id === comingSoonButton.dataset.comingSoonToggle;
         });
         if (course) toggleComingSoon(course, comingSoonButton);

@@ -1,14 +1,18 @@
 """Tests for the personal portfolio hub."""
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from courses.models import (
     Course,
     CourseSection,
     Lesson,
     CourseProgress,
+    CourseRegistrationRequest,
+    CourseRegistrationRequestStatus,
     CourseStatus,
     CourseType,
+    InPersonCourseCohort,
     StudentPointTransaction,
     StudentReferralLink,
 )
@@ -170,6 +174,42 @@ class TrainerPortfolioTests(TestCase):
         self.client.force_login(self.trainer)
         trainer_response = self.client.get(reverse('portfolio:home'))
         self.assertNotIn('active_courses_json', trainer_response.context)
+
+    def test_student_portfolio_keeps_accepted_course_when_cohort_has_ended(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية لشعبة منتهية',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+        )
+        cohort = InPersonCourseCohort.objects.create(
+            course=course,
+            number=1,
+            ended_at=timezone.now(),
+        )
+        CourseRegistrationRequest.objects.create(
+            course=course,
+            cohort=cohort,
+            student=self.student,
+            full_name=self.student.full_name,
+            phone=self.student.phone,
+            address='غزة',
+            specialty='برمجة',
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        )
+        CourseProgress.objects.create(
+            student=self.student,
+            course=course,
+            completed=True,
+        )
+        self.client.force_login(self.student)
+
+        response = self.client.get(reverse('portfolio:home'))
+
+        self.assertEqual(
+            [item['id'] for item in response.context['active_courses_json']],
+            [course.slug],
+        )
 
     def test_personal_profile_title_uses_current_user_and_data_center_brand(self):
         self.client.force_login(self.student)

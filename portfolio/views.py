@@ -8,7 +8,10 @@ from courses.models import (
     Course,
     CourseCertificate,
     CourseProgress,
+    CourseRegistrationRequest,
+    CourseRegistrationRequestStatus,
     CourseStatus,
+    CourseType,
     ManualCertificate,
     ManualCertificateStatus,
     WorkshopCertificate,
@@ -157,12 +160,30 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 ).select_related(
                     'course', 'course__owner', 'course__owner__profile'
                 )
+                active_courses = [
+                    progress.course
+                    for progress in active_progress
+                ]
+                active_course_ids = {course.pk for course in active_courses}
+                accepted_inperson_courses = Course.objects.filter(
+                    course_type=CourseType.IN_PERSON,
+                    status=CourseStatus.PUBLISHED,
+                    registration_requests__student=user,
+                    registration_requests__status=CourseRegistrationRequestStatus.ACCEPTED,
+                ).select_related(
+                    'owner', 'owner__profile'
+                ).distinct()
+                active_courses.extend(
+                    course
+                    for course in accepted_inperson_courses
+                    if course.pk not in active_course_ids
+                )
                 context['active_courses_json'] = [
-                    progress.course.to_public_dict(
+                    course.to_public_dict(
                         include_syllabus=False,
                         include_content=False,
                     )
-                    for progress in active_progress
+                    for course in active_courses
                 ]
             # الدورات المنشورة تُدمج مع الشهادات المكتسبة في لائحة الشهادات
             context['courses_json'] = published_courses_payload()

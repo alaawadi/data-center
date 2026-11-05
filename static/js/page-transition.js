@@ -5,8 +5,8 @@
   var transitionClass = 'is-page-transitioning';
   var settlingClass = 'is-page-transition-settling';
   var pendingAttribute = 'data-page-transition-pending';
-  var fadeDuration = 100;
-  var minimumVisibleDuration = 500;
+  var fadeDuration = 180;
+  var minimumVisibleDuration = 120;
   var finishTimer = null;
   var minimumVisibleElapsed = false;
   var pageLoaded = document.readyState === 'complete';

@@ -17,7 +17,7 @@ from django.core.files.images import get_image_dimensions
 from django.core.files.storage import default_storage
 from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import F, Max, Sum
+from django.db.models import Count, F, Max, Q, Sum
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -60,7 +60,11 @@ from .models import (
     close_active_inperson_cohort,
     start_next_inperson_cohort,
 )
-from .subscriptions import active_course_progress, add_calendar_months, subscription_is_active
+from .subscriptions import (
+    active_course_progress,
+    add_calendar_months,
+    course_progress_is_active,
+)
 
 _PREFETCH = ('sections__lessons',)
 
@@ -186,11 +190,22 @@ def _course_is_paid(course):
 
 
 def _has_course_access(course, user):
-    if not _course_is_paid(course):
-        return True
     if user.is_authenticated and (
         course.owner_id == user.pk or user.is_admin_role or user.is_staff
     ):
+        return True
+    if course.course_type == CourseType.IN_PERSON:
+        return user.is_authenticated and user.is_student and (
+            active_course_progress(
+                CourseProgress.objects.filter(student=user, course=course)
+            ).exists()
+            or CourseRegistrationRequest.objects.filter(
+                course=course,
+                student=user,
+                status=CourseRegistrationRequestStatus.ACCEPTED,
+            ).exists()
+        )
+    if not _course_is_paid(course):
         return True
     return user.is_authenticated and active_course_progress(
         CourseProgress.objects.filter(student=user, course=course)
@@ -231,6 +246,7 @@ class CourseListView(TemplateView):
             course.to_public_dict(include_syllabus=False, include_content=False)
             for course in queryset
         ]
+        context['inperson_courses_json'] = published_inperson_courses_payload()
         context['online_courses_count'] = len(context['courses_json'])
         context['online_courses_badge'] = f"{context['online_courses_count']}+ دورة أونلاين"
         user = self.request.user
@@ -260,11 +276,15 @@ def course_reorder(request):
         return JsonResponse({'ok': False, 'error': 'duplicate_courses'}, status=400)
 
     with transaction.atomic():
+        inactive_categories = TrainingCategory.objects.filter(
+            is_active=False
+        ).values_list('name', flat=True)
         courses = list(
             Course.objects.select_for_update().filter(
                 status=CourseStatus.PUBLISHED,
                 course_type=CourseType.ONLINE,
-            )
+                profile_only=False,
+            ).exclude(category__in=inactive_categories)
         )
         courses_by_slug = {course.slug: course for course in courses}
         if set(order) != set(courses_by_slug):
@@ -515,11 +535,12 @@ class CourseDetailView(TemplateView):
             and (self.request.user.is_staff or self.request.user.is_admin_role)
         )
         course_data['adminCanManageCourse'] = is_admin
+        context['course_detail_json'] = course_data
         context['courses_json'] = [course_data] + [
             related_course.to_public_dict(include_syllabus=False, include_content=False)
             for related_course in related
         ]
-        context['is_course_enrolled'] = (
+        has_course_progress = (
             self.request.user.is_authenticated
             and active_course_progress(
                 CourseProgress.objects.filter(
@@ -528,10 +549,23 @@ class CourseDetailView(TemplateView):
                 )
             ).exists()
         )
+        has_accepted_inperson_registration = (
+            course.course_type == CourseType.IN_PERSON
+            and self.request.user.is_authenticated
+            and self.request.user.is_student
+            and CourseRegistrationRequest.objects.filter(
+                course=course,
+                student=self.request.user,
+                status=CourseRegistrationRequestStatus.ACCEPTED,
+            ).exists()
+        )
+        context['is_course_enrolled'] = bool(
+            has_course_progress or has_accepted_inperson_registration
+        )
         context['is_course_student_enrolled'] = (
             self.request.user.is_authenticated
             and self.request.user.is_student
-            and context['is_course_enrolled']
+            and (has_course_progress or has_accepted_inperson_registration)
         )
         context['is_course_trainer_owner'] = bool(
             self.request.user.is_authenticated
@@ -539,6 +573,22 @@ class CourseDetailView(TemplateView):
             and course.owner_id == self.request.user.pk
         )
         context['is_course_admin'] = is_admin
+        if is_admin and course.course_type == CourseType.IN_PERSON:
+            registration_counts = CourseRegistrationRequest.objects.filter(
+                course=course,
+                cohort__isnull=False,
+                cohort__ended_at__isnull=True,
+            ).aggregate(
+                new=Count(
+                    'pk',
+                    filter=Q(status=CourseRegistrationRequestStatus.NEW),
+                ),
+                accepted=Count(
+                    'pk',
+                    filter=Q(status=CourseRegistrationRequestStatus.ACCEPTED),
+                ),
+            )
+            context['course_registration_status_counts'] = registration_counts
         points = 0
         referral_share_url = ''
         if self.request.user.is_authenticated:
@@ -600,7 +650,7 @@ def redeem_course_points(request, pk):
             student=request.user,
             course=course,
         ).first()
-        if existing_progress and subscription_is_active(existing_progress.expires_at):
+        if existing_progress and course_progress_is_active(existing_progress):
             return JsonResponse({'ok': False, 'error': 'أنت مسجل في هذه الدورة بالفعل.'}, status=409)
         points = (
             StudentPointTransaction.objects.filter(student=request.user)
@@ -756,14 +806,16 @@ class PlaylistView(TemplateView):
 
 
 def course_editor_context(request, key=None):
+    is_admin = request.user.is_staff or request.user.is_admin_role
+    training_categories = TrainingCategory.objects.all()
+    if not is_admin:
+        training_categories = training_categories.filter(is_active=True)
     context = {
         'training_categories_json': list(
-            TrainingCategory.objects.filter(is_active=True)
-            .order_by('display_order', 'name')
+            training_categories.order_by('display_order', 'name')
             .values_list('name', flat=True)
         ),
     }
-    is_admin = request.user.is_staff or request.user.is_admin_role
     course = None
     if key:
         queryset = Course.objects.all() if is_admin else Course.objects.filter(owner=request.user)
@@ -1418,6 +1470,15 @@ def course_save(request):
                 seen_skills.add(name.lower())
                 skills.append(name)
 
+    if is_admin:
+        raw_course_type = payload.get(
+            'courseType', course.course_type if course is not None else CourseType.ONLINE
+        )
+        if raw_course_type not in CourseType.values:
+            return JsonResponse({'ok': False, 'error': 'invalid_course_type'}, status=400)
+    else:
+        raw_course_type = course.course_type if course is not None else CourseType.ONLINE
+
     cover = payload.get('cover')
     decoded_cover = (
         _decode_data_url(cover)
@@ -1444,7 +1505,7 @@ def course_save(request):
             missing.append('cover')
         if not summary:
             missing.append('summary')
-        if len(strip_tags(content).split()) < 50:
+        if raw_course_type != CourseType.IN_PERSON and len(strip_tags(content).split()) < 50:
             missing.append('content')
         if not category_is_valid:
             missing.append('category')
@@ -1452,15 +1513,16 @@ def course_save(request):
             missing.append('price')
         if not duration_match or not re.search(r'[1-9]', duration_match.group()):
             missing.append('duration')
-        if not skills:
+        if raw_course_type != CourseType.IN_PERSON and not skills:
             missing.append('tags')
-        has_syllabus = (
-            _has_publishable_course_syllabus(payload['syllabus'])
-            if 'syllabus' in payload
-            else _course_has_publishable_syllabus(course)
-        )
-        if not has_syllabus:
-            missing.append('syllabus')
+        if raw_course_type != CourseType.IN_PERSON:
+            has_syllabus = (
+                _has_publishable_course_syllabus(payload['syllabus'])
+                if 'syllabus' in payload
+                else _course_has_publishable_syllabus(course)
+            )
+            if not has_syllabus:
+                missing.append('syllabus')
         if missing:
             return JsonResponse(
                 {'ok': False, 'error': 'course_incomplete', 'missing': missing},
@@ -1509,20 +1571,6 @@ def course_save(request):
         'verify_url': str(payload.get('verifyUrl') or payload.get('verify_url') or '').strip()[:200],
         'status': status,
     }
-    if is_admin:
-        raw_course_type = payload.get(
-            'courseType', course.course_type if course is not None else CourseType.ONLINE
-        )
-        if raw_course_type not in CourseType.values:
-            return JsonResponse({'ok': False, 'error': 'invalid_course_type'}, status=400)
-    elif request.user.is_trainer:
-        raw_course_type = (
-            course.course_type
-            if course is not None
-            else CourseType.ONLINE
-        )
-    else:
-        raw_course_type = course.course_type if course is not None else CourseType.ONLINE
     course_fields['course_type'] = raw_course_type
     if course.owner.is_trainer and not course.owner.can_publish_content:
         course_fields['profile_only'] = True

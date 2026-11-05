@@ -88,7 +88,11 @@
 }
 
 .header .navbar a:hover { color: var(--main); }
-.header .navbar a.active { color: var(--main); background: var(--main-soft); }
+.header .navbar a.active,
+.bottom-navbar a.active {
+  color: var(--main);
+  background: var(--main-soft);
+}
 .header .navbar a:active { transform: scale(.94); }
 
 .header .icons { display: flex; align-items: center; }
@@ -212,7 +216,6 @@
   transition: color .2s ease, background .2s ease;
 }
 
-.bottom-navbar a.active { color: var(--main); }
 .bottom-navbar a:active { background: var(--main-soft); }
 
 .bottom-navbar .tab-fab {

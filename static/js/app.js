@@ -27,6 +27,9 @@
 
   function t(k, v) { return I18n.t(k, v); }
   function e(s) { return UI.esc(s); }
+  function courseLessonCount(period) {
+    return String(period || '—').replace(/لقاءات?/g, 'درس');
+  }
 
   function getCountryCallingCodeChoices() {
     var data = document.getElementById('country-calling-code-choices');
@@ -178,6 +181,7 @@
 
   function earnedCertificateSheet(c, studentName, compact) {
     var lang = arguments.length > 3 ? arguments[3] : 'ar';
+    var hideCode = arguments.length > 4 && arguments[4];
     var english = lang === 'en';
     var instructor = english
       ? (c.trainerNameEnglish || c.instructorEnglish || 'English instructor name not provided')
@@ -253,7 +257,7 @@
       '<circle cx="42" cy="38" r="32" fill="#2f4b8f"/><circle cx="42" cy="38" r="26" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="2 3"/>' +
       '<path d="m42 22 4.6 9.6 10.4 1.4-7.6 7.3 1.9 10.4L42 45.6l-9.3 5.1 1.9-10.4-7.6-7.3 10.4-1.4Z" fill="#fff"/></svg>' +
       '<div class="cert-sheet-issued">' + e(labels.issued) + ' · ' + e(issued) + '</div>' +
-      (code ? '<div class="cert-sheet-code" dir="ltr">' + e(labels.code) + ': ' + e(code) + '</div>' : '') +
+      (code && !hideCode ? '<div class="cert-sheet-code" dir="ltr">' + e(labels.code) + ': ' + e(code) + '</div>' : '') +
       '</article>';
   }
 
@@ -318,6 +322,7 @@
       '</div>';
     if (isCourse && opts.homeCourseCard) {
       return '<article class="cert-card course-home-card' + (opts.activeCourse ? ' profile-active-course-card' : '') +
+        (opts.pinnedInPersonCourse ? ' course-inperson-pinned' : '') +
         (isComingSoon ? ' is-coming-soon' : '') + '"' +
         cardNavigation + ' data-search="' + e((c.title + ' ' + c.category + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
         courseActions +
@@ -325,6 +330,12 @@
         (c.image
           ? '<img class="course-home-image" src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">'
           : '<div class="course-home-image-placeholder">' + UI.icon('book-open', 40) + '</div>') +
+        (opts.courseListingBadge
+          ? '<span class="course-format-badge' +
+            (c.courseType === 'in_person' ? '' : ' course-format-badge-online') + '">' +
+            UI.icon(c.courseType === 'in_person' ? 'map-pin' : 'laptop', 14) +
+            (c.courseType === 'in_person' ? ' دورة وجاهية' : ' دورة أونلاين') + '</span>'
+          : '') +
         (opts.activeCourse
           ? '<span class="profile-active-course-badge">' + UI.icon('play', 12) + e(t('plContinue')) + '</span>'
           : '') +
@@ -863,18 +874,10 @@
         return Number(b.courseType === 'in_person') - Number(a.courseType === 'in_person');
       });
       document.getElementById('panel-trainer-courses').innerHTML = myCourses.length
-        ? '<div class="card-grid profile-course-grid' +
-          (myCourses.some(function (course) {
-            return course.courseType === 'in_person' && course.status === 'published';
-          }) ? ' profile-inperson-course-grid' : '') + '">' + myCourses.map(function (c) {
-            if (c.courseType === 'in_person' && c.status === 'published') {
-              return inPersonCourseCard(c, {
-                trainerCourse: true,
-                returnTo: location.pathname + location.search + location.hash
-              });
-            }
+        ? '<div class="card-grid profile-course-grid trainer-profile-course-grid">' + myCourses.map(function (c) {
             return certCard(c, {
               course: true,
+              homeCourseCard: true,
               trainerCourse: true,
               returnTo: location.pathname + location.search + location.hash
             });
@@ -1017,8 +1020,10 @@
         '<option value="personal"' + (trainerProjectVisibility === 'personal' ? ' selected' : '') + '>' + e(t('projectVisibilityPersonal')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'personal'; }).length + ')</option>' +
         '</select></div>'
       : '';
+    var projectGridClass = 'card-grid profile-project-grid' +
+      (IS_TRAINER ? ' trainer-profile-project-grid' : '');
     var projectContent = projs.length
-      ? '<div class="card-grid profile-project-grid">' + projs.map(function (p) { return projCard(p); }).join('') + '</div>'
+      ? '<div class="' + projectGridClass + '">' + projs.map(function (p) { return projCard(p); }).join('') + '</div>'
       : UI.emptyState('folder', searchQuery ? t('emptySearch') : t('projEmpty'), searchQuery ? '' : t('projEmptySub'),
         searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('projectCreate') + '">' + UI.icon('plus', 16) + e(t('addProject')) + '</a>');
     document.getElementById('panel-projects').innerHTML = filterControl + projectContent;
@@ -2950,7 +2955,6 @@
     var verificationUrl = c.workshop ? '' : safeExternalUrl(c.verifyUrl);
     var skills = c.skills || [];
     var heroImg = c.courseImage || c.image || '';
-    var code = c.certificateCode || c.code || c.credentialId || '';
     var issued = certificateDate(c.date, certificateLanguage);
     var studentName = certificateLanguage === 'en'
       ? (c.studentNameEnglish || (SERVER_PROFILE && SERVER_PROFILE.fullNameEnglish) || 'English full name not provided')
@@ -2960,6 +2964,8 @@
       ? SITE.u('portfolio')
       : SITE.u('course', e(c.courseId || c.id));
     var workshopDetails = c.workshopDetails || {};
+    var trainerAvatar = (c.owner && c.owner.avatar) || c.trainerAvatar || '';
+    var trainerLabel = isEnglish ? 'Trainer:' : (c.workshop ? 'مدرب الورشة:' : 'المدرب:');
     var languageTabs =
       '<div class="cert-language-tabs" role="group" aria-label="Certificate language">' +
       '<button type="button" class="btn btn-sm ' + (certificateLanguage === 'ar' ? 'btn-primary' : 'btn-ghost') + '" data-act="certificate-language" data-language="ar" aria-pressed="' + (certificateLanguage === 'ar') + '">العربية</button>' +
@@ -2973,8 +2979,8 @@
       '<span class="cert-hero-seal">' + UI.verifiedBadge(15) + e(t('certPageStatusValid')) + '</span>' +
       '<h1 class="cd-title">' + e(certificateTitle) + '</h1>' +
       '<div class="cd-author">' +
-      '<img class="cd-author-av" src="' + UI.userLetterAvatar(instName, 64) + '" alt="">' +
-      '<span>' + e(isEnglish ? 'By' : t('ucBy')) + ' <b>' + e(instName) + '</b></span>' +
+      '<img class="cd-author-av" src="' + e(trainerAvatar || UI.userLetterAvatar(instName, 64)) + '" alt="">' +
+      '<span>' + e(trainerLabel) + ' <b>' + e(instName) + '</b></span>' +
       '</div>' +
       '<div class="cd-pills">' +
       '<span class="cd-pill">' + UI.icon('calendar', 14) + e(issued) + '</span>' +
@@ -2988,13 +2994,7 @@
       '<div class="cd-main">' +
       '<section class="cd-card">' +
       languageTabs +
-      earnedCertificateSheet(c, studentName, false, certificateLanguage) +
-      (code ? '<div class="cert-code-row"><span class="lbl">' + e(t('certPageCode')) + '</span>' +
-        '<span class="cert-code" dir="ltr">' + e(code) + '</span></div>' : '') +
-      (!c.workshop && c.credentialId
-        ? '<div class="cert-code-row"><span class="lbl">' + e(t('certId')) + '</span>' +
-          '<span class="cert-code" dir="ltr">' + e(c.credentialId) + '</span></div>'
-        : '') +
+      earnedCertificateSheet(c, studentName, false, certificateLanguage, true) +
       (verificationUrl
         ? '<a class="btn btn-ghost" style="margin-top:12px" href="' + e(verificationUrl) +
           '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) +
@@ -3043,7 +3043,6 @@
       '<ul class="cd-includes">' +
       '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
       '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('certPageIssued')) + ': <b>' + e(issued) + '</b></span></li>' +
-      (code ? '<li>' + UI.icon('hash', 15) + '<span class="cd-cred" dir="ltr">' + e(code) + '</span></li>' : '') +
       '</ul>' +
       '</div></div>' +
       '</aside>' +
@@ -3167,22 +3166,30 @@
     }
     var from = '';
     try { from = new URLSearchParams(location.search).get('from') || ''; } catch (err) { }
-    var c = Store.find('certificates', id);
-    if (!c) {
-      var coursesDataEl = document.getElementById('courses-data');
-      if (coursesDataEl) {
-        try {
-          var pageCourses = JSON.parse(coursesDataEl.textContent);
-          if (Array.isArray(pageCourses)) {
-            c = pageCourses.filter(function (item) {
-              return item.id === id || item.slug === id || String(item.pk) === String(id);
-            })[0] || null;
-          }
-        } catch (err) {
-          c = null;
-        }
+    var c = null;
+    var courseDetailDataEl = document.getElementById('course-detail-data');
+    if (courseDetailDataEl) {
+      try {
+        c = JSON.parse(courseDetailDataEl.textContent);
+      } catch (error) {
+        console.error('Could not read the course detail data.', error);
       }
     }
+    var coursesDataEl = document.getElementById('courses-data');
+    if (!c && coursesDataEl) {
+      try {
+        var pageCourses = JSON.parse(coursesDataEl.textContent);
+        if (Array.isArray(pageCourses)) {
+          c = pageCourses.filter(function (item) {
+            return item.id === id || item.slug === id || String(item.pk) === String(id);
+          })[0] || null;
+          if (!c && page === 'course') c = pageCourses[0] || null;
+        }
+      } catch (error) {
+        console.error('Could not read the course list data.', error);
+      }
+    }
+    if (!c) c = Store.find('certificates', id);
     if (!c) { renderNotFound(host); return; }
     if (adminCourseManager) c.adminCanManageCourse = true;
     var isComingSoon = !!c.comingSoon;
@@ -3203,10 +3210,23 @@
     var courseSummary = String(c.summary || c.description || '').replace(/\s+/g, ' ').trim();
     var courseContent = UI.sanitize(c.content || '');
     var verificationUrl = safeExternalUrl(c.verifyUrl);
+    var hasCourseDescription = c.courseType !== 'in_person' && !!(courseSummary || courseContent);
+    var courseDescriptionHTML = hasCourseDescription
+      ? '<section class="cd-card">' +
+        '<h2 class="cd-h2">' + UI.icon('file-text', 18) + e(t('ucDesc')) + '</h2>' +
+        (courseContent
+          ? '<div class="prose cd-course-description">' + courseContent + '</div>'
+          : '<p class="cd-course-summary">' + e(courseSummary) + '</p>') +
+        (verificationUrl ? '<a class="btn btn-ghost" style="margin-top:12px" href="' + e(verificationUrl) + '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) + e(t('certVerify')) + '</a>' : '') +
+        '</section>'
+      : '';
     var sub = courseSummary;
     if (sub.length > 130) sub = sub.slice(0, 127).trim() + '…';
     var skills = c.skills || [];
     var instName = c.instructor || c.issuer;
+    var courseAuthorLabel = c.courseType === 'in_person'
+      ? t('ucCourseTrainer')
+      : t('ucBy');
     var instructor = c.owner || {};
     var instructorProfileUrl = instructor.handle || c.handle
       ? SITE.u('profile', instructor.handle || c.handle)
@@ -3266,16 +3286,38 @@
         e(rewardsData.shareUrl || SITE.u('course', e(c.id))) + '">' +
         UI.icon('share-2', 16) + e(t('shareCta')) + '</button>';
     }
-     var learnSection = '<section class="cd-card">' +
-       '<h2 class="cd-h2">' + UI.icon('check-circle', 18) + e(t('ucLearn')) + '</h2>' +
-       '<div class="cd-learn">' + (skills.length
-         ? skills.map(function (s) {
+    var courseEditButtonHTML = canManageCourse(c)
+      ? '<button class="cd-btn cd-btn-edit" type="button" data-act="goto" data-url="' +
+        SITE.u(adminCourseManager ? 'adminCourseEditorEdit' : 'courseEdit', e(c.id)) +
+        '">' + UI.icon('pencil', 15) + e(t('edit')) + '</button>'
+      : '';
+    var registrationCounts = { new: 0, accepted: 0 };
+    var registrationCountsElement = document.getElementById('course-registration-status-counts');
+    if (registrationCountsElement) {
+      try {
+        registrationCounts = JSON.parse(registrationCountsElement.textContent) || registrationCounts;
+      } catch (error) {
+        console.error('Could not read course registration status counts.', error);
+      }
+    }
+     var learnSection = skills.length
+       ? '<section class="cd-card">' +
+         '<h2 class="cd-h2">' + UI.icon('check-circle', 18) + e(t('ucLearn')) + '</h2>' +
+         '<div class="cd-learn">' + skills.map(function (s) {
            return '<div class="cd-learn-item">' + UI.icon('check', 16) + '<span>' + e(s) + '</span></div>';
-         }).join('')
-         : '<p>سيتم إضافة تفاصيل المهارات قريباً.</p>') + '</div>' +
-       '</section>';
+         }).join('') + '</div>' +
+         '</section>'
+       : '';
+     var adminRegistrationRequestsLink = adminCourseManager
+       ? '<a class="cd-btn cd-btn-edit" href="' + e(
+         SITE.u('panel') + '?course=' + encodeURIComponent(c.id) + '#/course-registration-requests'
+       ) + '">' + UI.icon('clipboard', 15) +
+         'طلبات التسجيل — جديد: ' + e(registrationCounts.new || 0) +
+         '، مقبول: ' + e(registrationCounts.accepted || 0) + '</a>'
+       : '';
      var inPersonRegistrationForm = '<section class="cd-card cd-registration-card">' +
        '<h2 class="cd-h2">' + UI.icon('user', 18) + 'طلب التسجيل في الدورة</h2>' +
+       adminRegistrationRequestsLink +
        '<p class="cd-registration-intro">عبّئ البيانات التالية لإرسال طلب تسجيلك.</p>' +
        '<form class="cd-registration-form" id="inPersonRegistrationForm">' +
        '<div class="cd-registration-fields">' +
@@ -3325,13 +3367,13 @@
       (instructorProfileUrl
         ? '<a class="cd-author-profile" href="' + e(instructorProfileUrl) + '">' +
           '<img class="cd-author-av" src="' + e(instructor.avatar || UI.userLetterAvatar(instName, 64)) + '" alt="">' +
-          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b> ' + UI.verifiedBadge(16) + '</span></a>'
+          '<span>' + e(courseAuthorLabel) + ' <b>' + e(instName) + '</b> ' + UI.verifiedBadge(16) + '</span></a>'
         : '<img class="cd-author-av" src="' + e(UI.userLetterAvatar(instName, 64)) + '" alt="">' +
-          '<span>' + e(t('ucBy')) + ' <b>' + e(instName) + '</b> ' + UI.verifiedBadge(16) + '</span>') +
+          '<span>' + e(courseAuthorLabel) + ' <b>' + e(instName) + '</b> ' + UI.verifiedBadge(16) + '</span>') +
       '</div>' +
       '<div class="cd-pills">' +
       '<span class="cd-pill">' + UI.icon('clock', 14) + e(c.duration || '—') + '</span>' +
-      '<span class="cd-pill">' + UI.icon('calendar', 14) + e(c.period || '—') + '</span>' +
+      '<span class="cd-pill">' + UI.icon('calendar', 14) + e(courseLessonCount(c.period)) + '</span>' +
       '<span class="cd-pill">' + UI.icon('award', 14) + e(t('ucCert')) + '</span>' +
       '</div>' +
       '</div></div>' +
@@ -3343,23 +3385,20 @@
         : '') +
 
       (c.courseType === 'in_person'
-        ? '<div class="cd-inperson-learn">' + learnSection +
-          (shareButtonHTML
-            ? '<section class="cd-card cd-inperson-share">' + shareButtonHTML + '</section>'
+        ? '<div class="cd-inperson-learn">' + courseDescriptionHTML +
+          learnSection +
+          (shareButtonHTML || courseEditButtonHTML
+            ? '<section class="cd-card cd-inperson-share">' + shareButtonHTML + courseEditButtonHTML + '</section>'
             : '') +
-          inPersonRegistrationForm + '</div>'
+          (studentEnrolled
+            ? '<section class="cd-card cd-registration-card"><a class="cd-btn cd-btn-buy" href="' +
+              SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' +
+              UI.icon('play', 16) + e(t('plContinue')) + '</a></section>'
+            : inPersonRegistrationForm) + '</div>'
         : '<div class="cd-grid">' +
       '<div class="cd-main">' +
-      (skills.length ?
-      learnSection : '') +
-      (courseSummary || courseContent ?
-      '<section class="cd-card">' +
-      '<h2 class="cd-h2">' + UI.icon('file-text', 18) + e(t('ucDesc')) + '</h2>' +
-      (courseContent
-        ? '<div class="prose cd-course-description">' + courseContent + '</div>'
-        : (courseSummary ? '<p class="cd-course-summary">' + e(courseSummary) + '</p>' : '')) +
-      (verificationUrl ? '<a class="btn btn-ghost" style="margin-top:12px" href="' + e(verificationUrl) + '" target="_blank" rel="noopener">' + UI.icon('external-link', 15) + e(t('certVerify')) + '</a>' : '') +
-      '</section>' : '') +
+      learnSection +
+      courseDescriptionHTML +
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('user', 18) + e(t('ucInstructor')) + '</h2>' +
       (instructorProfileUrl
@@ -3404,12 +3443,10 @@
             ? '<a class="cd-btn cd-btn-buy" href="' + SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' + UI.icon('play', 16) + e(t('plStart')) + '</a>'
           : '<button class="cd-btn cd-btn-wa" type="button" data-act="enroll-course" data-title="' + e(c.title) + '">' + UI.icon('whatsapp', 17) + e(t('ucEnroll')) + '</button>') +
       shareButtonHTML +
-      (canManageCourse(c)
-        ? '<button class="cd-btn cd-btn-edit" type="button" data-act="goto" data-url="' + SITE.u('courseEdit', e(c.id)) + '">' + UI.icon('pencil', 15) + e(t('edit')) + '</button>'
-        : '') +
+      courseEditButtonHTML +
       '<ul class="cd-includes">' +
       '<li>' + UI.icon('clock', 15) + '<span>' + e(t('ucDuration')) + ': <b>' + e(c.duration || '—') + '</b></span></li>' +
-      '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('ucSessions')) + ': <b>' + e(c.period || '—') + '</b></span></li>' +
+      '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('ucSessions')) + ': <b>' + e(courseLessonCount(c.period)) + '</b></span></li>' +
       '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
       (c.credentialId
         ? '<li>' + UI.icon('hash', 15) + '<span>' + e(t('certId')) + ': <b class="cd-cred" dir="ltr">' + e(c.credentialId) + '</b></span></li>'
@@ -3420,7 +3457,7 @@
       '</aside>' +
       '</div>');
 
-    if (c.courseType === 'in_person') {
+    if (c.courseType === 'in_person' && !studentEnrolled) {
       var registrationForm = document.getElementById('inPersonRegistrationForm');
       var registrationError = document.getElementById('inPersonRegistrationError');
       var registrationSubmit = registrationForm.querySelector('[type="submit"]');

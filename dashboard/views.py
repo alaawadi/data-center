@@ -43,7 +43,7 @@ from courses.referrals import (
 from courses.subscriptions import (
     active_course_progress,
     add_calendar_months,
-    subscription_is_active,
+    course_progress_is_active,
 )
 from courses.models import (
     Course,
@@ -1963,7 +1963,9 @@ def admin_display_order(request):
 
     kind = payload.get('kind')
     order = payload.get('order')
-    if kind not in ('courses', 'projects', 'trainers', 'students'):
+    if kind not in (
+        'courses', 'inperson-courses', 'projects', 'trainers', 'students'
+    ):
         return _admin_api_error('نوع الترتيب غير صالح.', 400)
     if not isinstance(order, list) or any(
         not isinstance(item, str) or not item for item in order
@@ -1973,8 +1975,16 @@ def admin_display_order(request):
         return _admin_api_error('لا يمكن تكرار العناصر في الترتيب.', 400)
 
     with transaction.atomic():
-        if kind == 'courses':
-            objects = list(Course.objects.select_for_update().order_by('pk'))
+        if kind in ('courses', 'inperson-courses'):
+            course_type = (
+                CourseType.IN_PERSON if kind == 'inperson-courses'
+                else CourseType.ONLINE
+            )
+            objects = list(
+                Course.objects.select_for_update()
+                .filter(course_type=course_type)
+                .order_by('pk')
+            )
             id_for = lambda item: str(item.pk)
         elif kind == 'projects':
             objects = list(Project.objects.select_for_update().order_by('pk'))
@@ -2017,8 +2027,8 @@ def admin_display_order(request):
         ordered = [by_id[item_id] for item_id in order]
         for position, item in enumerate(ordered):
             item.display_order = position
-        if kind in ('courses', 'projects'):
-            model = Course if kind == 'courses' else Project
+        if kind in ('courses', 'inperson-courses', 'projects'):
+            model = Project if kind == 'projects' else Course
             model.objects.bulk_update(ordered, ['display_order'])
         else:
             Profile.objects.bulk_update(ordered, ['display_order'])
@@ -3568,7 +3578,8 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 enrollment_count=Count(
                     'progress',
                     filter=Q(
-                        Q(progress__expires_at__isnull=True)
+                        Q(course_type=CourseType.IN_PERSON)
+                        | Q(progress__expires_at__isnull=True)
                         | Q(progress__expires_at__gt=timezone.now())
                     ),
                     distinct=True,
@@ -3745,7 +3756,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
         context['course_progress_json'] = [
             _admin_course_progress_payload(progress)
             for progress in course_progress
-            if subscription_is_active(progress.expires_at)
+            if course_progress_is_active(progress)
         ]
         online_course_invoices = (
             OnlineCourseInvoice.objects.filter(

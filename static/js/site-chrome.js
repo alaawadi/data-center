@@ -44,11 +44,27 @@
     'admin': 'admin'
   };
 
+  var PATH_TAB = {
+    portfolio: 'home',
+    courses: 'courses',
+    posts: 'courses',
+    certificates: 'courses',
+    projects: 'projects',
+    freelancers: 'users',
+    panel: 'admin'
+  };
+
   function currentTabKey() {
     var page = document.body.getAttribute('data-page');
     if (page === 'home' || page === 'landing') return 'home';
-    var f = (location.pathname.split('/').pop() || '').toLowerCase().replace(/\.html?$/, '');
-    return TAB_OF[f] || '';
+    if (TAB_OF[page]) return TAB_OF[page];
+
+    var segments = location.pathname.toLowerCase().split('/').filter(Boolean);
+    var pathTab = PATH_TAB[segments[0]];
+    if (pathTab) return pathTab;
+
+    var lastSegment = (segments[segments.length - 1] || '').replace(/\.html?$/, '');
+    return TAB_OF[lastSegment] || (segments.length ? '' : 'home');
   }
 
   function esc(s) {

@@ -24,6 +24,13 @@
 
   function e(s) { return UI.esc(s == null ? '' : s); }
   function t(k, v) { return I18n.t(k, v); }
+  function lessonContentHTML(content) {
+    var value = String(content || '');
+    if (/<\/?[a-z][^>]*>/i.test(value)) {
+      return UI.sanitize(value);
+    }
+    return e(value).replace(/\r?\n/g, '<br>');
+  }
 
   /* استخراج معرّف فيديو يوتيوب من أي صيغة رابط — دالة مشتركة مع صفحة تفاصيل الدورة */
   function youtubeId(url) {
@@ -49,7 +56,10 @@
   function certBtnHTML() {
     if (trainerMode || !completeFlag) return '';
     return '<a class="pl-cert-btn" href="' + certUrl() + '">' +
-      UI.icon('award', 16) + ' ' + e(t('plCertBtn')) + '</a>';
+      '<span class="pl-cert-btn-icon" aria-hidden="true">' + UI.icon('award', 19) + '</span>' +
+      '<span class="pl-cert-btn-label">' + e(t('plCertBtn')) + '</span>' +
+      '<span class="pl-cert-btn-arrow" aria-hidden="true">' + UI.icon('arrow-left', 16) + '</span>' +
+      '</a>';
   }
 
   /* يضيف/يزيل زر الشهادة في صندوق التقدّم حسب حالة إتمام الدورة */
@@ -470,10 +480,10 @@
       ? '<div class="pl-quiz-host" id="plQuiz">' + quizSectionHTML(ls) + '</div>'
       : (isProject && ls.project
         ? projectCardHTML(ls.project, f.key)
-        : (ls.content ? '<div class="pl-lesson-text prose">' + e(ls.content) + '</div>' : '<p class="pl-lesson-text">—</p>'));
+        : (ls.content ? '<div class="pl-lesson-text prose">' + lessonContentHTML(ls.content) + '</div>' : '<p class="pl-lesson-text">—</p>'));
 
     if (isProject && ls.project && ls.content && !isLinkedProject) {
-      contentBlock = '<div class="pl-lesson-text prose">' + e(ls.content) + '</div>' + contentBlock;
+      contentBlock = '<div class="pl-lesson-text prose">' + lessonContentHTML(ls.content) + '</div>' + contentBlock;
     }
 
     /* درس مشروع مرتبط بمشروع المدرب: يُعرض اسم الدرس ووصفه مع المشروع بلا فيديو */
@@ -481,7 +491,7 @@
       return '' +
         '<div class="pl-player-body">' +
         '<h2 class="pl-lesson-title">' + e(ls.title) + '</h2>' +
-        (ls.content ? '<div class="pl-lesson-text prose">' + e(ls.content) + '</div>' : '') +
+        (ls.content ? '<div class="pl-lesson-text prose">' + lessonContentHTML(ls.content) + '</div>' : '') +
         contentBlock +
         '<div class="pl-actions">' +
         (done

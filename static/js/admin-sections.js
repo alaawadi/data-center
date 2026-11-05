@@ -1930,8 +1930,8 @@
         key: sectionKey,
         id: function (c) { return c.pk || c.id; },
         rows: displayOrdered(courses),
-        reorderKind: inPersonOnly ? null : 'courses',
-        draggableRows: !inPersonOnly,
+        reorderKind: inPersonOnly ? 'inperson-courses' : 'courses',
+        draggableRows: true,
         pageSize: courses.length || 10,
         search: function (c) { return [c.title, c.issuer, c.category, trainerLabel(c.trainerId)].join(' '); },
         filters: [
@@ -2032,9 +2032,10 @@
                   e(c.pk || c.id) + '" aria-label="' + e(t('courseCohorts') + ' — ' + c.title) + '">' +
                   e(t('courseCohorts')) + ' (' + cohortCount + ')</button>'
                 : '';
-              return (inPersonOnly ? '' : orderDragHandle()) + cohortButton +
+              return '<div class="course-table-row-actions">' + orderDragHandle() + cohortButton +
                 linkBtn(SITE.u('course', c.id), 'eye', t('openCourse')) +
-                linkBtn(editorRoute('course', c.id), 'external-link', t('editCourse'));
+                linkBtn(editorRoute('course', c.id), 'external-link', t('editCourse')) +
+                '</div>';
             }
           }
         ]
@@ -4028,6 +4029,12 @@
   var courseCohortApplicantQueries = {};
   var expandedHistoricalCohorts = {};
   var courseRegistrationRequestCourseFilter = '';
+  try {
+    courseRegistrationRequestCourseFilter =
+      new URLSearchParams(location.search).get('course') || '';
+  } catch (error) {
+    console.warn('Course registration request filter could not be restored.', error);
+  }
   var courseRegistrationRequestCohortFilter = '';
   var courseRegistrationRequestStatusFilter = '';
 
@@ -4177,7 +4184,8 @@
   }
 
   function renderCourseCohortRequests(cohort, cohortRequests, includeCourse) {
-    if (!cohortRequests.length) {
+    if (!cohortRequests.length &&
+      (!includeCourse || !courseRegistrationRequestCourseFilter)) {
       return '<p class="tiny muted">' +
         e(t(includeCourse ? 'registrationRequestEmpty' : 'courseCohortNoApplicants')) + '</p>';
     }
@@ -4217,6 +4225,15 @@
     cohortOptions.sort(function (left, right) {
       return left.name.localeCompare(right.name);
     });
+    if (selectedCourseId && courseOptionIds.indexOf(selectedCourseId) === -1) {
+      var selectedCourse = Store.collection('certificates').filter(function (course) {
+        return String(course.id) === selectedCourseId || String(course.pk) === selectedCourseId;
+      })[0];
+      courseOptions.push({
+        id: selectedCourseId,
+        title: selectedCourse ? selectedCourse.title : selectedCourseId
+      });
+    }
     var requestStatusOptions = [
       { value: 'new', label: 'registrationRequestNew' },
       { value: 'contacted', label: 'registrationRequestContacted' },
@@ -4274,6 +4291,7 @@
       e(t('courseCohortNoApplicantMatches')) + '</p>' +
       '<div class="tbl-wrap course-cohort-table-wrap' +
       (includeCourse ? ' course-registration-requests-table-wrap' : '') +
+      (includeCourse ? '' : ' course-cohort-students-table-wrap') +
       '"><table class="adm-table"><thead><tr>' +
       (includeCourse ? '<th scope="col">' + e(t('registrationRequestCourse')) + '</th>' : '') +
       '<th scope="col">' + e(t('registrationRequestName')) + '</th>' +
@@ -4309,9 +4327,67 @@
     return replacement;
   }
 
+  function renderCourseCohortSubscriptions(paidStudents) {
+    if (!paidStudents.length) {
+      return '<p class="tiny muted">' + e(t('inPersonPaymentInvoicesEmpty')) + '</p>';
+    }
+
+    function money(amount, currency) {
+      return e(amount == null || amount === '' ? '—' : amount) + ' ' +
+        (currency === 'USD' ? '$' : '₪');
+    }
+
+    var labels = {
+      student: t('registrationRequestName'),
+      phone: t('registrationRequestPhone'),
+      course: t('registrationRequestCourse'),
+      cohort: t('courseCohort'),
+      price: t('inPersonPaymentAmount'),
+      paid: t('courseRegistrationPaidAmount'),
+      remaining: t('courseRegistrationRemaining'),
+      payments: t('courseRegistrationPaymentDetails'),
+      actions: t('colActions')
+    };
+    var rows = paidStudents.map(function (request) {
+      var isPaid = Number(request.remainingAmount) <= 0;
+      return '<tr class="course-cohort-applicant-row" data-registration-request-row="' +
+        e(request.id) + '" data-request-course="' + e(request.courseId || '') +
+        '" data-request-cohort="' + e(request.cohortId || '') +
+        '" data-request-status="' + e(request.status) +
+        '" data-cohort-source="' + e(request.sourceStudentName || '') +
+        '" data-applicant-search="' +
+        e([request.fullName || '', request.phone || ''].join(' ').toLocaleLowerCase()) + '">' +
+        '<td data-label="' + e(labels.student) + '"><b>' + e(request.fullName) + '</b></td>' +
+        '<td data-label="' + e(labels.phone) + '"><span dir="ltr">' + e(request.phone) + '</span></td>' +
+        '<td data-label="' + e(labels.course) + '">' + e(request.courseTitle || '—') + '</td>' +
+        '<td data-label="' + e(labels.cohort) + '">' + e(request.cohortName || '—') + '</td>' +
+        '<td data-label="' + e(labels.price) + '"><b>' +
+        money(request.coursePriceAmount, request.currency) + '</b></td>' +
+        '<td data-label="' + e(labels.paid) + '"><span class="chip ok">' +
+        money(request.paidAmount, request.currency) + '</span></td>' +
+        '<td data-label="' + e(labels.remaining) + '"><span class="chip ' +
+        (isPaid ? 'ok' : 'warn') + '">' +
+        money(request.remainingAmount, request.currency) + '</span></td>' +
+        '<td data-label="' + e(labels.payments) + '">' +
+        courseRegistrationPaymentCell(request, false) + '</td>' +
+        '<td class="course-request-row-actions" data-label="' + e(labels.actions) + '">' +
+        inPersonStudentSetupActions(request) + '</td></tr>';
+    }).join('');
+
+    return '<div class="tbl-wrap course-cohort-table-wrap course-cohort-students-table-wrap in-person-subscriptions-page">' +
+      '<table class="adm-table"><thead><tr>' +
+      [labels.student, labels.phone, labels.course, labels.cohort, labels.price,
+        labels.paid, labels.remaining, labels.payments, labels.actions]
+        .map(function (label) { return '<th scope="col">' + e(label) + '</th>'; }).join('') +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+
   function courseCohortCard(cohort, requests, expanded) {
     var cohortRequests = requests.filter(function (request) {
       return String(request.cohortId) === String(cohort.id);
+    });
+    var paidStudents = cohortRequests.filter(function (request) {
+      return request.status === 'accepted' && Number(request.paidAmount) > 0;
     });
     var historyToggle = cohort.active ? '' :
       '<button type="button" class="btn btn-soft btn-sm" data-act="course-cohort-history-toggle" data-id="' +
@@ -4325,9 +4401,9 @@
       '<div class="course-cohort-dates"><span>' + e(t('courseCohortStart')) + ': ' +
       e(UI.formatDate(cohort.startedAt)) + '</span><span>' + e(t('courseCohortEnd')) + ': ' +
       e(cohort.endedAt ? UI.formatDate(cohort.endedAt) : '—') + '</span>' +
-      '<span>' + e(t('courseCohortApplicants')) + ': ' + cohortRequests.length + '</span></div>' +
+      '<span>' + e(t('courseCohortApplicants')) + ': ' + paidStudents.length + '</span></div>' +
       (cohort.active || expanded
-        ? renderCourseCohortRequests(cohort, cohortRequests)
+        ? renderCourseCohortSubscriptions(paidStudents)
         : '') + '</section>';
   }
 

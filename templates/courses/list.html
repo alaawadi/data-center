@@ -30,6 +30,10 @@
     <button class="btn btn-soft" id="coursesMore" type="button" data-i18n="showMoreCourses"></button>
   </div>
 {% endblock %}
+{% block data_json %}
+  {{ block.super }}
+  {{ inperson_courses_json|json_script:"inperson-courses-data" }}
+{% endblock %}
 
 {% block scripts %}
   {{ block.super }}

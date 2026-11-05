@@ -5,6 +5,7 @@
     var transitionClass = 'is-page-transitioning';
     var pendingAttribute = 'data-page-transition-pending';
     var layouts = {
+      landing: 'home',
       'all-courses': 'listing',
       'all-projects': 'listing',
       'all-users': 'listing',
@@ -39,14 +40,8 @@
         if (layout) {
           body.setAttribute('data-transition-layout', layout);
           root.setAttribute(pendingAttribute, '');
-          window.setTimeout(function () {
-            if (root.hasAttribute(pendingAttribute)) {
-              if (!window.__pageLoadingStartedAt) {
-                window.__pageLoadingStartedAt = performance.now();
-              }
-              root.classList.add(transitionClass);
-            }
-          }, 100);
+          window.__pageLoadingStartedAt = performance.now();
+          root.classList.add(transitionClass);
         }
       }
       sessionStorage.removeItem('dc-page-transition');

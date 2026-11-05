@@ -29,6 +29,7 @@ from .models import (
     CourseStatus,
     CourseType,
     CourseVersion,
+    InPersonCourseCohort,
     InPersonWorkshop,
     Lesson,
     LessonType,
@@ -347,6 +348,63 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(course.course_type, CourseType.IN_PERSON)
         self.assertFalse(course.profile_only)
 
+    def test_published_inperson_course_does_not_require_tags(self):
+        response = self._post(
+            _payload(
+                trainerId=str(self.other_trainer.pk),
+                courseType=CourseType.IN_PERSON,
+                tags=[],
+                syllabus=[],
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertEqual(course.skills, [])
+
+    def test_published_inperson_course_does_not_require_detailed_description(self):
+        response = self._post(
+            _payload(
+                trainerId=str(self.other_trainer.pk),
+                courseType=CourseType.IN_PERSON,
+                content='',
+                tags=[],
+                syllabus=[],
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.summary, 'ملخص الدورة')
+        self.assertEqual(course.content, '')
+
+    def test_updating_published_inperson_course_can_remove_all_tags(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية منشورة',
+            course_type=CourseType.IN_PERSON,
+            status=CourseStatus.PUBLISHED,
+            skills=['محور سابق'],
+        )
+
+        response = self._post(
+            _payload(
+                id=course.slug,
+                courseType=CourseType.IN_PERSON,
+                tags=[],
+                syllabus=[],
+            ),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertEqual(course.skills, [])
+
     def test_admin_can_update_course_and_reassign_it_to_another_trainer(self):
         course = Course.objects.create(owner=self.trainer, title='دورة قائمة')
 
@@ -410,7 +468,13 @@ class CoursePermissionsTests(TestCase):
                         'id': section.pk,
                         'title': 'قسم معدّل',
                         'lessons': [
-                            {'id': lesson.pk, 'title': 'درس معدّل', 'duration': '10:00', 'type': 'article'},
+                            {
+                                'id': lesson.pk,
+                                'title': 'درس معدّل',
+                                'duration': '10:00',
+                                'type': 'article',
+                                'content': '<p><strong>محتوى منسق</strong></p>',
+                            },
                             {'title': 'درس جديد', 'duration': '05:00', 'type': 'video'},
                         ],
                     }
@@ -426,6 +490,7 @@ class CoursePermissionsTests(TestCase):
         lesson.refresh_from_db()
         self.assertEqual(lesson.title, 'درس معدّل')
         self.assertEqual(lesson.type, 'article')
+        self.assertEqual(lesson.content, '<p><strong>محتوى منسق</strong></p>')
 
     def test_course_completion_settings_are_saved_and_validated(self):
         course = Course.objects.create(owner=self.trainer, title='دورة مكتملة')
@@ -1108,6 +1173,45 @@ class CoursePageTests(TestCase):
             [second.slug, self.published.slug],
         )
 
+    def test_course_order_endpoint_ignores_courses_hidden_from_listing(self):
+        second = Course.objects.create(
+            owner=self.other_trainer, title='دورة ثانية', status=CourseStatus.PUBLISHED
+        )
+        profile_only = Course.objects.create(
+            owner=self.trainer,
+            title='دورة ملف شخصي',
+            status=CourseStatus.PUBLISHED,
+            profile_only=True,
+        )
+        in_person = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية',
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.IN_PERSON,
+        )
+        inactive_category = TrainingCategory.objects.create(
+            name='مجال غير نشط', is_active=False
+        )
+        hidden_by_category = Course.objects.create(
+            owner=self.trainer,
+            title='دورة بمجال غير نشط',
+            status=CourseStatus.PUBLISHED,
+            category=inactive_category.name,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse('courses:reorder'),
+            data=json.dumps({'order': [second.slug, self.published.slug]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(response.json()['ok'])
+        for hidden_course in (profile_only, in_person, hidden_by_category):
+            hidden_course.refresh_from_db()
+            self.assertIsNone(hidden_course.display_order)
+
     def test_course_order_endpoint_rejects_non_admin_and_stale_lists(self):
         url = reverse('courses:reorder')
         payload = json.dumps({'order': [self.published.slug]})
@@ -1658,6 +1762,71 @@ class CoursePageTests(TestCase):
             '<script id="course-student-enrollment-data" type="application/json">true</script>',
         )
 
+    def test_accepted_inperson_registration_grants_access_to_playlist(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.price = '150.00'
+        self.published.save(update_fields=['course_type', 'price'])
+        registration = CourseRegistrationRequest.objects.create(
+            course=self.published,
+            student=self.student,
+            full_name=self.student.full_name,
+            phone=self.student.phone,
+            address='غزة',
+            specialty='برمجة',
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        )
+        self.client.force_login(self.student)
+
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        playlist_response = self.client.get(
+            reverse('courses:playlist', kwargs={'pk': self.published.slug})
+        )
+
+        self.assertTrue(detail_response.context['is_course_student_enrolled'])
+        self.assertEqual(
+            detail_response.context['course_detail_json']['id'],
+            self.published.slug,
+        )
+        self.assertEqual(
+            detail_response.context['courses_json'][0]['id'],
+            self.published.slug,
+        )
+        self.assertContains(detail_response, 'id="course-detail-data"')
+        self.assertContains(detail_response, 'id="courses-data"')
+        self.assertEqual(playlist_response.status_code, 200)
+        self.assertEqual(registration.student, self.student)
+
+    def test_unaccepted_inperson_registration_does_not_grant_playlist_access(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.price = '150.00'
+        self.published.save(update_fields=['course_type', 'price'])
+        CourseRegistrationRequest.objects.create(
+            course=self.published,
+            student=self.student,
+            full_name=self.student.full_name,
+            phone=self.student.phone,
+            address='غزة',
+            specialty='برمجة',
+            status=CourseRegistrationRequestStatus.NEW,
+        )
+        self.client.force_login(self.student)
+
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        playlist_response = self.client.get(
+            reverse('courses:playlist', kwargs={'pk': self.published.slug})
+        )
+
+        self.assertFalse(detail_response.context['is_course_student_enrolled'])
+        self.assertRedirects(
+            playlist_response,
+            f"{reverse('courses:detail', kwargs={'pk': self.published.slug})}?registration=required",
+            fetch_redirect_response=False,
+        )
+
     def test_admin_course_enrollment_appears_in_student_active_courses_and_detail(self):
         self.published.price = '120.00'
         self.published.save(update_fields=['price'])
@@ -1791,17 +1960,18 @@ class CoursePageTests(TestCase):
         self.assertLess(editor_html.index('id="edTitleEnglish"'), editor_html.index('id="edCoverHost"'))
         self.assertIn('class="title-input" id="edTitleEnglish"', editor_html)
         self.assertIn('id="edContentPanel"', editor_html)
+        self.assertIn('id="edAxesBox"', editor_html)
+        self.assertLess(editor_html.index('id="edContentPanel"'), editor_html.index('id="edAxesBox"'))
         self.assertNotIn('id="edContentPanel" hidden', editor_html)
         self.assertNotIn('id="edContentToggle"', editor_html)
         self.assertIn('id="edSyllabusPanel" hidden', editor_html)
         self.assertIn('id="edSyllabusToggle"', editor_html)
-        self.assertLess(editor_html.index('id="edCourseMetaBox"'), editor_html.index('id="lblSummary"'))
         self.assertNotIn('data-k="free"', editor_html)
         self.assertNotIn('lessonFreeLabel', editor_html)
         self.assertNotIn('class="slug-row"', editor_html)
         self.assertLess(editor_html.index('id="edCoverHost"'), editor_html.index('editor-templates-mobile'))
         self.assertLess(editor_html.index('id="edChecklist"'), editor_html.index('editor-templates-desktop'))
-        self.assertLess(editor_html.index('editor-templates-desktop'), editor_html.index('id="lblSummary"'))
+        self.assertLess(editor_html.index('id="edContentPanel"'), editor_html.index('id="lblSummary"'))
         self.assertIn('editor-checklist-box', editor_html)
         self.assertEqual(editor_html.count('data-editor-templates'), 2)
         self.assertNotContains(create_response, 'id="edFilesDrop"')
@@ -1896,6 +2066,96 @@ class CoursePageTests(TestCase):
             edit_response,
             f'<option value="{self.trainer.pk}">{self.trainer.display_name}</option>',
         )
+
+    def test_admin_can_edit_inperson_course_in_dashboard_editor(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        active_cohort = InPersonCourseCohort.objects.create(
+            course=self.published,
+            number=2,
+        )
+        previous_cohort = InPersonCourseCohort.objects.create(
+            course=self.published,
+            number=1,
+            ended_at=timezone.now(),
+        )
+        registration_fields = {
+            'full_name': 'طالب تجريبي',
+            'phone': '0591234567',
+            'address': 'غزة',
+            'specialty': 'برمجة',
+            'governorate': 'gaza',
+            'student_status': 'student',
+        }
+        CourseRegistrationRequest.objects.create(
+            course=self.published,
+            cohort=active_cohort,
+            status=CourseRegistrationRequestStatus.NEW,
+            **registration_fields,
+        )
+        CourseRegistrationRequest.objects.create(
+            course=self.published,
+            cohort=active_cohort,
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+            **registration_fields,
+        )
+        CourseRegistrationRequest.objects.create(
+            course=self.published,
+            cohort=active_cohort,
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+            **registration_fields,
+        )
+        CourseRegistrationRequest.objects.create(
+            course=self.published,
+            cohort=previous_cohort,
+            status=CourseRegistrationRequestStatus.NEW,
+            **registration_fields,
+        )
+        self.client.force_login(self.trainer)
+        trainer_detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        self.assertEqual(trainer_detail_response.status_code, 200)
+        self.assertNotContains(
+            trainer_detail_response,
+            'course-registration-status-counts',
+        )
+
+        self.client.force_login(self.admin)
+
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertTrue(detail_response.context['is_course_admin'])
+        self.assertEqual(
+            detail_response.context['courses_json'][0]['courseType'],
+            CourseType.IN_PERSON,
+        )
+        self.assertTrue(
+            detail_response.context['courses_json'][0]['adminCanManageCourse']
+        )
+        self.assertEqual(
+            detail_response.context['course_registration_status_counts'],
+            {'new': 1, 'accepted': 2},
+        )
+        self.assertContains(detail_response, 'course-registration-status-counts')
+
+        editor_response = self.client.get(
+            reverse('dashboard:course-editor-edit', kwargs={'pk': self.published.slug})
+        )
+
+        self.assertEqual(editor_response.status_code, 200)
+        self.assertTrue(editor_response.context['admin_dashboard_editor'])
+        self.assertEqual(
+            editor_response.context['editor_course_json'][0]['id'],
+            self.published.slug,
+        )
+        self.assertEqual(
+            editor_response.context['editor_course_json'][0]['courseType'],
+            CourseType.IN_PERSON,
+        )
+        self.assertContains(editor_response, 'id="edInPersonSummaryHost"')
 
 
 class CourseProgressTests(TestCase):
@@ -2002,6 +2262,29 @@ class CourseProgressTests(TestCase):
                 course=self.course,
             ).exists()
         )
+
+    def test_inperson_subscription_has_no_expiry_and_stays_active(self):
+        self.course.course_type = CourseType.IN_PERSON
+        self.course.save(update_fields=['course_type'])
+        expired_at = timezone.now() - timedelta(seconds=1)
+        progress = CourseProgress.objects.create(
+            student=self.student,
+            course=self.course,
+            expires_at=expired_at,
+        )
+        self.assertIsNone(progress.expires_at)
+
+        # Simulate a legacy in-person enrollment that still has an expiry value.
+        CourseProgress.objects.filter(pk=progress.pk).update(expires_at=expired_at)
+        self.client.force_login(self.student)
+
+        response = self._mark(self.lessons[0])
+        self.assertEqual(response.status_code, 200)
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.course.slug})
+        )
+        self.assertTrue(detail_response.context['is_course_student_enrolled'])
+        self.assertEqual(self.client.get(self.playlist_url).status_code, 200)
 
     def test_completion_creates_certificate_automatically(self):
         res = self._mark(self.lessons[0], user=self.student)

@@ -1074,9 +1074,20 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
 .course-cohort-page .course-cohort-table-wrap { overflow-x: auto; scrollbar-width: thin; }
 .course-cohort-page .course-cohort-table-wrap::-webkit-scrollbar { display: block; height: 8px; }
 .course-cohort-page .course-cohort-table-wrap .adm-table { min-width: 1120px; table-layout: auto; }
+.course-cohort-page .course-cohort-students-table-wrap { overflow-x: auto; scrollbar-width: thin; }
+.course-cohort-page .course-cohort-students-table-wrap .adm-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+.course-cohort-page .course-cohort-students-table-wrap .adm-table th,
+.course-cohort-page .course-cohort-students-table-wrap .adm-table td {
+  padding: 9px 8px;
+  overflow-wrap: anywhere;
+}
+.course-cohort-page .course-cohort-students-table-wrap .adm-table th { white-space: normal; }
 .course-cohort-page .course-cohort-table-wrap .adm-table th {
-  top: 70px;
-  z-index: 5;
+  position: static;
   padding: 12px 14px;
   color: var(--muted);
   background: var(--line-2);
@@ -1086,8 +1097,7 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
   letter-spacing: normal;
 }
 .course-cohort-page .course-registration-requests-table-wrap .adm-table th {
-  top: 70px;
-  z-index: 5;
+  position: static;
 }
 .course-cohort-page .course-cohort-table-wrap .adm-table td { white-space: normal; }
 .course-cohort-page .course-registration-requests-table-wrap .adm-table {
@@ -1384,15 +1394,11 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
   opacity: 1;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1280px) {
   .course-cohort-filters.course-registration-request-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .course-cohort-page .course-cohort-table-wrap { overflow: visible; }
   .course-cohort-page .course-registration-requests-table-wrap { overflow: visible; }
-  .course-cohort-page .course-cohort-table-wrap .adm-table th,
-  .course-cohort-page .course-registration-requests-table-wrap .adm-table th { top: 56px; }
-  .course-cohort-page .course-cohort-table-wrap .adm-table,
   .course-cohort-page .course-registration-requests-table-wrap .adm-table {
     display: block;
     min-width: 0;
@@ -1405,12 +1411,12 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
     padding: 10px 12px;
     font-size: inherit;
   }
-  .course-cohort-page .course-cohort-table-wrap .adm-table thead { display: none; }
-  .course-cohort-page .course-cohort-table-wrap .adm-table tbody {
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table thead { display: none; }
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table tbody {
     display: grid;
     gap: 12px;
   }
-  .course-cohort-page .course-cohort-table-wrap .adm-table tbody tr {
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table tbody tr {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     overflow: hidden;
@@ -1418,8 +1424,8 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
     border-radius: 12px;
     background: var(--card);
   }
-  .course-cohort-page .course-cohort-table-wrap .adm-table td,
-  .course-cohort-page .course-cohort-table-wrap .adm-table td:nth-child(3) {
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td,
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td:nth-child(3) {
     display: grid;
     grid-template-columns: minmax(110px, 30%) minmax(0, 1fr);
     align-items: center;
@@ -1430,31 +1436,35 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
     overflow-wrap: anywhere;
     border-bottom: 1px solid var(--line-2);
   }
-  .course-cohort-page .course-cohort-table-wrap .adm-table td:last-child { border-bottom: 0; }
-  .course-cohort-page .course-cohort-table-wrap .adm-table td::before {
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td:last-child { border-bottom: 0; }
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td::before {
     content: attr(data-label);
     color: var(--muted);
     font-size: 11px;
     font-weight: 700;
   }
-  .course-cohort-page .course-cohort-table-wrap .adm-table td > a,
-  .course-cohort-page .course-cohort-table-wrap .adm-table td > button {
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td > a,
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td > button {
     justify-self: start;
     min-width: 0;
     max-width: 100%;
     overflow-wrap: anywhere;
   }
-  .course-cohort-page .course-cohort-table-wrap .adm-table td > .course-cohort-paid-editor {
+  .course-cohort-page .course-registration-requests-table-wrap .adm-table td > .course-cohort-paid-editor {
     grid-column: 2;
     width: 100%;
   }
-  .course-cohort-page .course-request-inline-control {
+  .course-cohort-page .course-registration-requests-table-wrap .course-request-inline-control {
     grid-column: 1 / -1;
     min-width: 0;
   }
 }
 
 @media (max-width: 1100px) {
+  .course-cohort-page .course-cohort-students-table-wrap .adm-table {
+    min-width: 1000px;
+    table-layout: auto;
+  }
   .in-person-subscriptions-page .adm-table,
   .online-subscriptions-page .adm-table {
     min-width: 1000px;
@@ -1659,4 +1669,82 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
   .adm-table[data-table-key='users'] .cell-user { min-width: 0; gap: 6px; }
   .adm-table[data-table-key='users'] .cell-user .cu-b b { white-space: normal; }
   .adm-table[data-table-key='users'] td.acts { white-space: normal; }
+}
+
+@media (min-width: 1200px) {
+  .adm-table[data-table-key='in-person-courses'] {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+  .adm-table[data-table-key='in-person-courses'] th,
+  .adm-table[data-table-key='in-person-courses'] td {
+    box-sizing: border-box;
+    padding: 8px 6px;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .adm-table[data-table-key='in-person-courses'] th { white-space: normal; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(1),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(1) { width: 22%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(2),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(2) { width: 11%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(3),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(3) { width: 10%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(4),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(4) { width: 7%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(5),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(5),
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(6),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(6) { width: 5%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(7),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(7) { width: 8%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(8),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(8) { width: 14%; }
+  .adm-table[data-table-key='in-person-courses'] th:nth-child(9),
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(9) { width: 18%; }
+  .adm-table[data-table-key='in-person-courses'] .cell-cover {
+    min-width: 0;
+    gap: 7px;
+  }
+  .adm-table[data-table-key='in-person-courses'] .cell-cover .cc-img {
+    width: 38px;
+    height: 28px;
+    flex: none;
+  }
+  .adm-table[data-table-key='in-person-courses'] .cell-cover .cc-b {
+    min-width: 0;
+  }
+  .adm-table[data-table-key='in-person-courses'] .cell-cover .cc-b b {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+  }
+  .adm-table[data-table-key='in-person-courses'] td.acts { white-space: normal; }
+  .course-table-row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+  .course-table-row-actions .admin-order-drag-handle,
+  .course-table-row-actions .btn-icon {
+    flex: 0 0 30px;
+  }
+  .course-table-row-actions .admin-order-drag-handle {
+    width: 30px;
+    margin: 0;
+  }
+  .course-table-row-actions .linkish {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
+  .adm-table[data-table-key='in-person-courses'] .st {
+    justify-content: center;
+    padding-inline: 5px;
+    white-space: normal;
+  }
 }

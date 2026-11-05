@@ -1,7 +1,7 @@
 {% extends editor_base_template|default:"editor_base.html" %}
 
 {% block title %}محرر الدورة — مركز داتا{% endblock %}
-{% block body_attrs %}data-page="edit-course"{% if admin_dashboard_editor %} data-admin-course-editor="true" data-admin-dashboard-editor="true"{% endif %}{% endblock %}
+{% block body_attrs %}data-page="edit-course"{% if admin_dashboard_editor %} data-admin-course-editor="true" data-admin-dashboard-editor="true" data-hide-pwa-install{% endif %}{% endblock %}
 {% block back_section %}{% if admin_dashboard_editor %}#courses{% else %}#certificates{% endif %}{% endblock %}
 
 {% block editor_main %}
@@ -22,18 +22,16 @@
         </div>
 
         <div id="edContentPanel">
+          <h3 class="editor-description-label" id="lblCourseDescription"></h3>
           <div class="rich-editor">
             <div class="editor-toolbar" id="edToolbar"></div>
-            <div class="editable" id="edContent" contenteditable="true" spellcheck="false"></div>
+            <div class="editable" id="edContent" contenteditable="true" spellcheck="false"
+                 aria-labelledby="lblCourseDescription"></div>
           </div>
           <div class="editor-foot-meta" id="edMeta"></div>
         </div>
 
-        <div class="side-card-box editor-checklist-box editor-checklist-mobile">
-          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" data-checklist-pct>0%</span></h3>
-          <div class="checklist-bar"><i data-checklist-bar style="width:0%"></i></div>
-          <div class="checklist-items" data-checklist-list></div>
-        </div>
+        <div class="side-card-box" id="edInPersonSummaryHost" hidden></div>
 
         <div class="editor-content-toggle">
           <button class="editor-content-toggle-btn" type="button" id="edSyllabusToggle"
@@ -84,7 +82,7 @@
         <div class="side-card-box" id="edCourseMetaBox">
           <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
           {% if can_select_course_type %}
-            <div class="field">
+            <div class="field" id="edCourseTypeField">
               <label class="label" for="edCourseType">نوع الدورة</label>
               <div class="course-type-options" role="radiogroup" aria-label="نوع الدورة">
                 <label class="course-type-option">
@@ -107,7 +105,7 @@
               <input type="hidden" id="edCourseType" value="online">
             </div>
           {% endif %}
-          <div class="field">
+          <div class="field" id="edCategoryField">
             <label class="label" id="lblCategory" for="edCategorySearch"></label>
             <div class="training-category-picker">
               <input class="input" type="search" id="edCategorySearch" role="combobox"
@@ -147,7 +145,7 @@
               </div>
             </div>
           </div>
-          <div class="field">
+          <div class="field" id="edCourseCompletionField">
             <label class="label" id="lblCourseCompletion" for="edCourseCompletion"></label>
             <select class="select" id="edCourseCompletion">
               <option value="complete"></option>
@@ -157,11 +155,11 @@
           </div>
         </div>
 
-        <div class="side-card-box">
+        <div class="side-card-box" id="edAxesBox">
           <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
-          <div class="field"><label class="label" id="lblSummary"></label><textarea class="textarea" id="edSummary" rows="2" maxlength="320"></textarea></div>
+          <div class="field"><label class="label" id="lblSummary" for="edSummary"></label><textarea class="textarea" id="edSummary" rows="2" maxlength="320"></textarea></div>
           {% if is_admin_editor %}
-            <div class="field">
+            <div class="field" id="edTrainerField">
               <label class="label" id="lblRole"></label>
               <select class="select" id="edRole" required>
                 <option value="" data-trainer-placeholder>اختر مدرباً</option>
@@ -175,11 +173,17 @@
           <div class="field"><label class="label" id="lblDemo"></label><input class="input" id="edDemo" dir="ltr" placeholder="https://..."></div>
         </div>
 
-        <div class="side-card-box">
+        <div class="side-card-box editor-tags-box">
           <h3><span class="h3-ic"></span><span class="h3-label"></span></h3>
           <div class="chips-input" id="edTagsBox">
             <input id="edTagsInput" autocomplete="off">
           </div>
+        </div>
+
+        <div class="side-card-box editor-checklist-box editor-checklist-mobile">
+          <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span><span class="chip" data-checklist-pct>0%</span></h3>
+          <div class="checklist-bar"><i data-checklist-bar style="width:0%"></i></div>
+          <div class="checklist-items" data-checklist-list></div>
         </div>
 
       </aside>

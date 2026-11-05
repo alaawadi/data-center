@@ -51,6 +51,12 @@ html.is-page-transition-settling .page-transition-skeleton {
 
 html.is-page-transition-settling body > :not(.page-transition-skeleton):not(.header):not(.topbar):not(.footer):not(.bottom-navbar) {
   visibility: visible !important;
+  animation: page-transition-enter .22s cubic-bezier(.2, .75, .25, 1) both;
+}
+
+@keyframes page-transition-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes page-transition-spin {
@@ -60,4 +66,7 @@ html.is-page-transition-settling body > :not(.page-transition-skeleton):not(.hea
 @media (prefers-reduced-motion: reduce) {
   html.is-page-transitioning .page-transition-skeleton::before { animation-duration: 1.5s; }
   html.is-page-transition-settling .page-transition-skeleton { transition-duration: .01ms; }
+  html.is-page-transition-settling body > :not(.page-transition-skeleton):not(.header):not(.topbar):not(.footer):not(.bottom-navbar) {
+    animation: none;
+  }
 }
