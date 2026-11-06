@@ -31,6 +31,7 @@
   --shadow-pop: 0 8px 24px -8px rgba(37, 99, 235, .45);
   --font: 'Cairo', 'Segoe UI', system-ui, sans-serif;
   --font-en: 'Cairo', 'Segoe UI', system-ui, sans-serif;
+  --course-card-image-height: 174.68px;
   --topbar-h: 60px;
   --ease: cubic-bezier(.2, .8, .25, 1);
 }
@@ -535,4 +536,26 @@ html[dir='rtl'] .switch input:checked + .track::after { transform: translateX(-1
   #lightboxRoot .lightbox { padding: 12px; }
   .lb-prev, .lb-next { display: none; }
   .lb-close { top: 12px; inset-inline-end: 12px; }
+}
+
+@media (max-width: 991px) {
+  :root { --course-card-image-height: 167.4px; }
+}
+
+@media (max-width: 768px) {
+  :root { --course-card-image-height: 186.12px; }
+}
+
+@media (max-width: 480px) {
+  :root { --course-card-image-height: 181px; }
+}
+
+@media (max-width: 450px) {
+  :root { --course-card-image-height: 175.88px; }
+}
+
+.course-card-image-sync {
+  height: var(--course-card-image-height);
+  min-height: var(--course-card-image-height);
+  flex: 0 0 var(--course-card-image-height);
 }

@@ -850,7 +850,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
 }
 
 #allProjectsGrid .proj-cover {
-  height: 13em;
+  height: calc(13em + 60px);
   aspect-ratio: auto;
 }
 
@@ -903,6 +903,12 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   height: 13em;
   object-fit: cover;
   background: var(--line-2);
+}
+
+#allCertsGrid .course-home-card .course-home-image,
+#allCertsGrid .course-home-card .course-home-image-placeholder {
+  height: var(--course-card-image-height);
+  min-height: var(--course-card-image-height);
 }
 
 .course-home-card .course-home-image-placeholder {
@@ -1209,39 +1215,9 @@ html[dir='rtl'] .tabbar { direction: rtl; }
     gap: 1.6em 1.2em;
     font-size: .52rem;
   }
-  #allCertsGrid .course-home-card .course-home-image,
-  #allCertsGrid .course-home-card .course-home-image-placeholder {
-    height: 124.8px;
-  }
-  #allCertsGrid .course-home-card-inperson .course-home-image,
-  #allCertsGrid .course-home-card-inperson .course-home-image-placeholder {
-    height: 149.76px;
-  }
-  #allProjectsGrid .proj-cover { height: 11.5em; }
+  #allProjectsGrid .proj-cover { height: calc(11.5em + 60px); }
   #allCertsGrid .course-home-card .course-home-content h3 {
     font-size: clamp(1.5em, 4vw, 1.75em);
-  }
-}
-
-@media (max-width: 480px) {
-  #allCertsGrid .course-home-card .course-home-image,
-  #allCertsGrid .course-home-card .course-home-image-placeholder {
-    height: 120px;
-  }
-  #allCertsGrid .course-home-card-inperson .course-home-image,
-  #allCertsGrid .course-home-card-inperson .course-home-image-placeholder {
-    height: 144px;
-  }
-}
-
-@media (max-width: 450px) {
-  #allCertsGrid .course-home-card .course-home-image,
-  #allCertsGrid .course-home-card .course-home-image-placeholder {
-    height: 115.2px;
-  }
-  #allCertsGrid .course-home-card-inperson .course-home-image,
-  #allCertsGrid .course-home-card-inperson .course-home-image-placeholder {
-    height: 138.24px;
   }
 }
 
@@ -1288,7 +1264,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   }
 
   #allProjectsGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   #allProjectsGrid .proj-card {
@@ -1297,7 +1273,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   }
 
   #allProjectsGrid .proj-cover {
-    height: 11.5em;
+    height: calc(11.5em + 60px);
     aspect-ratio: auto;
   }
 
