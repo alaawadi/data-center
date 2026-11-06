@@ -18,7 +18,7 @@ class HomeView(TemplateView):
             {
                 key: course[key]
                 for key in (
-                    'id', 'image', 'price', 'title', 'duration', 'period',
+                    'id', 'image', 'price', 'isFree', 'title', 'duration', 'period',
                     'inPersonKind',
                 )
             }
@@ -28,7 +28,7 @@ class HomeView(TemplateView):
             {
                 key: course[key]
                 for key in (
-                    'id', 'image', 'price', 'title', 'duration', 'period',
+                    'id', 'image', 'price', 'isFree', 'title', 'duration', 'period',
                     'inPersonKind',
                 )
             }

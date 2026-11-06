@@ -138,7 +138,7 @@ class HomePageTests(TestCase):
         self.assertEqual(
             set(response.context['landing_courses_json'][0]),
             {
-                'id', 'image', 'price', 'title', 'duration', 'period',
+                'id', 'image', 'price', 'isFree', 'title', 'duration', 'period',
                 'inPersonKind',
             },
         )
@@ -178,6 +178,43 @@ class HomePageTests(TestCase):
         )
         self.assertEqual(online_card['inPersonKind'], 'workshop')
         self.assertEqual(inperson_card['inPersonKind'], 'workshop')
+
+    def test_zero_price_workshops_are_marked_free_in_homepage_data(self):
+        trainer = get_user_model().objects.create_user(
+            phone='059444404',
+            password='pass1234',
+            full_name='مدرب ورش مجانية',
+            role=UserRole.TRAINER,
+        )
+        online_workshop = Course.objects.create(
+            owner=trainer,
+            title='ورشة أونلاين مجانية',
+            course_type=CourseType.ONLINE,
+            in_person_kind='workshop',
+            price='0',
+            status=CourseStatus.PUBLISHED,
+        )
+        inperson_workshop = Course.objects.create(
+            owner=trainer,
+            title='ورشة وجاهية مجانية',
+            course_type=CourseType.IN_PERSON,
+            in_person_kind='workshop',
+            price='0',
+            status=CourseStatus.PUBLISHED,
+        )
+
+        response = self.client.get(reverse('landing:home'))
+        online_card = next(
+            item for item in response.context['landing_courses_json']
+            if item['id'] == online_workshop.slug
+        )
+        inperson_card = next(
+            item for item in response.context['landing_inperson_courses_json']
+            if item['id'] == inperson_workshop.slug
+        )
+
+        self.assertTrue(online_card['isFree'])
+        self.assertTrue(inperson_card['isFree'])
 
     def test_homepage_does_not_render_the_in_person_workshops_tab(self):
         InPersonWorkshop.objects.create(
