@@ -1,7 +1,7 @@
 {% extends editor_base_template|default:"editor_base.html" %}
 
 {% block title %}محرر الدورة — مركز داتا{% endblock %}
-{% block body_attrs %}data-page="edit-course"{% if admin_dashboard_editor %} data-admin-course-editor="true" data-admin-dashboard-editor="true" data-hide-pwa-install{% endif %}{% endblock %}
+{% block body_attrs %}data-page="edit-course"{% if is_trainer_editor %} data-trainer-course-editor="true"{% endif %}{% if admin_dashboard_editor %} data-admin-course-editor="true" data-admin-dashboard-editor="true" data-hide-pwa-install{% endif %}{% endblock %}
 {% block back_section %}{% if admin_dashboard_editor %}#courses{% else %}#certificates{% endif %}{% endblock %}
 
 {% block editor_main %}
@@ -46,18 +46,20 @@
           <div class="side-card-box" id="edSyllabusBox">
             <h3><span class="h3-ic"></span><span class="h3-label"></span><span class="spacer"></span>
               <button class="btn btn-soft btn-sm" type="button" id="edSecAdd"></button></h3>
-            <section class="course-version-history" id="edVersionHistory" hidden>
-              <div class="course-version-heading">
-                <strong id="edVersionTitle"></strong>
-                <span id="edVersionCount"></span>
-              </div>
-              <div class="course-version-controls">
-                <button class="btn btn-ghost btn-sm" type="button" id="edVersionPrev" aria-label="Previous version"></button>
-                <select class="select" id="edVersionSelect" aria-label="Course version"></select>
-                <button class="btn btn-ghost btn-sm" type="button" id="edVersionNext" aria-label="Next version"></button>
-              </div>
-              <button class="btn btn-soft btn-sm" type="button" id="edVersionLoad"></button>
-            </section>
+            {% if not is_trainer_editor %}
+              <section class="course-version-history" id="edVersionHistory" hidden>
+                <div class="course-version-heading">
+                  <strong id="edVersionTitle"></strong>
+                  <span id="edVersionCount"></span>
+                </div>
+                <div class="course-version-controls">
+                  <button class="btn btn-ghost btn-sm" type="button" id="edVersionPrev" aria-label="Previous version"></button>
+                  <select class="select" id="edVersionSelect" aria-label="Course version"></select>
+                  <button class="btn btn-ghost btn-sm" type="button" id="edVersionNext" aria-label="Next version"></button>
+                </div>
+                <button class="btn btn-soft btn-sm" type="button" id="edVersionLoad"></button>
+              </section>
+            {% endif %}
             <section class="course-deletion-history" id="edDeletionHistory" hidden>
               <strong id="edDeletionHistoryTitle"></strong>
               <div id="edDeletionHistoryList"></div>
@@ -84,7 +86,7 @@
           {% if can_select_course_type %}
             <div class="field" id="edCourseTypeField">
               <label class="label" for="edCourseType">نوع الدورة</label>
-              <div class="course-type-options" role="radiogroup" aria-label="نوع الدورة">
+              <div class="course-type-options" id="edCourseTypeOptions" role="radiogroup" aria-label="نوع الدورة">
                 <label class="course-type-option">
                   <input type="radio" name="courseTypeChoice" value="online" checked>
                   <span class="course-type-option-card">
@@ -103,6 +105,26 @@
                 </label>
               </div>
               <input type="hidden" id="edCourseType" value="online">
+            </div>
+            <div class="field" id="edInPersonKindField" hidden>
+              <label class="label" for="edInPersonKind">نوع النشاط الوجاهي</label>
+              <div class="course-type-options" role="radiogroup" aria-label="نوع النشاط الوجاهي">
+                <label class="course-type-option">
+                  <input type="radio" name="inPersonKindChoice" value="course" checked>
+                  <span class="course-type-option-card">
+                    <span class="course-type-option-check" aria-hidden="true"></span>
+                    <strong>دورة وجاهية</strong>
+                  </span>
+                </label>
+                <label class="course-type-option">
+                  <input type="radio" name="inPersonKindChoice" value="workshop">
+                  <span class="course-type-option-card">
+                    <span class="course-type-option-check" aria-hidden="true"></span>
+                    <strong>ورشة وجاهية</strong>
+                  </span>
+                </label>
+              </div>
+              <input type="hidden" id="edInPersonKind" value="course">
             </div>
           {% endif %}
           <div class="field" id="edCategoryField">

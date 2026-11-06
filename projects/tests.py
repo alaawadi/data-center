@@ -91,6 +91,45 @@ class ProjectVisibilityTests(TestCase):
                 self.assertEqual(response.json()['error'], 'title_required')
         self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
 
+    def test_project_gallery_is_limited_to_five_images(self):
+        self.client.force_login(self.trainer)
+        image_data = 'data:image/jpeg;base64,YQ=='
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            rejected = self.client.post(
+                reverse('projects:save'),
+                data=json.dumps({
+                    'id': '',
+                    'title': 'مشروع بعدد صور زائد',
+                    'status': 'draft',
+                    'gallery': [image_data] * 6,
+                }),
+                content_type='application/json',
+            )
+            self.assertEqual(rejected.status_code, 400)
+            self.assertEqual(
+                rejected.json()['error'],
+                'project_gallery_limit_exceeded',
+            )
+            self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
+
+            accepted = self.client.post(
+                reverse('projects:save'),
+                data=json.dumps({
+                    'id': '',
+                    'title': 'مشروع بخمس صور',
+                    'status': 'draft',
+                    'gallery': [image_data] * 5,
+                }),
+                content_type='application/json',
+            )
+            self.assertEqual(accepted.status_code, 200, accepted.content)
+            project = Project.objects.get(slug=accepted.json()['id'])
+            self.assertEqual(project.images.count(), 5)
+            self.assertTrue(all(
+                image.image.name.endswith('.jpg')
+                for image in project.images.all()
+            ))
+
     def test_new_trainer_project_defaults_to_profile_only(self):
         self.client.force_login(self.trainer)
 
@@ -535,7 +574,9 @@ class ProjectVisibilityTests(TestCase):
         self.assertLess(content.index('id="edCoverHost"'), content.index('editor-templates-mobile'))
         self.assertIn('editor-checklist-box', content)
         self.assertEqual(content.count('data-editor-templates'), 2)
-        self.assertNotContains(response, 'id="edGallery"')
+        self.assertContains(response, 'id="edProjectGalleryInput"')
+        self.assertContains(response, 'accept="image/*" multiple id="edProjectGalleryInput" data-max-images="5"')
+        self.assertContains(response, 'id="edProjectGalleryList"')
         self.assertNotContains(response, 'id="edIdeas"')
         self.assertNotContains(response, 'id="edIdeaRefresh"')
         self.assertNotContains(response, 'id="edSocialPreview"')

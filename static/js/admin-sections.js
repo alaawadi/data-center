@@ -1909,13 +1909,33 @@
     });
   });
 
-  function renderCourseTable(sectionKey, inPersonOnly) {
+  function renderCourseTable(sectionKey, inPersonOnly, inPersonKind, filterWorkshopType) {
+      var workshopsOnly = inPersonKind === 'workshop';
       var courses = Store.collection('certificates').filter(function (course) {
-        return course.courseType === (inPersonOnly ? 'in_person' : 'online');
+        return (workshopsOnly || course.courseType === (inPersonOnly ? 'in_person' : 'online')) &&
+          (!inPersonKind || course.inPersonKind === inPersonKind);
       });
       var cats = courses.map(function (c) { return c.category || ''; })
         .filter(Boolean).filter(function (v, i, a) { return a.indexOf(v) === i; });
-      var bulkActions = inPersonOnly
+      var filters = [
+        { k: 'category', label: t('fCat'), val: function (c) { return c.category || ''; }, options: cats.map(function (x) { return { v: x, l: x }; }) },
+        { k: 'trainer', label: t('fTrainer'), val: function (c) { return c.trainerId || ''; }, options: trainerOpts().filter(function (o) { return o.v; }) },
+        { k: 'status', label: t('allStatus'), val: function (c) { return c.status || 'draft'; }, options: stOpts(['published', 'draft', 'archived']) }
+      ];
+      if (workshopsOnly && filterWorkshopType) {
+        filters.unshift({
+          k: 'workshopCourseType',
+          label: t('workshopCourseTypeFilter'),
+          val: function (course) { return course.courseType; },
+          options: [
+            { v: 'in_person', l: t('workshopInPerson') },
+            { v: 'online', l: t('workshopOnline') }
+          ]
+        });
+      }
+      var bulkActions = inPersonKind
+        ? []
+        : inPersonOnly
         ? [
           { act: 'inperson-course-bulk-pub', label: t('bulkPublish'), icon: 'check' },
           { act: 'inperson-course-bulk-draft', label: t('bulkDraft'), icon: 'pencil' },
@@ -1931,21 +1951,27 @@
         id: function (c) { return c.pk || c.id; },
         rows: displayOrdered(courses),
         reorderKind: inPersonOnly ? 'inperson-courses' : 'courses',
-        draggableRows: true,
+        draggableRows: !inPersonKind,
         pageSize: courses.length || 10,
         search: function (c) { return [c.title, c.issuer, c.category, trainerLabel(c.trainerId)].join(' '); },
-        filters: [
-          { k: 'category', label: t('fCat'), val: function (c) { return c.category || ''; }, options: cats.map(function (x) { return { v: x, l: x }; }) },
-          { k: 'trainer', label: t('fTrainer'), val: function (c) { return c.trainerId || ''; }, options: trainerOpts().filter(function (o) { return o.v; }) },
-          { k: 'status', label: t('allStatus'), val: function (c) { return c.status || 'draft'; }, options: stOpts(['published', 'draft', 'archived']) }
-        ],
-        add: { label: t('cAdd'), url: editorRoute('course'), icon: 'plus' },
+        filters: filters,
+        add: {
+          label: t(workshopsOnly ? 'workshopNew' : 'cAdd'),
+          act: workshopsOnly ? 'workshop-course-add' : '',
+          url: workshopsOnly ? '' : editorRoute(inPersonOnly ? 'in-person-course' : 'course'),
+          icon: 'plus'
+        },
         bulk: bulkActions,
         empty: {
           icon: 'graduation-cap',
-          title: t(inPersonOnly ? 'emptyInPersonCourses' : 'emptyCourses'),
-          sub: t(inPersonOnly ? 'emptyInPersonCoursesSub' : 'emptyCoursesSub'),
-          action: '<a class="btn btn-primary btn-sm" href="' + editorRoute('course') + '">' + UI.icon('plus', 15) + e(t('cAdd')) + '</a>'
+          title: t(workshopsOnly ? 'emptyWorkshops' : (inPersonOnly ? 'emptyInPersonCourses' : 'emptyCourses')),
+          sub: t(workshopsOnly ? 'emptyWorkshopsSub' : (inPersonOnly ? 'emptyInPersonCoursesSub' : 'emptyCoursesSub')),
+          action: workshopsOnly
+            ? '<button type="button" class="btn btn-primary btn-sm" data-act="workshop-course-add">' +
+              UI.icon('plus', 15) + e(t('workshopNew')) + '</button>'
+            : '<a class="btn btn-primary btn-sm" href="' +
+              editorRoute(inPersonOnly ? 'in-person-course' : 'course') + '">' +
+              UI.icon('plus', 15) + e(t('cAdd')) + '</a>'
         },
         columns: [
           {
@@ -2000,12 +2026,13 @@
             label: t(inPersonOnly ? 'courseHomepageVisibility' : 'courseVisibility'),
             sortVal: function (c) { return c.profileOnly ? 1 : 0; },
             render: function (c) {
+              var isInPersonCourse = c.courseType === 'in_person';
               var showOnPlatform = !c.profileOnly;
-              var visibilityKey = inPersonOnly
+              var visibilityKey = isInPersonCourse
                 ? (showOnPlatform ? 'courseHomepageVisible' : 'courseHomepageHidden')
                 : (showOnPlatform ? 'courseVisibilityPlatform' : 'courseVisibilityProfile');
               var label = t(visibilityKey);
-              var action = inPersonOnly
+              var action = isInPersonCourse
                 ? (showOnPlatform ? 'courseHomepageConfirmHide' : 'courseHomepageConfirmShow')
                 : (showOnPlatform ? 'courseVisibilityHide' : 'courseVisibilityShow');
               var title = t(action);
@@ -2015,7 +2042,7 @@
                 e(label) + '</button>';
             },
             csv: function (c) {
-              var visibilityKey = inPersonOnly
+              var visibilityKey = c.courseType === 'in_person'
                 ? (c.profileOnly ? 'courseHomepageHidden' : 'courseHomepageVisible')
                 : (c.profileOnly ? 'courseVisibilityProfile' : 'courseVisibilityPlatform');
               return t(visibilityKey);
@@ -2027,14 +2054,25 @@
               var cohortCount = AdminData.inPersonCohorts().filter(function (cohort) {
                 return String(cohort.courseId) === String(c.id);
               }).length;
-              var cohortButton = inPersonOnly
+              var cohortButton = c.courseType === 'in_person'
                 ? '<button type="button" class="chip neutral linkish" data-act="course-cohorts" data-id="' +
-                  e(c.pk || c.id) + '" aria-label="' + e(t('courseCohorts') + ' — ' + c.title) + '">' +
+                  e(c.pk || c.id) + '" data-course-kind="' + e(c.inPersonKind || 'course') +
+                  '" aria-label="' + e(t('courseCohorts') + ' — ' + c.title) + '">' +
                   e(t('courseCohorts')) + ' (' + cohortCount + ')</button>'
                 : '';
-              return '<div class="course-table-row-actions">' + orderDragHandle() + cohortButton +
+              return '<div class="course-table-row-actions">' +
+                (inPersonKind ? '' : orderDragHandle()) + cohortButton +
                 linkBtn(SITE.u('course', c.id), 'eye', t('openCourse')) +
-                linkBtn(editorRoute('course', c.id), 'external-link', t('editCourse')) +
+                linkBtn(
+                  editorRoute(
+                    workshopsOnly
+                      ? (c.courseType === 'in_person' ? 'in-person-workshop' : 'online-workshop')
+                      : (inPersonOnly ? 'in-person-course' : 'course'),
+                    c.id
+                  ),
+                  'external-link',
+                  t('editCourse')
+                ) +
                 '</div>';
             }
           }
@@ -2879,7 +2917,8 @@
         options: [
           { v: '', l: '—' },
           { v: 'gaza', l: t('registrationRequestGovernorateGaza') },
-          { v: 'central', l: t('registrationRequestGovernorateCentral') }
+          { v: 'central', l: t('registrationRequestGovernorateCentral') },
+          { v: 'online', l: t('registrationRequestGovernorateOnline') }
         ]
       },
       {
@@ -3030,13 +3069,17 @@
                 ? e(t('registrationRequestGovernorateGaza'))
                 : request.governorate === 'central'
                   ? e(t('registrationRequestGovernorateCentral'))
+                  : request.governorate === 'online'
+                    ? e(t('registrationRequestGovernorateOnline'))
                   : '<span class="tiny muted">—</span>';
             },
             csv: function (request) {
               return request.governorate === 'gaza'
                 ? t('registrationRequestGovernorateGaza')
                 : request.governorate === 'central'
-                  ? t('registrationRequestGovernorateCentral') : '';
+                  ? t('registrationRequestGovernorateCentral')
+                  : request.governorate === 'online'
+                    ? t('registrationRequestGovernorateOnline') : '';
             }
           },
           {
@@ -4042,7 +4085,7 @@
     var match = (location.hash || '').replace(/^#\/?/, '').match(/^in-person-course-cohorts\/(.+)$/);
     if (!match) return null;
     try {
-      return decodeURIComponent(match[1]);
+      return decodeURIComponent(match[1].split('?')[0]);
     } catch (error) {
       return match[1];
     }
@@ -4131,11 +4174,15 @@
           '<option value="gaza"' + (request.governorate === 'gaza' ? ' selected' : '') + '>' +
           e(t('registrationRequestGovernorateGaza')) + '</option>' +
           '<option value="central"' + (request.governorate === 'central' ? ' selected' : '') + '>' +
-          e(t('registrationRequestGovernorateCentral')) + '</option></select>'
+          e(t('registrationRequestGovernorateCentral')) + '</option>' +
+          '<option value="online"' + (request.governorate === 'online' ? ' selected' : '') + '>' +
+          e(t('registrationRequestGovernorateOnline')) + '</option></select>'
         : request.governorate === 'gaza'
           ? e(t('registrationRequestGovernorateGaza'))
           : request.governorate === 'central'
             ? e(t('registrationRequestGovernorateCentral'))
+            : request.governorate === 'online'
+              ? e(t('registrationRequestGovernorateOnline'))
             : '<span class="tiny muted">—</span>') + '</td>' +
       '<td data-label="' + e(labels.phone) + '">' + (editing
         ? '<input class="input course-request-inline-control course-request-inline-phone" type="tel" maxlength="13" dir="ltr" data-registration-field="phone" value="' +
@@ -4413,7 +4460,8 @@
       return String(item.pk || item.id) === String(courseId);
     })[0];
     if (!course) {
-      return '<button type="button" class="btn btn-ghost btn-sm" data-act="course-cohorts-back">' +
+      return '<button type="button" class="btn btn-ghost btn-sm" data-act="course-cohorts-back" data-return-section="' +
+        e(getCourseCohortReturnSection()) + '">' +
         UI.icon('arrow-right', 14) + e(t('courseCohortsBack')) + '</button>' +
         '<p class="tiny muted">' + e(t('courseCohortCourseMissing')) + '</p>';
     }
@@ -4428,7 +4476,8 @@
     var activeCohort = cohorts.filter(function (cohort) { return cohort.active; })[0];
     var history = cohorts.filter(function (cohort) { return !cohort.active; });
     return '<div class="course-cohort-page">' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-act="course-cohorts-back">' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-act="course-cohorts-back" data-return-section="' +
+      e(getCourseCohortReturnSection()) + '">' +
       UI.icon('arrow-right', 14) + e(t('courseCohortsBack')) + '</button>' +
       '<h2>' + e(course.title) + '</h2>' +
       '<section class="course-cohort-page-section"><h3>' + e(t('courseCohortActiveRequests')) + '</h3>' +
@@ -4443,6 +4492,13 @@
         }).join('') + '</div>'
         : '<p class="tiny muted">' + e(t('courseCohortNoHistory')) + '</p>') +
       '</section></div>';
+  }
+
+  function getCourseCohortReturnSection() {
+    var route = (location.hash || '').replace(/^#\/?/, '');
+    return new URLSearchParams(route.split('?')[1] || '').get('from') === 'workshops'
+      ? 'workshops'
+      : 'in-person-courses';
   }
 
   function wireCourseCohortPage(host) {
@@ -4568,11 +4624,14 @@
   });
 
   Admin.on('course-cohorts', function (el) {
-    Admin.navigate('in-person-course-cohorts/' + encodeURIComponent(el.getAttribute('data-id')));
+    var source = el.getAttribute('data-course-kind') === 'workshop' ? '?from=workshops' : '';
+    Admin.navigate(
+      'in-person-course-cohorts/' + encodeURIComponent(el.getAttribute('data-id')) + source
+    );
   });
 
-  Admin.on('course-cohorts-back', function () {
-    Admin.navigate('in-person-courses');
+  Admin.on('course-cohorts-back', function (el) {
+    Admin.navigate(el.getAttribute('data-return-section') || getCourseCohortReturnSection());
   });
 
   Admin.on('course-cohort-history-toggle', function (el) {
@@ -4632,7 +4691,9 @@
           request.governorate === 'gaza'
             ? t('registrationRequestGovernorateGaza')
             : request.governorate === 'central'
-              ? t('registrationRequestGovernorateCentral') : ''
+              ? t('registrationRequestGovernorateCentral')
+              : request.governorate === 'online'
+                ? t('registrationRequestGovernorateOnline') : ''
         ) +
         detailField(t('registrationRequestStudyYear'), request.studyYear) +
         detailField(t('colRole'), studentStatusKey ? t(studentStatusKey) : '—') +
@@ -4698,7 +4759,7 @@
     }
     if (!values.address || values.address.length > 255 ||
         !values.specialty || values.specialty.length > 150 ||
-        ['gaza', 'central'].indexOf(values.governorate) === -1 ||
+        ['gaza', 'central', 'online'].indexOf(values.governorate) === -1 ||
         !/^[1-9]\d*$/.test(values.studyYear || '') ||
         Number(values.studyYear) > 4294967295 ||
         ['', 'student', 'graduate'].indexOf(values.studentStatus) === -1 ||
@@ -4707,7 +4768,7 @@
         !/^[1-9]\d*$/.test(values.studyYear || '') ||
           Number(values.studyYear) > 4294967295
           ? t('registrationRequestStudyYearInvalid')
-          : ['gaza', 'central'].indexOf(values.governorate) === -1
+          : ['gaza', 'central', 'online'].indexOf(values.governorate) === -1
             ? t('registrationRequestGovernorateInvalid')
             : t('registrationRequestInvalid'),
         'error'
@@ -5608,80 +5669,33 @@
 
   Admin.register('workshops', {
     render: function () {
-      var rows = AdminData.workshops();
-      return '<div class="workshop-admin-toolbar"><button class="btn btn-primary" data-act="workshop-add">' +
-        UI.icon('plus', 15) + e(t('workshopAdd')) + '</button></div>' +
-        Admin.table({
-          key: 'workshops',
-          id: function (workshop) { return workshop.id; },
-          rows: rows,
-          pageSize: 10,
-          search: function (workshop) {
-            return [workshop.title, workshop.location, workshop.description].join(' ');
-          },
-          empty: {
-            icon: 'calendar',
-            title: t('emptyTitle'),
-            sub: t('subWorkshops'),
-            action: '<button class="btn btn-primary btn-sm" data-act="workshop-add">' +
-              UI.icon('plus', 14) + e(t('workshopAdd')) + '</button>'
-          },
-          columns: [
-            {
-              k: 'title',
-              label: t('workshopTitle'),
-              sortVal: function (workshop) { return workshop.title; },
-              render: function (workshop) {
-                return '<div><b>' + e(workshop.title) + '</b>' +
-                  (workshop.location ? '<div class="tiny muted">' + e(workshop.location) + '</div>' : '') +
-                  '</div>';
-              },
-              csv: function (workshop) { return workshop.title; }
-            },
-            {
-              k: 'date',
-              label: t('workshopStartsAt'),
-              sortVal: function (workshop) { return workshop.startsAt; },
-              render: function (workshop) { return '<span class="tiny muted">' + e(workshopDateTime(workshop.startsAt)) + '</span>'; },
-              csv: function (workshop) { return workshop.startsAt; }
-            },
-            {
-              k: 'duration',
-              label: t('workshopDuration'),
-              sortVal: function (workshop) { return workshop.durationMinutes; },
-              render: function (workshop) { return workshop.durationMinutes + ' ' + e(t('workshopMinutes')); },
-              csv: function (workshop) { return workshop.durationMinutes; }
-            },
-            {
-              k: 'attendees',
-              label: t('workshopAttendees'),
-              sortVal: function (workshop) { return workshop.attendeesCount; },
-              render: function (workshop) {
-                return '<button class="chip neutral workshop-attendees-count" type="button" data-act="workshop-attendees" data-id="' +
-                  e(workshop.id) + '" aria-label="' + e(t('workshopAttendeesTitle')) + ' (' + workshop.attendeesCount + ')">' +
-                  workshop.attendeesCount + '</button> ' +
-                  '<span class="st ' + (workshop.attendanceOpen ? 'st-ok' : 'st-mute') + '">' +
-                  e(t(workshop.attendanceOpen ? 'workshopAttendanceIsOpen' : 'workshopAttendanceIsClosed')) + '</span>';
-              },
-              csv: function (workshop) { return workshop.attendeesCount; }
-            },
-            {
-              k: 'actions',
-              label: t('colActions'),
-              cls: 'acts',
-              noCsv: true,
-              render: function (workshop) {
-                return iconBtn('workshop-qr', workshop.id, 'image', t('workshopShowQr')) +
-                  iconBtn('workshop-edit', workshop.id, 'pencil', t('workshopEdit')) +
-                  iconBtn('workshop-toggle-attendance', workshop.id, workshop.attendanceOpen ? 'close' : 'check-circle',
-                    t(workshop.attendanceOpen ? 'workshopCloseAttendance' : 'workshopOpenAttendance')) +
-                  iconBtn('workshop-regenerate-qr', workshop.id, 'refresh-cw', t('workshopRegenerateQr')) +
-                  iconBtn('workshop-delete', workshop.id, 'trash', t('workshopDelete'), 'danger');
-              }
-            }
-          ]
-        });
+      return '<section class="course-cohort-page-section"><h3>' +
+        e(t('secInPersonWorkshopCourses')) + '</h3>' +
+        renderCourseTable('in-person-workshop-courses', false, 'workshop', true) +
+        '</section>';
     }
+  });
+
+  Admin.on('workshop-course-add', function () {
+    var modal = UI.modal({
+      title: t('workshopChooseType'),
+      size: 'sm',
+      body: '<div class="workshop-course-type-choices">' +
+        '<button type="button" class="btn btn-soft" data-workshop-course-type="in_person">' +
+        UI.icon('map-pin', 17) + e(t('workshopInPerson')) + '</button>' +
+        '<button type="button" class="btn btn-soft" data-workshop-course-type="online">' +
+        UI.icon('laptop', 17) + e(t('workshopOnline')) + '</button>' +
+        '</div>'
+    });
+    modal.body.addEventListener('click', function (event) {
+      var choice = event.target.closest('[data-workshop-course-type]');
+      if (!choice) return;
+      var route = choice.getAttribute('data-workshop-course-type') === 'in_person'
+        ? 'in-person-workshop'
+        : 'online-workshop';
+      modal.close();
+      Admin.navigate('editor/' + route + '/new');
+    });
   });
 
   Admin.register('course-registration-requests', {
@@ -5767,7 +5781,8 @@
           options: [
             { v: '', l: '—' },
             { v: 'gaza', l: t('registrationRequestGovernorateGaza') },
-            { v: 'central', l: t('registrationRequestGovernorateCentral') }
+            { v: 'central', l: t('registrationRequestGovernorateCentral') },
+            { v: 'online', l: t('registrationRequestGovernorateOnline') }
           ]
         },
         {

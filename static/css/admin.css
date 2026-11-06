@@ -633,6 +633,37 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
 .adm-table td.num { font-variant-numeric: tabular-nums; font-weight: 700; }
 .adm-table td.acts { white-space: nowrap; text-align: end; }
 .adm-table td.acts .btn-icon { width: 32px; height: 32px; border-radius: 9px; vertical-align: middle; }
+.adm-table[data-table-key='in-person-courses'] td.acts,
+.adm-table[data-table-key='in-person-workshop-courses'] td.acts { white-space: normal; }
+.course-table-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+}
+.course-table-row-actions .admin-order-drag-handle,
+.course-table-row-actions .btn-icon { flex: 0 0 30px; }
+.course-table-row-actions .admin-order-drag-handle {
+  width: 30px;
+  margin: 0;
+}
+.course-table-row-actions .linkish {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+.workshop-course-type-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.workshop-course-type-choices .btn {
+  min-height: 54px;
+  justify-content: center;
+  gap: 8px;
+}
 .adm-table .cell-user { display: flex; align-items: center; gap: 10px; min-width: 180px; }
 .adm-table .cell-user .cu-b { min-width: 0; }
 .adm-table .cell-user .cu-b b { display: flex; align-items: center; gap: 5px; font-size: 13.5px; white-space: nowrap; }
@@ -1672,38 +1703,64 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
 }
 
 @media (min-width: 1200px) {
-  .adm-table[data-table-key='in-person-courses'] {
+  .adm-table[data-table-key='in-person-courses'],
+  .adm-table[data-table-key='in-person-workshop-courses'] {
     width: 100%;
     min-width: 0;
     table-layout: fixed;
   }
   .adm-table[data-table-key='in-person-courses'] th,
-  .adm-table[data-table-key='in-person-courses'] td {
+  .adm-table[data-table-key='in-person-courses'] td,
+  .adm-table[data-table-key='in-person-workshop-courses'] th,
+  .adm-table[data-table-key='in-person-workshop-courses'] td {
     box-sizing: border-box;
     padding: 8px 6px;
     font-size: 12px;
     overflow-wrap: anywhere;
   }
-  .adm-table[data-table-key='in-person-courses'] th { white-space: normal; }
+  .adm-table[data-table-key='in-person-courses'] th,
+  .adm-table[data-table-key='in-person-workshop-courses'] th { white-space: normal; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(1),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(1) { width: 22%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(1),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(1),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(1) { width: 22%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(2),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(2) { width: 11%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(2),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(2),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(2) { width: 11%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(3),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(3) { width: 10%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(3),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(3),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(3) { width: 10%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(4),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(4) { width: 7%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(4),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(4),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(4) { width: 7%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(5),
   .adm-table[data-table-key='in-person-courses'] td:nth-child(5),
   .adm-table[data-table-key='in-person-courses'] th:nth-child(6),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(6) { width: 5%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(6),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(5),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(5),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(6),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(6) { width: 5%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(7),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(7) { width: 8%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(7),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(7),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(7) { width: 8%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(8),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(8) { width: 14%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(8),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(8),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(8) { width: 14%; }
   .adm-table[data-table-key='in-person-courses'] th:nth-child(9),
-  .adm-table[data-table-key='in-person-courses'] td:nth-child(9) { width: 18%; }
+  .adm-table[data-table-key='in-person-courses'] td:nth-child(9),
+  .adm-table[data-table-key='in-person-workshop-courses'] th:nth-child(9),
+  .adm-table[data-table-key='in-person-workshop-courses'] td:nth-child(9) { width: 18%; }
   .adm-table[data-table-key='in-person-courses'] .cell-cover {
+    min-width: 0;
+    gap: 7px;
+  }
+  .adm-table[data-table-key='in-person-workshop-courses'] .cell-cover {
     min-width: 0;
     gap: 7px;
   }
@@ -1712,7 +1769,15 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
     height: 28px;
     flex: none;
   }
+  .adm-table[data-table-key='in-person-workshop-courses'] .cell-cover .cc-img {
+    width: 38px;
+    height: 28px;
+    flex: none;
+  }
   .adm-table[data-table-key='in-person-courses'] .cell-cover .cc-b {
+    min-width: 0;
+  }
+  .adm-table[data-table-key='in-person-workshop-courses'] .cell-cover .cc-b {
     min-width: 0;
   }
   .adm-table[data-table-key='in-person-courses'] .cell-cover .cc-b b {
@@ -1720,29 +1785,17 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
     overflow-wrap: anywhere;
     font-size: 12px;
   }
-  .adm-table[data-table-key='in-person-courses'] td.acts { white-space: normal; }
-  .course-table-row-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 4px;
-  }
-  .course-table-row-actions .admin-order-drag-handle,
-  .course-table-row-actions .btn-icon {
-    flex: 0 0 30px;
-  }
-  .course-table-row-actions .admin-order-drag-handle {
-    width: 30px;
-    margin: 0;
-  }
-  .course-table-row-actions .linkish {
-    max-width: 100%;
+  .adm-table[data-table-key='in-person-workshop-courses'] .cell-cover .cc-b b {
     white-space: normal;
     overflow-wrap: anywhere;
-    text-align: center;
+    font-size: 12px;
   }
   .adm-table[data-table-key='in-person-courses'] .st {
+    justify-content: center;
+    padding-inline: 5px;
+    white-space: normal;
+  }
+  .adm-table[data-table-key='in-person-workshop-courses'] .st {
     justify-content: center;
     padding-inline: 5px;
     white-space: normal;

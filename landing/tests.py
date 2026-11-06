@@ -137,9 +137,47 @@ class HomePageTests(TestCase):
         self.assertEqual(response.context['online_courses_count'], 8)
         self.assertEqual(
             set(response.context['landing_courses_json'][0]),
-            {'id', 'image', 'price', 'title', 'duration', 'period'},
+            {
+                'id', 'image', 'price', 'title', 'duration', 'period',
+                'inPersonKind',
+            },
         )
         self.assertContains(response, '"landing-online-courses-count"')
+
+    def test_homepage_cards_receive_kind_for_online_and_inperson_workshops(self):
+        trainer = get_user_model().objects.create_user(
+            phone='059444403',
+            password='pass1234',
+            full_name='مدرب ورش الصفحة الرئيسية',
+            role=UserRole.TRAINER,
+        )
+        online_workshop = Course.objects.create(
+            owner=trainer,
+            title='ورشة أونلاين للصفحة الرئيسية',
+            course_type=CourseType.ONLINE,
+            in_person_kind='workshop',
+            status=CourseStatus.PUBLISHED,
+        )
+        inperson_workshop = Course.objects.create(
+            owner=trainer,
+            title='ورشة وجاهية للصفحة الرئيسية',
+            course_type=CourseType.IN_PERSON,
+            in_person_kind='workshop',
+            status=CourseStatus.PUBLISHED,
+        )
+
+        response = self.client.get(reverse('landing:home'))
+
+        online_card = next(
+            item for item in response.context['landing_courses_json']
+            if item['id'] == online_workshop.slug or item['title'] == online_workshop.title
+        )
+        inperson_card = next(
+            item for item in response.context['landing_inperson_courses_json']
+            if item['id'] == inperson_workshop.slug or item['title'] == inperson_workshop.title
+        )
+        self.assertEqual(online_card['inPersonKind'], 'workshop')
+        self.assertEqual(inperson_card['inPersonKind'], 'workshop')
 
     def test_homepage_does_not_render_the_in_person_workshops_tab(self):
         InPersonWorkshop.objects.create(

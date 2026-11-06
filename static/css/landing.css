@@ -1416,6 +1416,7 @@ html[data-theme='dark'] .page-loader {
 }
 
 @media (max-width: 560px) {
+  .course .box-container { grid-template-columns: minmax(0, 1fr); }
   .home-section .home-hero { min-height: 370px; }
   .home-section .home-hero .cd-hero-float {
     width: min(46%, 220px);

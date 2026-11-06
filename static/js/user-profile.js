@@ -157,24 +157,40 @@
     var host = document.getElementById('profileTabs');
     if (!host) return;
     var tabs = [];
+    host.classList.toggle('profile-tabs-trainer', isTrainerProfile);
     if (userCounts.certs > 0) tabs.push({
         id: 'certificates',
         count: userCounts.certs,
         label: isTrainerProfile ? 'statTrainerCourses' : 'studentProfileCertificates',
         icon: isTrainerProfile ? 'graduation-cap' : 'award'
       });
-    if (userCounts.reviewedCerts > 0) tabs.push({
-      id: 'reviewed-certificates',
-      count: userCounts.reviewedCerts,
-      label: 'studentProfileCertificates',
-      icon: 'award'
-    });
-    if (userCounts.projs > 0) tabs.push({
-      id: 'projects',
-      count: userCounts.projs,
-      label: isTrainerProfile ? 'trainerProfileProjects' : 'studentProfileProjects',
-      icon: 'folder'
-    });
+    if (isTrainerProfile) {
+      if (userCounts.projs > 0) tabs.push({
+        id: 'projects',
+        count: userCounts.projs,
+        label: 'trainerProfileProjects',
+        icon: 'folder'
+      });
+      if (userCounts.reviewedCerts > 0) tabs.push({
+        id: 'reviewed-certificates',
+        count: userCounts.reviewedCerts,
+        label: 'studentProfileCertificates',
+        icon: 'award'
+      });
+    } else {
+      if (userCounts.reviewedCerts > 0) tabs.push({
+        id: 'reviewed-certificates',
+        count: userCounts.reviewedCerts,
+        label: 'studentProfileCertificates',
+        icon: 'award'
+      });
+      if (userCounts.projs > 0) tabs.push({
+        id: 'projects',
+        count: userCounts.projs,
+        label: 'studentProfileProjects',
+        icon: 'folder'
+      });
+    }
     if (!tabs.some(function (tab) { return tab.id === activeTab; })) {
       activeTab = tabs.length ? tabs[0].id : '';
     }
@@ -222,6 +238,7 @@
               }
               return AppPage.certCard(course, {
                 course: true,
+                courseListingBadge: true,
                 profileInactiveCourse: course.status !== 'published',
                 viewOnly: true,
                 from: 'all-users',
@@ -233,8 +250,8 @@
         certHost.innerHTML = certs.length
           ? '<div class="card-grid profile-certificate-grid">' + certs.map(function (c) {
               if (!window.AppPage) return '';
-              if (c.workshop) return AppPage.workshopCertificateCard(c);
-              if (c.manual) return AppPage.certCard(c, { manualImage: true });
+              if (c.workshop) return AppPage.workshopCertificateCard(c, { returnTo: profileReturn });
+              if (c.manual) return AppPage.certCard(c, { manualImage: true, returnTo: profileReturn });
               return AppPage.certCard(c, c.earned
                 ? { returnTo: profileReturn, imageOnly: true }
                 : { course: true, from: 'all-users', returnTo: profileReturn });
@@ -247,7 +264,7 @@
         reviewedCertHost.innerHTML = reviewedCerts.length
           ? '<div class="card-grid profile-certificate-grid">' + reviewedCerts.map(function (certificate) {
               return window.AppPage
-                ? AppPage.certCard(certificate, { manualImage: true })
+                ? AppPage.certCard(certificate, { manualImage: true, returnTo: profileReturn })
                 : '';
             }).join('') + '</div>'
           : UI.emptyState('award', t('certEmpty'), '', '');

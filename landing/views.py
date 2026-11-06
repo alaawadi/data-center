@@ -17,14 +17,20 @@ class HomeView(TemplateView):
         context['landing_courses_json'] = [
             {
                 key: course[key]
-                for key in ('id', 'image', 'price', 'title', 'duration', 'period')
+                for key in (
+                    'id', 'image', 'price', 'title', 'duration', 'period',
+                    'inPersonKind',
+                )
             }
             for course in context['courses_json'][:6]
         ]
         context['landing_inperson_courses_json'] = [
             {
                 key: course[key]
-                for key in ('id', 'image', 'price', 'title', 'duration', 'period')
+                for key in (
+                    'id', 'image', 'price', 'title', 'duration', 'period',
+                    'inPersonKind',
+                )
             }
             for course in context['inperson_courses_json']
         ]

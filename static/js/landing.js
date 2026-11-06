@@ -243,8 +243,11 @@
             : '<div class="workshop-art">' + icon('book-open', 40) + '</div>') +
         '<span class="course-format-badge' + (isInPerson ? '' : ' course-format-badge-online') + '">' +
           icon(isInPerson ? 'map-pin' : 'laptop', 14) +
-          (isInPerson ? ' دورة وجاهية' : ' دورة أونلاين') + '</span>' +
-        (course.price ? '<span class="price">' + esc(course.price) + '</span>' : '') +
+          (isInPerson
+            ? (course.inPersonKind === 'workshop' ? ' ورشة وجاهية' : ' دورة وجاهية')
+            : (course.inPersonKind === 'workshop' ? ' ورشة أونلاين' : ' دورة أونلاين')) + '</span>' +
+        ((course.price || course.isFree)
+          ? '<span class="price">' + esc(course.isFree ? 'مجانية' : course.price) + '</span>' : '') +
         '<div class="content"><h3 class="title">' + esc(course.title) + '</h3>' +
         '<div class="info">' +
         (course.duration ? '<h3>' + icon('clock', 13) + esc(course.duration) + '</h3>' : '') +

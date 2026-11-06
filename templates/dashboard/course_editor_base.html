@@ -15,7 +15,9 @@
             <span class="spacer"></span>
             <div class="editor-bar-actions">
               <button class="btn btn-ghost btn-sm" id="edPreviewBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
-              <button class="btn btn-soft btn-sm" id="edDraftBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+              {% if not is_trainer_editor or is_admin_editor or admin_dashboard_editor %}
+                <button class="btn btn-soft btn-sm" id="edDraftBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
+              {% endif %}
               <button class="btn btn-primary btn-sm" id="edPublishBtn"><span class="ic-slot"></span><span class="lbl"></span></button>
             </div>
           </div>

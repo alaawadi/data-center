@@ -28,6 +28,7 @@ from .models import (
     CourseSection,
     CourseStatus,
     CourseType,
+    InPersonCourseKind,
     CourseVersion,
     InPersonCourseCohort,
     InPersonWorkshop,
@@ -86,6 +87,45 @@ def _payload(**kwargs):
     }
     base.update(kwargs)
     return base
+
+
+def _free_workshop_syllabus(lesson_count=3, final_type='quiz', question_count=10):
+    lessons = []
+    for index in range(lesson_count):
+        lesson = {
+            'title': f'درس {index + 1}',
+            'duration': '05:00',
+            'type': 'video',
+            'videoUrl': f'https://example.com/lesson-{index + 1}.mp4',
+        }
+        if index == lesson_count - 1:
+            lesson['type'] = final_type
+            if final_type == 'quiz':
+                lesson['quiz'] = {
+                    'questions': [
+                        {
+                            'text': f'سؤال {question_index + 1}',
+                            'choices': [
+                                {'text': 'إجابة صحيحة', 'correct': True},
+                                {'text': 'إجابة أخرى', 'correct': False},
+                            ],
+                        }
+                        for question_index in range(question_count)
+                    ],
+                }
+        lessons.append(lesson)
+    return [{'title': 'القسم الوحيد', 'lessons': lessons}]
+
+
+def _free_workshop_payload(**kwargs):
+    payload = {
+        'courseType': CourseType.ONLINE,
+        'inPersonKind': InPersonCourseKind.WORKSHOP,
+        'price': '0',
+        'syllabus': _free_workshop_syllabus(),
+    }
+    payload.update(kwargs)
+    return _payload(**payload)
 
 
 class CoursePermissionsTests(TestCase):
@@ -221,6 +261,36 @@ class CoursePermissionsTests(TestCase):
                 self.assertEqual(response.json()['error'], 'title_required')
         self.assertFalse(Course.objects.exists())
 
+    def test_trainer_course_price_minimum_depends_on_currency(self):
+        for currency, price in (('ILS', '49.99'), ('USD', '15.99')):
+            with self.subTest(currency=currency, price=price):
+                response = self._post(
+                    _payload(currency=currency, price=price, status='draft'),
+                    self.trainer,
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.json()['error'],
+                    'course_price_below_minimum',
+                )
+        self.assertFalse(Course.objects.exists())
+
+        for currency, price in (('ILS', '50'), ('USD', '16')):
+            with self.subTest(currency=currency, price=price):
+                response = self._post(
+                    _payload(
+                        currency=currency,
+                        price=price,
+                        status='draft',
+                        title=f'دورة حد أدنى {currency}',
+                    ),
+                    self.trainer,
+                )
+                self.assertEqual(response.status_code, 200, response.content)
+                course = Course.objects.get(slug=response.json()['id'])
+                self.assertEqual(course.price, price)
+                self.assertEqual(course.currency, currency)
+
     def test_new_course_defaults_to_inactive_and_stays_in_trainer_profile(self):
         payload = _payload()
         payload.pop('status')
@@ -287,6 +357,144 @@ class CoursePermissionsTests(TestCase):
         course = Course.objects.get(slug=response.json()['id'])
         self.assertTrue(course.profile_only)
 
+    def test_trainer_can_create_online_workshop(self):
+        response = self._post(
+            _payload(
+                courseType=CourseType.ONLINE,
+                inPersonKind=InPersonCourseKind.WORKSHOP,
+            ),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.course_type, CourseType.ONLINE)
+        self.assertEqual(course.in_person_kind, InPersonCourseKind.WORKSHOP)
+        self.assertTrue(course.profile_only)
+        self.assertEqual(
+            course.to_public_dict()['inPersonKind'],
+            InPersonCourseKind.WORKSHOP,
+        )
+
+    def test_trainer_can_publish_one_free_online_workshop(self):
+        response = self._post(_free_workshop_payload(), self.trainer)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.price, '0')
+        self.assertTrue(course.to_public_dict()['isFree'])
+        self.assertEqual(course.sections.count(), 1)
+        self.assertEqual(course.lessons_count, 3)
+        final_lesson = course.sections.get().lessons.order_by('order').last()
+        self.assertEqual(final_lesson.type, LessonType.QUIZ)
+        self.assertEqual(final_lesson.quiz.questions.count(), 10)
+
+        second_response = self._post(
+            _free_workshop_payload(title='ورشة مجانية ثانية'),
+            self.trainer,
+        )
+
+        self.assertEqual(second_response.status_code, 409)
+        self.assertEqual(
+            second_response.json()['error'],
+            'free_workshop_limit_reached',
+        )
+        self.assertEqual(Course.objects.filter(owner=self.trainer).count(), 1)
+
+    def test_free_online_course_is_rejected_by_trainer_price_minimum(self):
+        response = self._post(
+            _payload(price='0', status='published'),
+            self.trainer,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'course_price_below_minimum')
+        self.assertFalse(Course.objects.exists())
+
+    def test_free_online_workshop_slot_is_released_when_made_paid_or_archived(self):
+        first_response = self._post(_free_workshop_payload(), self.trainer)
+        self.assertEqual(first_response.status_code, 200, first_response.content)
+        first = Course.objects.get(slug=first_response.json()['id'])
+
+        paid_response = self._post(
+            _free_workshop_payload(id=first.slug, price='25'),
+            self.trainer,
+        )
+        self.assertEqual(paid_response.status_code, 200, paid_response.content)
+        paid_workshop = Course.objects.get(slug=paid_response.json()['id'])
+        self.assertTrue(paid_workshop.is_paid)
+
+        second_response = self._post(
+            _free_workshop_payload(title='ورشة مجانية ثانية'),
+            self.trainer,
+        )
+        self.assertEqual(second_response.status_code, 200, second_response.content)
+        second = Course.objects.get(slug=second_response.json()['id'])
+
+        archived_response = self._post(
+            _free_workshop_payload(id=second.slug, status='archived'),
+            self.trainer,
+        )
+        self.assertEqual(archived_response.status_code, 200, archived_response.content)
+        second.refresh_from_db()
+        self.assertEqual(second.status, CourseStatus.DRAFT)
+
+        third_response = self._post(
+            _free_workshop_payload(title='ورشة مجانية ثالثة'),
+            self.trainer,
+        )
+        self.assertEqual(third_response.status_code, 200, third_response.content)
+
+    def test_free_online_workshop_rejects_excess_sections_or_lessons_on_draft(self):
+        too_many_sections = _free_workshop_payload(
+            status='draft',
+            syllabus=[
+                {'title': 'القسم الأول', 'lessons': []},
+                {'title': 'القسم الثاني', 'lessons': []},
+            ],
+        )
+        section_response = self._post(too_many_sections, self.trainer)
+        self.assertEqual(section_response.status_code, 400)
+        self.assertEqual(
+            section_response.json()['error'],
+            'free_workshop_structure_limit',
+        )
+
+        too_many_lessons = _free_workshop_payload(
+            status='draft',
+            syllabus=_free_workshop_syllabus(lesson_count=4),
+        )
+        lesson_response = self._post(too_many_lessons, self.trainer)
+        self.assertEqual(lesson_response.status_code, 400)
+        self.assertEqual(
+            lesson_response.json()['error'],
+            'free_workshop_structure_limit',
+        )
+        self.assertFalse(Course.objects.exists())
+
+    def test_free_online_workshop_publication_requires_two_lessons_and_final_quiz(self):
+        cases = [
+            (_free_workshop_syllabus(lesson_count=1), 'freeWorkshopLessons'),
+            (
+                _free_workshop_syllabus(lesson_count=2, final_type='video'),
+                'freeWorkshopFinalQuiz',
+            ),
+            (
+                _free_workshop_syllabus(lesson_count=2, question_count=9),
+                'freeWorkshopQuizQuestions',
+            ),
+        ]
+        for syllabus, expected_issue in cases:
+            with self.subTest(expected_issue=expected_issue):
+                response = self._post(
+                    _free_workshop_payload(syllabus=syllabus),
+                    self.trainer,
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()['error'], 'course_incomplete')
+                self.assertIn(expected_issue, response.json()['missing'])
+        self.assertFalse(Course.objects.exists())
+
     def test_course_currency_is_saved_and_formatted(self):
         response = self._post(
             _payload(status='draft', currency='USD'),
@@ -313,17 +521,24 @@ class CoursePermissionsTests(TestCase):
             owner=self.trainer,
             title='دورة وجاهية',
             course_type=CourseType.IN_PERSON,
+            in_person_kind=InPersonCourseKind.WORKSHOP,
             profile_only=True,
         )
 
         response = self._post(
-            _payload(id=course.slug, status='draft', courseType=CourseType.ONLINE),
+            _payload(
+                id=course.slug,
+                status='draft',
+                courseType=CourseType.ONLINE,
+                inPersonKind=InPersonCourseKind.COURSE,
+            ),
             self.trainer,
         )
 
         self.assertEqual(response.status_code, 200, response.content)
         course.refresh_from_db()
         self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertEqual(course.in_person_kind, InPersonCourseKind.WORKSHOP)
         self.assertFalse(course.profile_only)
 
     def test_admin_can_create_course_and_assign_it_to_a_trainer(self):
@@ -347,6 +562,57 @@ class CoursePermissionsTests(TestCase):
         course = Course.objects.get(slug=response.json()['id'])
         self.assertEqual(course.course_type, CourseType.IN_PERSON)
         self.assertFalse(course.profile_only)
+
+    def test_admin_can_save_inperson_workshop_kind(self):
+        response = self._post(
+            _payload(
+                trainerId=str(self.other_trainer.pk),
+                courseType=CourseType.IN_PERSON,
+                inPersonKind=InPersonCourseKind.WORKSHOP,
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.in_person_kind, InPersonCourseKind.WORKSHOP)
+        self.assertEqual(
+            course.to_public_dict()['inPersonKind'],
+            InPersonCourseKind.WORKSHOP,
+        )
+
+    def test_admin_can_create_online_workshop_kind(self):
+        response = self._post(
+            _payload(
+                trainerId=str(self.other_trainer.pk),
+                courseType=CourseType.ONLINE,
+                inPersonKind=InPersonCourseKind.WORKSHOP,
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course = Course.objects.get(slug=response.json()['id'])
+        self.assertEqual(course.course_type, CourseType.ONLINE)
+        self.assertEqual(course.in_person_kind, InPersonCourseKind.WORKSHOP)
+        self.assertEqual(
+            course.to_public_dict()['inPersonKind'],
+            InPersonCourseKind.WORKSHOP,
+        )
+
+    def test_admin_cannot_save_invalid_inperson_kind(self):
+        response = self._post(
+            _payload(
+                trainerId=str(self.other_trainer.pk),
+                courseType=CourseType.IN_PERSON,
+                inPersonKind='invalid',
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'invalid_in_person_kind')
+        self.assertFalse(Course.objects.exists())
 
     def test_published_inperson_course_does_not_require_tags(self):
         response = self._post(
@@ -1095,6 +1361,15 @@ class CoursePageTests(TestCase):
         self.assertEqual(res.context['courses_json'][0]['syllabus'], [])
         self.assertEqual(res.context['courses_json'][0]['content'], '')
 
+    def test_trainer_course_editor_hides_draft_action(self):
+        self.client.force_login(self.trainer)
+
+        response = self.client.get(reverse('courses:edit', kwargs={'pk': self.draft.slug}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['is_trainer_editor'])
+        self.assertNotContains(response, 'id="edDraftBtn"')
+
     def test_list_page_does_not_query_each_course_owner_profile(self):
         for index in range(4):
             Course.objects.create(
@@ -1434,8 +1709,9 @@ class CoursePageTests(TestCase):
 
     def test_inperson_detail_page_payload_identifies_course_type_and_learning_skills(self):
         self.published.course_type = CourseType.IN_PERSON
+        self.published.in_person_kind = InPersonCourseKind.WORKSHOP
         self.published.skills = ['التصوير', 'الإضاءة']
-        self.published.save(update_fields=['course_type', 'skills'])
+        self.published.save(update_fields=['course_type', 'in_person_kind', 'skills'])
 
         response = self.client.get(
             reverse('courses:detail', kwargs={'pk': self.published.slug})
@@ -1444,6 +1720,7 @@ class CoursePageTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.context['courses_json'][0]
         self.assertEqual(payload['courseType'], CourseType.IN_PERSON)
+        self.assertEqual(payload['inPersonKind'], InPersonCourseKind.WORKSHOP)
         self.assertEqual(payload['skills'], ['التصوير', 'الإضاءة'])
         self.assertIn(('+970', '🇵🇸 +970'), response.context['country_calling_code_choices'])
         self.assertContains(response, 'id="country-calling-code-choices"')
@@ -1589,6 +1866,25 @@ class CoursePageTests(TestCase):
         self.assertIsNone(registration.study_year)
         self.assertEqual(registration.student_status, 'graduate')
         self.assertEqual(registration.address, '')
+
+    def test_inperson_registration_request_accepts_online_governorate_option(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.save(update_fields=['course_type'])
+        response = self.client.post(
+            reverse('courses:registration-request', kwargs={'pk': self.published.slug}),
+            data=json.dumps({
+                'fullName': 'محمد أحمد علي',
+                'phone': '+970561234567',
+                'specialty': 'علوم الحاسوب',
+                'governorate': 'online',
+                'studyYear': 2,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        registration = CourseRegistrationRequest.objects.get(pk=response.json()['id'])
+        self.assertEqual(registration.governorate, 'online')
 
     @patch('courses.views.rate_limited', return_value=False)
     def test_inperson_registration_request_allows_two_per_session_and_rejects_third(self, _rate_limited):
@@ -1926,6 +2222,10 @@ class CoursePageTests(TestCase):
         create_response = self.client.get(reverse('courses:create'))
         self.assertEqual(create_response.status_code, 200)
         self.assertFalse(create_response.context['can_select_course_type'])
+        self.assertTrue(create_response.context['is_trainer_editor'])
+        self.assertContains(create_response, 'data-trainer-course-editor="true"')
+        self.assertNotContains(create_response, 'id="edDraftBtn"')
+        self.assertNotContains(create_response, 'id="edVersionHistory"')
         self.assertNotContains(create_response, 'id="edCourseType"')
         self.assertEqual(create_response.context['training_categories_json'], [category.name])
         self.assertContains(create_response, 'id="edCurrency"')
@@ -2018,6 +2318,7 @@ class CoursePageTests(TestCase):
         self.assertNotContains(res, 'id="edGallery"')
         self.assertNotContains(res, 'id="edIdeas"')
         self.assertNotContains(res, 'id="edSocialPreview"')
+        self.assertNotContains(res, 'id="edVersionHistory"')
         self.assertIn('editor-checklist-mobile', editor_html)
         self.assertLess(editor_html.index('editor-checklist-mobile'), editor_html.index('id="edSyllabusBox"'))
         self.assertIn('id="edContentPanel"', editor_html)
@@ -2039,10 +2340,13 @@ class CoursePageTests(TestCase):
         create_response = self.client.get(reverse('courses:create'))
         self.assertEqual(create_response.status_code, 200)
         self.assertTrue(create_response.context['is_admin_editor'])
+        self.assertContains(create_response, 'id="edDraftBtn"')
+        self.assertContains(create_response, 'id="edVersionHistory"')
         self.assertTrue(create_response.context['can_select_course_type'])
         self.assertContains(create_response, 'id="edCourseType"')
         self.assertContains(create_response, 'name="courseTypeChoice" value="online" checked')
         self.assertContains(create_response, 'name="courseTypeChoice" value="in_person"')
+        self.assertContains(create_response, 'name="inPersonKindChoice" value="workshop"')
         self.assertContains(create_response, 'id="edCourseCompletion"')
         self.assertNotContains(create_response, 'id="edTotalLessons"')
         self.assertContains(create_response, '<option value="coming_soon"></option>')

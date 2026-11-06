@@ -399,6 +399,13 @@ def project_save(request):
     if not isinstance(payload, dict):
         return JsonResponse({'ok': False, 'error': 'invalid_payload'}, status=400)
 
+    gallery = payload.get('gallery')
+    if isinstance(gallery, list) and len(gallery) > 5:
+        return JsonResponse(
+            {'ok': False, 'error': 'project_gallery_limit_exceeded'},
+            status=400,
+        )
+
     is_admin = request.user.is_staff or request.user.role == UserRole.ADMIN
     key = str(payload.get('id') or '').strip()
     project = None
@@ -559,12 +566,11 @@ def project_save(request):
         ]
         project.tags.set(tag_objects)
 
-    gallery = payload.get('gallery')
     if isinstance(gallery, list):
         existing_images = {img.image.url: img for img in project.images.all() if img.image}
         kept = []
         new_images = []
-        for item in gallery[:12]:
+        for item in gallery:
             if isinstance(item, str) and item.startswith('data:'):
                 new_images.append(item)
             else:

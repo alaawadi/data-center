@@ -7,6 +7,7 @@ import re
 import unicodedata
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
 from mimetypes import guess_extension
 
 from django.contrib.auth.decorators import login_required
@@ -43,6 +44,7 @@ from .models import (
     CourseSection,
     CourseStatus,
     CourseType,
+    InPersonCourseKind,
     CourseVersion,
     Lesson,
     LessonType,
@@ -356,7 +358,7 @@ def course_registration_request(request, pk):
         return JsonResponse({'ok': False, 'error': 'invalid_address'}, status=400)
     if not specialty or len(specialty) > 150:
         return JsonResponse({'ok': False, 'error': 'invalid_specialty'}, status=400)
-    if governorate not in ('gaza', 'central'):
+    if governorate not in ('gaza', 'central', 'online'):
         return JsonResponse({'ok': False, 'error': 'invalid_governorate'}, status=400)
     if student_status not in ('', 'student', 'graduate'):
         return JsonResponse({'ok': False, 'error': 'invalid_student_status'}, status=400)
@@ -840,6 +842,7 @@ def course_editor_context(request, key=None):
         context['courses_json'] = []
         context['course_title_en'] = ''
     context['is_admin_editor'] = is_admin
+    context['is_trainer_editor'] = request.user.is_trainer and not is_admin
     context['can_select_course_type'] = is_admin
     context['admin_trainers'] = (
         User.objects.filter(role=UserRole.TRAINER, is_active=True).order_by('full_name', 'pk')
@@ -1377,6 +1380,103 @@ def _course_has_publishable_syllabus(course):
     )
 
 
+def _stored_course_syllabus(course):
+    if course is None:
+        return []
+    sections = list(
+        course.sections.order_by('order', 'id').prefetch_related('lessons')
+    )
+    lesson_ids = [
+        lesson.pk for section in sections for lesson in section.lessons.all()
+    ]
+    quizzes = {
+        quiz.lesson_id: quiz
+        for quiz in Quiz.objects.filter(lesson_id__in=lesson_ids)
+        .prefetch_related('questions__choices')
+    }
+    syllabus = []
+    for section in sections:
+        lessons = []
+        for lesson in section.lessons.all():
+            quiz = quizzes.get(lesson.pk)
+            quiz_data = None
+            if quiz is not None:
+                quiz_data = {
+                    'questions': [
+                        {
+                            'text': question.text,
+                            'choices': [
+                                {'text': choice.text}
+                                for choice in question.choices.all()
+                            ],
+                        }
+                        for question in quiz.questions.all()
+                    ],
+                }
+            lessons.append({
+                'id': lesson.pk,
+                'title': lesson.title,
+                'type': lesson.type,
+                'quiz': quiz_data,
+            })
+        syllabus.append({'title': section.title, 'lessons': lessons})
+    return syllabus
+
+
+def _free_workshop_syllabus_issues(syllabus, require_complete):
+    sections = [
+        section for section in syllabus
+        if isinstance(section, dict)
+    ] if isinstance(syllabus, list) else []
+    if len(sections) > 1:
+        return ['freeWorkshopSections']
+
+    lesson_entries = []
+    for section in sections:
+        lessons = section.get('lessons')
+        if isinstance(lessons, list):
+            lesson_entries.extend(
+                lesson for lesson in lessons if isinstance(lesson, dict)
+            )
+    if len(lesson_entries) > 3:
+        return ['freeWorkshopLessons']
+    if not require_complete:
+        return []
+
+    titled_sections = [
+        section for section in sections
+        if str(section.get('title') or '').strip()
+    ]
+    if len(titled_sections) != 1:
+        return ['freeWorkshopSections']
+    titled_lessons = [
+        lesson for lesson in lesson_entries
+        if str(lesson.get('title') or '').strip()
+    ]
+    if not 2 <= len(titled_lessons) <= 3:
+        return ['freeWorkshopLessons']
+    final_lesson = titled_lessons[-1]
+    if final_lesson.get('type') != LessonType.QUIZ:
+        return ['freeWorkshopFinalQuiz']
+    quiz = final_lesson.get('quiz')
+    questions = quiz.get('questions') if isinstance(quiz, dict) else None
+    valid_question_count = 0
+    if isinstance(questions, list):
+        for question in questions[:_MAX_QUIZ_QUESTIONS]:
+            if not isinstance(question, dict) or not str(question.get('text') or '').strip():
+                continue
+            choices = question.get('choices')
+            valid_choices = [
+                choice for choice in choices
+                if isinstance(choice, dict) and str(choice.get('text') or '').strip()
+            ] if isinstance(choices, list) else []
+            if len(valid_choices) >= 2:
+                valid_question_count += 1
+    if valid_question_count < 10:
+        return ['freeWorkshopQuizQuestions']
+    return []
+
+
 @login_required
 @require_POST
 @transaction.atomic
@@ -1479,6 +1579,22 @@ def course_save(request):
     else:
         raw_course_type = course.course_type if course is not None else CourseType.ONLINE
 
+    if is_admin:
+        raw_in_person_kind = payload.get(
+            'inPersonKind',
+            course.in_person_kind if course is not None else InPersonCourseKind.COURSE,
+        )
+        if raw_in_person_kind not in InPersonCourseKind.values:
+            return JsonResponse({'ok': False, 'error': 'invalid_in_person_kind'}, status=400)
+    elif course is None:
+        raw_in_person_kind = payload.get(
+            'inPersonKind', InPersonCourseKind.COURSE
+        )
+        if raw_in_person_kind not in InPersonCourseKind.values:
+            return JsonResponse({'ok': False, 'error': 'invalid_in_person_kind'}, status=400)
+    else:
+        raw_in_person_kind = course.in_person_kind
+
     cover = payload.get('cover')
     decoded_cover = (
         _decode_data_url(cover)
@@ -1495,6 +1611,67 @@ def course_save(request):
             )
         if cover_storage_name not in allowed_cover_names or not default_storage.exists(cover_storage_name):
             return JsonResponse({'ok': False, 'error': 'invalid_cover_version'}, status=400)
+
+    created = course is None
+    if created:
+        if is_admin:
+            trainer_id = payload.get('trainerId')
+            trainer = User.objects.filter(
+                pk=trainer_id, role=UserRole.TRAINER, is_active=True
+            ).first()
+            if trainer is None:
+                return JsonResponse({'ok': False, 'error': 'trainer_required'}, status=400)
+            course = Course(owner=trainer)
+        else:
+            course = Course(owner=request.user)
+    elif is_admin and 'trainerId' in payload:
+        trainer = User.objects.filter(
+            pk=payload.get('trainerId'), role=UserRole.TRAINER, is_active=True
+        ).first()
+        if trainer is None:
+            return JsonResponse({'ok': False, 'error': 'trainer_required'}, status=400)
+        course.owner = trainer
+
+    is_online_workshop = (
+        raw_course_type == CourseType.ONLINE
+        and raw_in_person_kind == InPersonCourseKind.WORKSHOP
+    )
+    is_free_online_workshop = bool(
+        is_online_workshop and price_match and Decimal(price) == 0
+    )
+    is_trainer_online_course = bool(
+        request.user.is_trainer
+        and not is_admin
+        and raw_course_type == CourseType.ONLINE
+        and raw_in_person_kind == InPersonCourseKind.COURSE
+    )
+    if is_trainer_online_course and price_match:
+        minimum_price = Decimal('16') if currency == CourseCurrency.USD else Decimal('50')
+        if Decimal(price) < minimum_price:
+            return JsonResponse(
+                {'ok': False, 'error': 'course_price_below_minimum'},
+                status=400,
+            )
+    is_trainer_free_workshop = bool(
+        is_free_online_workshop and request.user.is_trainer and not is_admin
+    )
+    structure_issues = []
+    if is_trainer_free_workshop:
+        free_workshop_syllabus = (
+            payload.get('syllabus')
+            if isinstance(payload.get('syllabus'), list)
+            else _stored_course_syllabus(course)
+        )
+        structure_issues = _free_workshop_syllabus_issues(
+            free_workshop_syllabus,
+            require_complete=status == CourseStatus.PUBLISHED,
+        )
+        if structure_issues and status != CourseStatus.PUBLISHED:
+            return JsonResponse(
+                {'ok': False, 'error': 'free_workshop_structure_limit'},
+                status=400,
+            )
+
     if status == CourseStatus.PUBLISHED:
         missing = []
         if not title:
@@ -1523,31 +1700,30 @@ def course_save(request):
             )
             if not has_syllabus:
                 missing.append('syllabus')
+        if is_trainer_free_workshop:
+            missing.extend(structure_issues)
         if missing:
             return JsonResponse(
                 {'ok': False, 'error': 'course_incomplete', 'missing': missing},
                 status=400,
             )
 
-    created = course is None
-    if created:
-        if is_admin:
-            trainer_id = payload.get('trainerId')
-            trainer = User.objects.filter(
-                pk=trainer_id, role=UserRole.TRAINER, is_active=True
-            ).first()
-            if trainer is None:
-                return JsonResponse({'ok': False, 'error': 'trainer_required'}, status=400)
-            course = Course(owner=trainer)
-        else:
-            course = Course(owner=request.user)
-    elif is_admin and 'trainerId' in payload:
-        trainer = User.objects.filter(
-            pk=payload.get('trainerId'), role=UserRole.TRAINER, is_active=True
-        ).first()
-        if trainer is None:
-            return JsonResponse({'ok': False, 'error': 'trainer_required'}, status=400)
-        course.owner = trainer
+    if is_free_online_workshop and status == CourseStatus.PUBLISHED:
+        User.objects.select_for_update().get(pk=course.owner_id)
+        existing_free_workshops = Course.objects.filter(
+            owner_id=course.owner_id,
+            status=CourseStatus.PUBLISHED,
+            course_type=CourseType.ONLINE,
+            in_person_kind=InPersonCourseKind.WORKSHOP,
+        ).exclude(pk=course.pk)
+        if any(
+            str(existing.price or '').strip() and not existing.is_paid
+            for existing in existing_free_workshops
+        ):
+            return JsonResponse(
+                {'ok': False, 'error': 'free_workshop_limit_reached'},
+                status=409,
+            )
 
     duration_ar, duration_en = _format_course_duration(
         payload.get('duration'),
@@ -1572,6 +1748,7 @@ def course_save(request):
         'status': status,
     }
     course_fields['course_type'] = raw_course_type
+    course_fields['in_person_kind'] = raw_in_person_kind
     if course.owner.is_trainer and not course.owner.can_publish_content:
         course_fields['profile_only'] = True
     elif created and request.user.is_trainer and not is_admin:

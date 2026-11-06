@@ -427,6 +427,12 @@ body[data-page="user-profile"] #profileHost .profile-card .bio {
 }
 .profile-tab.is-active { box-shadow: inset 0 -2px 0 var(--brand), var(--shadow); }
 .profile-tab.is-active .profile-tab-count { background: var(--brand); color: #fff; }
+.profile-tabs-trainer .profile-tab.is-active { flex: 0 0 auto; }
+.profile-tabs-trainer .profile-tab.is-active .profile-tab-label {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+}
 
 /* tabbar */
 .tabbar {
@@ -721,6 +727,29 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   padding: 3px 10px;
   border-radius: 99px;
 }
+.cert-thumb .course-format-badge {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  inset-inline-start: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, .35);
+  border-radius: 999px;
+  color: #422006;
+  background: #fbbf24;
+  box-shadow: 0 4px 14px rgba(161, 98, 7, .3);
+  font-size: 12px;
+  font-weight: 800;
+}
+.cert-thumb .course-format-badge .ic { width: 14px; height: 14px; }
+.cert-thumb .course-format-badge-online {
+  color: #fff;
+  background: #2563eb;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, .3);
+}
 .cert-seal {
   position: relative;
   z-index: 1;
@@ -744,6 +773,13 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   box-shadow: 0 4px 12px rgba(0, 0, 0, .25);
   white-space: nowrap;
 }
+.cert-card .course-card-price-bottom {
+  position: absolute;
+  z-index: 2;
+  bottom: 12px;
+  left: 12px;
+}
+.cert-card.course-price-card .cert-body { padding-bottom: 56px; }
 
 .cert-body { padding: 14px 16px 15px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
 .cert-body h3 { font-size: 14.5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -944,9 +980,9 @@ html[dir='rtl'] .tabbar { direction: rtl; }
 
 .course-home-card .course-home-price {
   position: absolute;
-  z-index: 1;
-  top: .9em;
-  inset-inline-end: .9em;
+  z-index: 2;
+  bottom: .9em;
+  left: .9em;
   padding: .65em 1.1em;
   border-radius: 999px;
   color: #fff;
@@ -960,7 +996,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 1.3em 1.3em 1.5em;
+  padding: 1.3em 1.3em 5.2em;
 }
 
 .course-home-card .course-home-content h3 {
@@ -1070,8 +1106,9 @@ html[dir='rtl'] .tabbar { direction: rtl; }
 
 .profile-inperson-course-link .price {
   position: absolute;
-  top: 9px;
-  inset-inline-end: 9px;
+  z-index: 2;
+  bottom: 9px;
+  left: 9px;
   padding: 6px 10px;
   border-radius: 999px;
   background: var(--brand);
@@ -1085,7 +1122,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   display: flex;
   flex: 1;
   flex-direction: column;
-  padding: 12px 13px 14px;
+  padding: 12px 13px 54px;
 }
 
 .profile-inperson-course-link .title {
@@ -1256,6 +1293,10 @@ html[dir='rtl'] .tabbar { direction: rtl; }
     -webkit-line-clamp: 3;
   }
 
+  #allProjectsGrid .proj-body > p {
+    display: none;
+  }
+
   #allProjectsGrid .proj-meta {
     gap: 6px 10px;
     font-size: 11.5px;
@@ -1273,7 +1314,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
 
 @media (max-width: 560px) {
   #allCertsGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   #allCertsGrid .cert-card {
@@ -2276,6 +2317,12 @@ html[dir='rtl'] .prose blockquote { border-radius: var(--r-md) 0 0 var(--r-md); 
     width: 100%;
     gap: 4px;
   }
+  .profile-tabs.profile-tabs-trainer {
+    justify-content: center;
+    overflow-x: auto;
+  }
+  .profile-tabs.profile-tabs-trainer .profile-tab { flex: 0 0 44px; }
+  .profile-tabs.profile-tabs-trainer .profile-tab.is-active { flex-basis: auto; }
   .profile-tab {
     flex: 1 1 0;
     min-width: 0;
@@ -2863,6 +2910,12 @@ html[dir='rtl'] .prose blockquote { border-radius: var(--r-md) 0 0 var(--r-md); 
 .cd-main { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .cd-inperson-learn { max-width: 900px; margin-inline: auto; }
 .cd-registration-card { margin-top: 18px; }
+.cd-locations-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; }
+.cd-location-card { min-width: 0; }
+.cd-location-content { text-align: center; }
+.cd-location-content h3 { margin: 0 0 8px; color: var(--ink); font-size: 15px; font-weight: 800; }
+.cd-location-content p { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.7; }
+.cd-location-content .cd-location-note { color: var(--muted); font-size: 13px; }
 .cd-registration-intro { color: var(--muted); margin: -6px 0 16px; }
 .cd-registration-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .cd-registration-fields label { display: flex; flex-direction: column; gap: 7px; color: var(--ink); font-size: 13.5px; font-weight: 700; }
@@ -3068,7 +3121,7 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   border: 0;
 }
 .cd-registration-governorate legend { margin-bottom: 7px; color: var(--ink); font-size: 13.5px; font-weight: 700; }
-.cd-registration-governorate-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.cd-registration-governorate-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
 .cd-registration-governorate-option { position: relative; display: block !important; cursor: pointer; }
 .cd-registration-governorate-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .cd-registration-governorate-button {
@@ -3188,6 +3241,7 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 }
 @media (max-width: 600px) {
   .cd-registration-fields { grid-template-columns: 1fr; }
+  .cd-locations-grid { grid-template-columns: 1fr; }
   .cd-registration-phone-box .country-code-picker { flex-basis: 118px; width: 118px; }
   .cd-registration-phone-box .country-code-trigger { gap: 5px; padding-inline: 5px; }
   .cd-registration-phone-box > input.input { padding-inline: 9px; font-size: 16px; }
@@ -3396,6 +3450,26 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 }
 
 .cd-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.cd-projects.cd-course-projects-scroll {
+  display: flex;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 1px 8px;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+  cursor: grab;
+}
+.cd-course-projects-scroll::-webkit-scrollbar { display: none; }
+.cd-course-projects-scroll.dragging {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cd-course-projects-scroll > .cd-project-card {
+  flex: 0 0 min(300px, 84%);
+  scroll-snap-align: start;
+}
 .cd-project-card[hidden] { display: none; }
 .cd-projects-more-wrap { display: flex; justify-content: center; margin-top: 16px; }
 .cd-projects-more-wrap.is-hidden { display: none; }
@@ -4654,21 +4728,82 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 .proj-pick-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .proj-pick-field > span { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 13px; }
 .proj-pick-field > span svg { color: var(--brand); }
-.proj-pick-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
-.proj-pick-row .syl-project {
-  flex: 1;
+.proj-picker { position: relative; min-width: 0; }
+.proj-picker-search {
   min-width: 0;
   min-height: 46px;
   border-color: var(--line);
   background-color: var(--bg);
   font-weight: 700;
 }
-.proj-pick-row .syl-project:focus {
+.proj-picker-search:focus {
   border-color: var(--brand);
   background-color: var(--card);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 13%, transparent);
 }
-.proj-pick-new { white-space: nowrap; flex: none; }
+.proj-picker-options {
+  position: absolute;
+  z-index: 20;
+  inset: calc(100% + 5px) 0 auto;
+  max-height: min(280px, 42vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.proj-picker-options[hidden] { display: none; }
+.proj-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 7px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.proj-picker-option[hidden] { display: none; }
+.proj-picker-option:hover,
+.proj-picker-option.is-active { background: var(--brand-soft); }
+.proj-picker-option[aria-selected='true'] { color: var(--brand); }
+.proj-picker-option-cover,
+.proj-picker-option-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 38px;
+  border-radius: 7px;
+  object-fit: cover;
+  background: var(--line-2);
+  color: var(--brand);
+}
+.proj-picker-option-meta {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.proj-picker-option-meta b,
+.proj-picker-option-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.proj-picker-option-meta b { font-size: 13px; }
+.proj-picker-option-meta span,
+.proj-picker-empty { color: var(--muted); font-size: 12px; }
+.proj-picker-empty { padding: 12px; text-align: center; }
 .proj-pick-preview {
   display: flex;
   gap: 10px;
@@ -4688,9 +4823,9 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   .qz-nav .btn { width: 100%; justify-content: center; }
   .qzb-settings { grid-template-columns: 1fr 1fr; }
   .proj-pick { padding: 11px; }
-  .proj-pick-row { flex-direction: column; align-items: stretch; }
-  .proj-pick-row .syl-project { width: 100%; min-height: 50px; }
-  .proj-pick-new { width: 100%; min-height: 44px; justify-content: center; }
+  .proj-picker-search { width: 100%; min-height: 50px; }
+  .proj-picker-options { max-height: min(250px, 38vh); }
+  .proj-picker-option { min-height: 56px; }
   .proj-pick-preview { gap: 9px; }
   .proj-pick-cover { width: 68px; height: 54px; }
 }
@@ -4814,4 +4949,16 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   .trainer-profile-project-grid {
     font-size: .48rem;
   }
+}
+
+.workshop-course-type-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.workshop-course-type-choices .btn {
+  min-height: 54px;
+  justify-content: center;
+  gap: 8px;
 }

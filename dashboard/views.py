@@ -846,7 +846,7 @@ def course_registration_request_save(request):
         return _admin_api_error('العنوان غير صالح.', 400)
     if not isinstance(specialty, str) or not specialty.strip() or len(specialty.strip()) > 150:
         return _admin_api_error('التخصص غير صالح.', 400)
-    if governorate not in ('gaza', 'central'):
+    if governorate not in ('gaza', 'central', 'online'):
         return _admin_api_error('المحافظة غير صالحة.', 400)
     if student_status not in ('student', 'graduate'):
         return _admin_api_error('الحالة الدراسية غير صالحة.', 400)
@@ -939,7 +939,7 @@ def course_registration_request_update(request, pk):
         return _admin_api_error('العنوان غير صالح.', 400)
     if not isinstance(specialty, str) or not specialty.strip() or len(specialty.strip()) > 150:
         return _admin_api_error('التخصص غير صالح.', 400)
-    if has_governorate and governorate not in ('gaza', 'central'):
+    if has_governorate and governorate not in ('gaza', 'central', 'online'):
         return _admin_api_error('المحافظة غير صالحة.', 400)
     if has_study_year and (
         isinstance(study_year, bool)

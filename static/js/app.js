@@ -183,16 +183,26 @@
     var lang = arguments.length > 3 ? arguments[3] : 'ar';
     var hideCode = arguments.length > 4 && arguments[4];
     var english = lang === 'en';
+    var isWorkshop = !!c.workshop || c.inPersonKind === 'workshop';
     var instructor = english
-      ? (c.trainerNameEnglish || c.instructorEnglish || 'English instructor name not provided')
+      ? (c.trainerNameEnglish || c.instructorEnglish ||
+        (c.workshopDetails && c.workshopDetails.trainerEnglish) ||
+        'English instructor name not provided')
       : (c.trainerName || c.instructor || c.issuer || '');
     var title = english
-      ? (c.titleEnglish || c.title_en || 'English title not provided')
+      ? (c.titleEnglish || c.title_en ||
+        (c.workshopDetails && c.workshopDetails.titleEnglish) ||
+        'English title not provided')
       : (c.title || '');
-    var issued = certificateDate(c.date, lang);
+    var issued = certificateDate(
+      c.workshop && c.workshopDetails && c.workshopDetails.date
+        ? c.workshopDetails.date
+        : c.date,
+      lang
+    );
     var trainerLabel = english
-      ? (c.workshop ? 'Workshop Trainer' : 'Course Instructor')
-      : (c.workshop ? 'مدرب الورشة' : 'مدرب الدورة');
+      ? (isWorkshop ? 'Workshop Trainer' : 'Course Instructor')
+      : (isWorkshop ? 'مدرب الورشة' : 'مدرب الدورة');
     var duration = c.workshop
       ? (c.duration ? c.duration + ' ' + (english ? 'minutes' : 'دقيقة') : '—')
       : (english ? (c.durationEnglish || 'Not specified') : (c.duration || '—'));
@@ -200,7 +210,7 @@
       title: 'Training Certificate',
       lead: 'Data Center for Training & Development certifies that',
       student: 'Student name:',
-      activity: c.workshop ? 'has successfully completed the workshop:' : 'has successfully completed the training:',
+      activity: isWorkshop ? 'has successfully completed the workshop:' : 'has successfully completed the training:',
       duration: 'Duration:',
       wish: 'We wish you continued success and excellence.',
       director: 'Data Center Director',
@@ -210,7 +220,7 @@
       title: 'شهادة تدريب',
       lead: 'يشهد مركز داتا للتدريب والتطوير بأن',
       student: 'اسم الطالب/ة:',
-      activity: c.workshop ? 'قد أتمّ بنجاح ورشة تدريبية بعنوان:' : 'قد أتمّ بنجاح دورة تدريبية بعنوان:',
+      activity: isWorkshop ? 'قد أتمّ بنجاح ورشة تدريبية بعنوان:' : 'قد أتمّ بنجاح دورة تدريبية بعنوان:',
       duration: 'المدة:',
       wish: 'نتمنى لكم دوام التوفيق والتميّز.',
       director: 'مدير مركز داتا',
@@ -259,6 +269,17 @@
       '<div class="cert-sheet-issued">' + e(labels.issued) + ' · ' + e(issued) + '</div>' +
       (code && !hideCode ? '<div class="cert-sheet-code" dir="ltr">' + e(labels.code) + ': ' + e(code) + '</div>' : '') +
       '</article>';
+  }
+
+  function courseFormatLabel(course) {
+    if (course.courseType !== 'in_person') {
+      return course.inPersonKind === 'workshop' ? 'ورشة أونلاين' : 'دورة أونلاين';
+    }
+    return course.inPersonKind === 'workshop' ? 'ورشة وجاهية' : 'دورة وجاهية';
+  }
+
+  function coursePriceText(course) {
+    return course.isFree ? t('courseFreePrice') : (course.price || '');
   }
 
   function certCard(c, opts) {
@@ -334,14 +355,15 @@
           ? '<span class="course-format-badge' +
             (c.courseType === 'in_person' ? '' : ' course-format-badge-online') + '">' +
             UI.icon(c.courseType === 'in_person' ? 'map-pin' : 'laptop', 14) +
-            (c.courseType === 'in_person' ? ' دورة وجاهية' : ' دورة أونلاين') + '</span>'
+            ' ' + courseFormatLabel(c) + '</span>'
           : '') +
         (opts.activeCourse
           ? '<span class="profile-active-course-badge">' + UI.icon('play', 12) + e(t('plContinue')) + '</span>'
           : '') +
         (isComingSoon ? '<span class="course-coming-soon-badge">' + e(t('courseComingSoon')) + '</span>' : '') +
         '</div>' +
-        (c.price && !opts.activeCourse ? '<span class="course-home-price">' + e(c.price) + '</span>' : '') +
+        ((c.price || c.isFree) && !opts.activeCourse
+          ? '<span class="course-home-price">' + e(coursePriceText(c)) + '</span>' : '') +
         '<div class="course-home-content"><h3>' + e(c.title) + '</h3><div class="course-home-info">' +
         (c.duration ? '<span>' + UI.icon('clock', 13) + e(c.duration) + '</span>' : '') +
         (c.period ? '<span>' + UI.icon('calendar', 13) + e(c.period) + '</span>' : '') +
@@ -360,20 +382,24 @@
             : '<span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certApproved')) + '</span>') +
         '</div>'
       : '<div class="cert-foot"><time>' + e(UI.formatDate(c.date)) + '</time><span class="verified-mini">' + UI.verifiedBadge(14) + e(t('certVerified')) + '</span></div>';
-    return '<article class="cert-card' + (opts.profileInactiveCourse ? ' profile-inactive-course-card' : '') +
+    return '<article class="cert-card' + (isCourse && (c.price || c.isFree) ? ' course-price-card' : '') +
+      (opts.profileInactiveCourse ? ' profile-inactive-course-card' : '') +
       (isComingSoon ? ' is-coming-soon' : '') + '"' +
       (opts.profileInactiveCourse ? ' aria-disabled="true"' : '') +
       cardNavigation + ' data-search="' + e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +
       courseActions +
       '<div class="cert-thumb">' +
       (c.image ? '<img src="' + e(c.image) + '" alt="" loading="lazy" decoding="async">' : '') +
-      '<span class="cert-cat">' + cat + '</span>' +
+      (isCourse && opts.courseListingBadge
+        ? '<span class="course-format-badge' +
+          (c.courseType === 'in_person' ? '' : ' course-format-badge-online') + '">' +
+          UI.icon(c.courseType === 'in_person' ? 'map-pin' : 'laptop', 14) +
+          ' ' + courseFormatLabel(c) + '</span>'
+        : '<span class="cert-cat">' + cat + '</span>') +
       (opts.profileInactiveCourse
         ? '<span class="profile-inactive-course-badge">' + e(t('courseNotActive')) + '</span>'
         : '') +
-      (isCourse
-        ? (c.price ? '<span class="cert-price-tag">' + e(c.price) + '</span>' : '')
-        : '<span class="cert-seal">' + UI.verifiedBadge(19) + '</span>') +
+      (isCourse ? '' : '<span class="cert-seal">' + UI.verifiedBadge(19) + '</span>') +
       (isComingSoon ? '<span class="course-coming-soon-badge">' + e(t('courseComingSoon')) + '</span>' : '') +
       '</div>' +
       '<div class="cert-body">' +
@@ -382,7 +408,10 @@
       (isCourse || !desc ? '' : '<p class="cert-desc">' + e(desc) + '</p>') +
       ((c.skills && c.skills.length) ? '<div class="cert-skills">' + skills + '</div>' : '') +
       foot +
-      '</div></article>';
+      '</div>' +
+      (isCourse && (c.price || c.isFree)
+        ? '<span class="cert-price-tag course-card-price-bottom">' + e(coursePriceText(c)) + '</span>' : '') +
+      '</article>';
   }
 
   function inPersonCourseCard(course, opts) {
@@ -397,13 +426,15 @@
       (image
         ? '<img src="' + e(image) + '" alt="' + e(course.title) + '" loading="lazy" decoding="async">'
         : '<div class="inperson-course-art">' + UI.icon('users', 40) + '<span>تعلّم وجهاً لوجه</span></div>') +
-      '<span class="course-format-badge">' + UI.icon('map-pin', 14) + ' دورة وجاهية</span>' +
-      (course.price ? '<span class="price">' + e(course.price) + '</span>' : '') +
+      '<span class="course-format-badge">' + UI.icon('map-pin', 14) + ' ' + courseFormatLabel(course) + '</span>' +
       '<div class="content"><h3 class="title">' + e(course.title) + '</h3>' +
       '<div class="info">' +
       (course.duration ? '<h3>' + UI.icon('clock', 13) + e(course.duration) + '</h3>' : '') +
       (course.period ? '<h3>' + UI.icon('calendar', 13) + e(course.period) + '</h3>' : '') +
-      '</div></div></a>';
+      '</div></div>' +
+      ((course.price || course.isFree)
+        ? '<span class="price">' + e(coursePriceText(course)) + '</span>' : '') +
+      '</a>';
 
     if (!opts.trainerCourse || !canManageCourse(course)) return card;
 
@@ -692,6 +723,7 @@
     if (!host) return;
     var tabs = [];
     var trainerCertificates = IS_TRAINER ? (earnedCerts() || []) : [];
+    host.classList.toggle('profile-tabs-trainer', IS_TRAINER);
     if (SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student') {
       tabs.push({
         id: 'active-courses',
@@ -700,12 +732,6 @@
         icon: 'play'
       });
     }
-    tabs.push({
-      id: 'certificates',
-      count: IS_TRAINER ? trainerCertificates.length : certStatCount(),
-      label: 'studentProfileCertificates',
-      icon: 'award'
-    });
     if (IS_TRAINER) {
       tabs.push({
         id: 'trainer-courses',
@@ -713,15 +739,25 @@
         label: 'trainerProfileCourses',
         icon: 'graduation-cap'
       });
-    }
-    tabs.push({
+      tabs.push({
         id: 'projects',
         count: Store.totals().projects,
-        label: IS_TRAINER
-          ? 'trainerProfileProjects'
-          : (SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student'
-            ? 'studentProfileProjects'
-            : 'statProjects'),
+        label: 'trainerProfileProjects',
+        icon: 'folder'
+      });
+    }
+    tabs.push({
+      id: 'certificates',
+      count: IS_TRAINER ? trainerCertificates.length : certStatCount(),
+      label: 'studentProfileCertificates',
+      icon: 'award'
+    });
+    if (!IS_TRAINER) tabs.push({
+        id: 'projects',
+        count: Store.totals().projects,
+        label: SERVER_PROFILE && SERVER_PROFILE.roleKey === 'student'
+          ? 'studentProfileProjects'
+          : 'statProjects',
         icon: 'folder'
       });
     if (SERVER_PROFILE) {
@@ -878,12 +914,13 @@
             return certCard(c, {
               course: true,
               homeCourseCard: true,
+              courseListingBadge: true,
               trainerCourse: true,
               returnTo: location.pathname + location.search + location.hash
             });
           }).join('') + '</div>'
         : UI.emptyState('graduation-cap', searchQuery ? t('emptySearch') : t('trainerCoursesEmpty'), searchQuery ? '' : t('trainerCoursesEmptySub'),
-          searchQuery ? '' : '<a class="btn btn-primary" href="' + SITE.u('courseCreate') + '">' + UI.icon('plus', 16) + e(t('addCourse')) + '</a>');
+          searchQuery ? '' : '<button type="button" class="btn btn-primary" data-act="trainer-course-create">' + UI.icon('plus', 16) + e(t('addCourse')) + '</button>');
       var allTrainerCerts = earnedCerts() || [];
       var trainerCerts = allTrainerCerts.filter(matches);
       var certificateAddButton = '<button class="btn btn-primary" data-act="new-cert">' +
@@ -895,9 +932,11 @@
         : '<div class="trainer-certificates-toolbar">' + certificateAddButton + '</div>' +
           (trainerCerts.length
           ? '<div class="card-grid profile-certificate-grid">' + trainerCerts.map(function (cert) {
-            if (cert.workshop) return workshopCertificateCard(cert);
+            if (cert.workshop) return workshopCertificateCard(cert, {
+              returnTo: location.pathname + location.search + location.hash
+            });
             return cert.manual
-              ? certCard(cert, { manualImage: true })
+              ? certCard(cert, { manualImage: true, returnTo: location.pathname + location.search + location.hash })
               : certCard(cert, { returnTo: location.pathname + location.search + location.hash, imageOnly: true });
           }).join('') + '</div>'
           : UI.emptyState('award', searchQuery ? t('emptySearch') : t('certEmpty'),
@@ -919,9 +958,9 @@
 
     document.getElementById('panel-certificates').innerHTML = certs.length
       ? '<div class="card-grid profile-certificate-grid">' + certs.map(function (cert) {
-          if (cert.workshop) return workshopCertificateCard(cert);
+          if (cert.workshop) return workshopCertificateCard(cert, { returnTo: profileReturn });
           return cert.manual
-            ? certCard(cert, { manualImage: true })
+            ? certCard(cert, { manualImage: true, returnTo: profileReturn })
             : certCard(cert, { returnTo: profileReturn, imageOnly: true });
         }).join('') + '</div>'
       : (mine
@@ -988,9 +1027,13 @@
       });
   }
 
-  function workshopCertificateCard(certificate) {
+  function workshopCertificateCard(certificate, opts) {
+    opts = opts || {};
+    var returnTo = opts.returnTo
+      ? '?return=' + encodeURIComponent(opts.returnTo)
+      : '';
     return '<article class="cert-card cert-card-preview workshop-certificate-preview" data-goto="' +
-      e(SITE.u('certificate', certificate.id)) + '" aria-label="' +
+      e(SITE.u('certificate', certificate.id) + returnTo) + '" aria-label="' +
       e(t('certPageWorkshopLabel')) + '">' +
       earnedCertificateSheet(
         certificate,
@@ -1078,7 +1121,7 @@
     menu.innerHTML =
       '<button class="fab-item" data-act="goto" data-url="' + SITE.u('projectCreate') + '">' + UI.icon('folder', 17) + e(t('createProjectCta')) + '</button>' +
       (IS_TRAINER
-        ? '<button class="fab-item" data-act="goto" data-url="' + SITE.u('courseCreate') + '">' + UI.icon('graduation-cap', 17) + e(t('createCourseCta')) + '</button>' +
+        ? '<button class="fab-item" data-act="trainer-course-create">' + UI.icon('graduation-cap', 17) + e(t('createCourseCta')) + '</button>' +
           '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>'
         : '<button class="fab-item" data-act="new-cert">' + UI.icon('award', 17) + e(t('createCertCta')) + '</button>') +
       (SERVER_PROFILE && SERVER_PROFILE.canScanWorkshops && window.WorkshopScanner
@@ -1294,7 +1337,7 @@
     var gotoEl = target.closest('[data-goto]');
     var actEl = target.closest('[data-act]');
     var act = actEl && actEl.getAttribute('data-act');
-    if (gotoEl && target.closest('.cd-related-scroll, .related-projects-scroll, .proj-tags') && Date.now() - lastGalleryDrag < 320) {
+    if (gotoEl && target.closest('.cd-related-scroll, .cd-course-projects-scroll, .related-projects-scroll, .proj-tags') && Date.now() - lastGalleryDrag < 320) {
       ev.preventDefault();
       return;
     }
@@ -1311,7 +1354,8 @@
       act === 'confirm-profile-website' ||
       act === 'trainer-course-students' ||
       act === 'manual-cert-rejection-reason' || act === 'manual-cert-status-info' ||
-      act === 'new-cert' || act === 'search-tag' || act === 'copy-id' || act === 'lightbox' ||
+      act === 'new-cert' || act === 'trainer-course-create' ||
+      act === 'search-tag' || act === 'copy-id' || act === 'lightbox' ||
       act === 'print-cert' || act === 'certificate-language' ||
       act === 'del-file' || act === 'like-post-detail' || act === 'save-post-detail' ||
       act === 'share-menu' || act === 'share-to' || act === 'close-sheet')) {
@@ -1361,6 +1405,10 @@
 
       case 'goto':
         location.href = actEl.getAttribute('data-url');
+        break;
+
+      case 'trainer-course-create':
+        location.href = SITE.u('courseCreate');
         break;
 
       case 'trainer-course-students':
@@ -1748,7 +1796,7 @@
 
   /* ---------- carousel / gallery row: mouse drag (touch uses native scroll) ---------- */
   (function () {
-    var SEL = '.mc-track, .gallery-row, .cd-related-scroll, .related-projects-scroll, .proj-tags';
+    var SEL = '.mc-track, .gallery-row, .cd-related-scroll, .cd-course-projects-scroll, .related-projects-scroll, .proj-tags';
     var drag = null;
     var touch = null;
 
@@ -1768,7 +1816,7 @@
       drag = {
         track: track,
         x: ev.clientX,
-        left: track.matches('.cd-related-scroll, .related-projects-scroll, .proj-tags') ? relatedScrollPosition(track) : track.scrollLeft,
+        left: track.matches('.cd-related-scroll, .cd-course-projects-scroll, .related-projects-scroll, .proj-tags') ? relatedScrollPosition(track) : track.scrollLeft,
         moved: false,
         mult: track.classList.contains('gallery-row') ? -1 : 1
       };
@@ -1781,7 +1829,7 @@
       var dx = ev.clientX - drag.x;
       if (Math.abs(dx) > 4) drag.moved = true;
       var position = drag.left + drag.mult * dx;
-      if (drag.track.matches('.cd-related-scroll, .related-projects-scroll, .proj-tags')) relatedSetScrollPosition(drag.track, position);
+      if (drag.track.matches('.cd-related-scroll, .cd-course-projects-scroll, .related-projects-scroll, .proj-tags')) relatedSetScrollPosition(drag.track, position);
       else drag.track.scrollLeft = position;
     });
 
@@ -2941,21 +2989,20 @@
     }
     var from = '';
     try { from = new URLSearchParams(location.search).get('from') || ''; } catch (err) { }
-    var isEnglish = certificateLanguage === 'en';
-    var instName = isEnglish
-      ? (c.instructorEnglish || 'English instructor name not provided')
-      : (c.instructor || c.issuer || '');
-    var certificateTitle = isEnglish
-      ? (c.titleEnglish || c.title_en || 'English title not provided')
-      : (c.title || '');
-    var certificateDuration = isEnglish
-      ? (c.durationEnglish || '')
-      : (c.duration || '');
+    var workshopDetails = c.workshopDetails || {};
+    var isInPersonWorkshop = c.courseType === 'in_person' && c.inPersonKind === 'workshop';
+    var isWorkshop = !!c.workshop || c.inPersonKind === 'workshop';
+    var instName = c.instructor || c.trainerName || c.issuer || '';
+    var certificateTitle = c.title || workshopDetails.title || '';
+    var certificateDuration = c.duration || '';
     var courseSummary = String(c.summary || c.description || '').trim();
     var verificationUrl = c.workshop ? '' : safeExternalUrl(c.verifyUrl);
     var skills = c.skills || [];
     var heroImg = c.courseImage || c.image || '';
-    var issued = certificateDate(c.date, certificateLanguage);
+    var issued = certificateDate(
+      c.workshop && workshopDetails.date ? workshopDetails.date : c.date,
+      'ar'
+    );
     var studentName = certificateLanguage === 'en'
       ? (c.studentNameEnglish || (SERVER_PROFILE && SERVER_PROFILE.fullNameEnglish) || 'English full name not provided')
       : (c.studentNameArabic || (SERVER_PROFILE && SERVER_PROFILE.fullNameArabic) || c.studentName || '');
@@ -2963,9 +3010,8 @@
     var backDest = c.workshop
       ? SITE.u('portfolio')
       : SITE.u('course', e(c.courseId || c.id));
-    var workshopDetails = c.workshopDetails || {};
     var trainerAvatar = (c.owner && c.owner.avatar) || c.trainerAvatar || '';
-    var trainerLabel = isEnglish ? 'Trainer:' : (c.workshop ? 'مدرب الورشة:' : 'المدرب:');
+    var trainerLabel = isWorkshop ? 'مدرب الورشة:' : 'المدرب:';
     var languageTabs =
       '<div class="cert-language-tabs" role="group" aria-label="Certificate language">' +
       '<button type="button" class="btn btn-sm ' + (certificateLanguage === 'ar' ? 'btn-primary' : 'btn-ghost') + '" data-act="certificate-language" data-language="ar" aria-pressed="' + (certificateLanguage === 'ar') + '">العربية</button>' +
@@ -2973,7 +3019,7 @@
       '</div>';
 
     host.innerHTML =
-      backLink(c.workshop ? t('back') : t('certPageBack'), false, !!c.workshop) +
+      backLink(isWorkshop ? t('back') : t('certPageBack'), false, !!c.workshop) +
       '<section class="cd-hero cert-hero' + (heroImg ? '' : '') + '"' + (heroImg ? ' style="background-image:url(\'' + e(heroImg) + '\'),linear-gradient(135deg,#2563eb,#7c3aed)"' : '') + '>' +
       '<div class="cd-hero-overlay"><div class="cd-hero-inner">' +
       '<span class="cert-hero-seal">' + UI.verifiedBadge(15) + e(t('certPageStatusValid')) + '</span>' +
@@ -3003,16 +3049,16 @@
       '</section>' +
 
       (c.workshop ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('calendar', 18) +
-        e(certificateLanguage === 'en' ? 'Workshop details' : 'معلومات الورشة') + '</h2>' +
-        '<div class="prose"><p><b>' + e(certificateLanguage === 'en' ? 'Workshop:' : 'الورشة:') + '</b> ' + e(certificateLanguage === 'en' ? (workshopDetails.titleEnglish || c.titleEnglish || 'English title not provided') : (workshopDetails.title || c.title)) + '</p>' +
-        '<p><b>' + e(certificateLanguage === 'en' ? 'Trainer:' : 'المدرب:') + '</b> ' + e(certificateLanguage === 'en' ? (workshopDetails.trainerEnglish || c.trainerNameEnglish || 'English trainer name not provided') : (workshopDetails.trainer || c.trainerName || '—')) + '</p>' +
-        '<p><b>' + e(certificateLanguage === 'en' ? 'Date:' : 'التاريخ:') + '</b> ' + e(certificateDate(workshopDetails.date || c.date, certificateLanguage)) + '</p>' +
-        '<p><b>' + e(certificateLanguage === 'en' ? 'Duration:' : 'المدة:') + '</b> ' + e(workshopDetails.duration || c.duration || '—') + ' ' + e(certificateLanguage === 'en' ? 'minutes' : 'دقيقة') + '</p>' +
-        ((certificateLanguage === 'en' ? workshopDetails.locationEnglish : workshopDetails.location)
-          ? '<p><b>' + e(certificateLanguage === 'en' ? 'Location:' : 'الموقع:') + '</b> ' + e(certificateLanguage === 'en' ? workshopDetails.locationEnglish : workshopDetails.location) + '</p>'
+        e('معلومات الورشة') + '</h2>' +
+        '<div class="prose"><p><b>الورشة:</b> ' + e(workshopDetails.title || c.title || '—') + '</p>' +
+        '<p><b>المدرب:</b> ' + e(workshopDetails.trainer || c.trainerName || '—') + '</p>' +
+        '<p><b>التاريخ:</b> ' + e(certificateDate(workshopDetails.date || c.date, 'ar')) + '</p>' +
+        '<p><b>المدة:</b> ' + e(workshopDetails.duration || c.duration || '—') + ' دقيقة</p>' +
+        (workshopDetails.location
+          ? '<p><b>الموقع:</b> ' + e(workshopDetails.location) + '</p>'
           : '') +
-        ((certificateLanguage === 'en' ? workshopDetails.descriptionEnglish : workshopDetails.description)
-          ? '<p>' + e(certificateLanguage === 'en' ? workshopDetails.descriptionEnglish : workshopDetails.description) + '</p>'
+        (workshopDetails.description
+          ? '<p>' + e(workshopDetails.description) + '</p>'
           : '') +
         '</div></section>' : '') +
 
@@ -3026,7 +3072,7 @@
 
       (courseSummary ?
       '<section class="cd-card">' +
-      '<h2 class="cd-h2">' + UI.icon('file-text', 18) + e(t('certPageAbout')) + '</h2>' +
+      '<h2 class="cd-h2">' + UI.icon('file-text', 18) + e(isInPersonWorkshop ? 'عن الورشة' : t('certPageAbout')) + '</h2>' +
       '<div class="prose"><p>' + e(courseSummary) + '</p></div>' +
       '</section>' : '') +
       '</div>' +
@@ -3038,7 +3084,7 @@
       '<button class="cd-btn cd-btn-buy" type="button" data-act="print-cert">' + UI.icon('download', 16) + e(t('certPagePrint')) + '</button>' +
       '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' + e(shareUrl) + '">' + UI.icon('share-2', 16) + e(t('shareCta')) + '</button>' +
       (!c.workshop
-        ? '<a class="cd-btn cd-btn-edit" href="' + backDest + '">' + UI.icon('arrow-right', 15) + e(t('certPageBack')) + '</a>'
+        ? '<a class="cd-btn cd-btn-edit" href="' + backDest + '">' + UI.icon('arrow-right', 15) + e(isInPersonWorkshop ? 'العودة للورشة' : t('certPageBack')) + '</a>'
         : '') +
       '<ul class="cd-includes">' +
       '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
@@ -3192,6 +3238,7 @@
     if (!c) c = Store.find('certificates', id);
     if (!c) { renderNotFound(host); return; }
     if (adminCourseManager) c.adminCanManageCourse = true;
+    var isInPersonWorkshop = c.courseType === 'in_person' && c.inPersonKind === 'workshop';
     var isComingSoon = !!c.comingSoon;
     if (c.earned) { renderEarnedCertificate(host, c); return; }
     var related = Store.collection('certificates').filter(function (x) { return x.id !== c.id; }).slice(0, 3);
@@ -3224,9 +3271,9 @@
     if (sub.length > 130) sub = sub.slice(0, 127).trim() + '…';
     var skills = c.skills || [];
     var instName = c.instructor || c.issuer;
-    var courseAuthorLabel = c.courseType === 'in_person'
-      ? t('ucCourseTrainer')
-      : t('ucBy');
+    var courseAuthorLabel = c.inPersonKind === 'workshop'
+      ? 'مدرب الورشة'
+      : (c.courseType === 'in_person' ? t('ucCourseTrainer') : t('ucBy'));
     var instructor = c.owner || {};
     var instructorProfileUrl = instructor.handle || c.handle
       ? SITE.u('profile', instructor.handle || c.handle)
@@ -3316,7 +3363,7 @@
          '، مقبول: ' + e(registrationCounts.accepted || 0) + '</a>'
        : '';
      var inPersonRegistrationForm = '<section class="cd-card cd-registration-card">' +
-       '<h2 class="cd-h2">' + UI.icon('user', 18) + 'طلب التسجيل في الدورة</h2>' +
+       '<h2 class="cd-h2">' + UI.icon('user', 18) + (isInPersonWorkshop ? 'طلب التسجيل في الورشة' : 'طلب التسجيل في الدورة') + '</h2>' +
        adminRegistrationRequestsLink +
        '<p class="cd-registration-intro">عبّئ البيانات التالية لإرسال طلب تسجيلك.</p>' +
        '<form class="cd-registration-form" id="inPersonRegistrationForm">' +
@@ -3347,14 +3394,27 @@
        '<span class="cd-registration-study-year-chevron" aria-hidden="true"></span></span>' +
        '<span class="cd-registration-study-year-hint" id="registrationStudyYearHint">اختر السنة التي تدرس فيها، أو «خريج» إذا أنهيت دراستك.</span>' +
        '<span class="cd-registration-field-error" id="registrationStudyYearError" aria-live="polite"></span></label>' +
-       '<fieldset class="cd-registration-governorate" aria-describedby="registrationGovernorateError"><legend>المحافظة</legend><div class="cd-registration-governorate-options">' +
+       '<fieldset class="cd-registration-governorate" aria-describedby="registrationGovernorateError"><legend>المحافظة / طريقة الحضور</legend><div class="cd-registration-governorate-options">' +
        '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="gaza" required><span class="cd-registration-governorate-button">غزة</span></label>' +
        '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="central" required><span class="cd-registration-governorate-button">الوسطى</span></label>' +
+       '<label class="cd-registration-governorate-option"><input class="cd-registration-governorate-input" type="radio" name="governorate" value="online" required><span class="cd-registration-governorate-button">أونلاين</span></label>' +
        '</div><span class="cd-registration-field-error" id="registrationGovernorateError" aria-live="polite"></span></fieldset>' +
        '</div>' +
        '<p class="cd-registration-error" id="inPersonRegistrationError" role="alert" hidden></p>' +
        '<button class="cd-btn cd-btn-buy cd-registration-submit" type="submit" disabled>حفظ طلب التسجيل</button>' +
        '</form></section>';
+     var inPersonLocationSection =
+       '<div class="cd-locations-grid">' +
+       '<section class="cd-card cd-location-card">' +
+       '<h2 class="cd-h2">' + UI.icon('map-pin', 18) + 'فرع غزة</h2>' +
+       '<div class="cd-location-content"><h3>العنوان</h3>' +
+       '<p>السرايا - مقابل شركة جوال - عمارة عنان - الطابق الاول</p>' +
+       '<p class="cd-location-note">(بجوار حلويات ابو بكر ساق الله)</p></div></section>' +
+       '<section class="cd-card cd-location-card">' +
+       '<h2 class="cd-h2">' + UI.icon('map-pin', 18) + 'فرع الوسطى</h2>' +
+       '<div class="cd-location-content"><h3>العنوان</h3>' +
+       '<p>النصيرات - عمارة ابو سرار مقابل مسجد الفاروق</p>' +
+       '</div></section></div>';
 
      host.innerHTML =
        backLink(null, true) +
@@ -3394,7 +3454,8 @@
             ? '<section class="cd-card cd-registration-card"><a class="cd-btn cd-btn-buy" href="' +
               SITE.u('playlist', e(c.id)) + (from ? '?from=' + e(from) : '') + '">' +
               UI.icon('play', 16) + e(t('plContinue')) + '</a></section>'
-            : inPersonRegistrationForm) + '</div>'
+            : inPersonRegistrationForm) +
+          inPersonLocationSection + '</div>'
         : '<div class="cd-grid">' +
       '<div class="cd-main">' +
       learnSection +
@@ -3412,10 +3473,10 @@
       (linkedProjects.length ?
       '<section class="cd-card">' +
       '<h2 class="cd-h2">' + UI.icon('briefcase', 18) + e(t('ucLinkedProjects')) + '</h2>' +
-      '<div class="cd-projects" id="cdCourseProjectsGrid">' + linkedProjects.map(function (pj, index) {
-        return courseProjectCard(pj, index >= 4);
+      '<div class="cd-projects' + (c.courseType === 'in_person' ? '' : ' cd-course-projects-scroll') + '" id="cdCourseProjectsGrid">' + linkedProjects.map(function (pj, index) {
+        return courseProjectCard(pj, c.courseType === 'in_person' && index >= 4);
       }).join('') + '</div>' +
-      (linkedProjects.length > 4
+      (c.courseType === 'in_person' && linkedProjects.length > 4
         ? '<div class="cd-projects-more-wrap"><button class="btn btn-soft" type="button" data-act="show-course-projects" aria-controls="cdCourseProjectsGrid" aria-expanded="false">' +
           e(t('courseProjectsShowMore', { total: linkedProjects.length })) + '</button></div>'
         : '') +
@@ -3432,7 +3493,7 @@
        '<div class="cd-thumb">' + heroPlayerHTML + previewLabel + '</div>' +
       '<div class="cd-buy-body">' +
       '<div class="cd-price">' +
-      '<b>' + e(isComingSoon ? t('courseComingSoon') : (c.price || t('ucFree'))) + '</b>' +
+      '<b>' + e(isComingSoon ? t('courseComingSoon') : (coursePriceText(c) || t('ucFree'))) + '</b>' +
       '<span>' + e(t('ucPriceNote')) + '</span>' +
       '</div>' +
       (isComingSoon && !adminCourseManager && !trainerOwner
@@ -3521,7 +3582,7 @@
         governorate: {
           error: document.getElementById('registrationGovernorateError'),
           validate: function (value) {
-            return value === 'gaza' || value === 'central' ? '' : 'اختر المحافظة.';
+            return ['gaza', 'central', 'online'].indexOf(value) !== -1 ? '' : 'اختر المحافظة أو طريقة الحضور.';
           }
         }
       };
@@ -3701,7 +3762,9 @@
           } else if (error.message === 'registration_limit_reached') {
             showRegistrationSuccess(error.count || 2);
           } else if (error.status === 404) {
-            registrationError.textContent = 'هذه الدورة غير متاحة للتسجيل حالياً.';
+            registrationError.textContent = isInPersonWorkshop
+              ? 'هذه الورشة غير متاحة للتسجيل حالياً.'
+              : 'هذه الدورة غير متاحة للتسجيل حالياً.';
           } else {
             registrationError.textContent = 'تعذر حفظ الطلب حالياً. تحقق من اتصالك وحاول مجدداً.';
             console.error('Course registration request failed:', error);

@@ -18,10 +18,11 @@
       trainingCategoryDrag: 'اسحب لترتيب المجال',
       secCourses: 'الدورات الأونلاين',
       secInPersonCourses: 'الدورات الوجاهية',
+      secInPersonWorkshopCourses: 'الورشات',
       secInPersonStudents: 'الطلاب وجاهي',
       secLessons: 'الدروس',
       secProjects: 'المشاريع',
-      secWorkshops: 'الورشات الوجاهية',
+      secWorkshops: 'الورشات',
       secCourseRegistrationRequests: 'طلبات التسجيل',
       secSubscriptions: 'الاشتراكات',
       secStudentCertificates: 'مراجعة الشهادات',
@@ -48,9 +49,11 @@
       inPersonStudentsEmpty: 'لا يوجد طلاب مسجلون في الدورات الوجاهية حالياً.',
       emptyInPersonCourses: 'لا توجد دورات وجاهية حتى الآن.',
       emptyInPersonCoursesSub: 'يمكنك إضافة دورة جديدة من محرر الدورات.',
+      emptyWorkshops: 'لا توجد ورشات حتى الآن.',
+      emptyWorkshopsSub: 'أضف ورشة وجاهية أو أونلاين من محرر الورشات.',
       subLessons: 'إدارة دروس كل دورة ووحداتها التعليمية',
       subProjects: 'إدارة مشاريع الطلاب وحالة نشرها',
-      subWorkshops: 'إنشاء الورشات وإدارة رمز QR والحضور والشهادات',
+      subWorkshops: 'إدارة الورشات الوجاهية والأونلاين',
       subCourseRegistrationRequests: 'مراجعة بيانات المتقدمين للدورات الوجاهية وطرق التواصل معهم',
       subSubscriptions: 'إنشاء ومتابعة اشتراكات الطلاب في الدورات الوجاهية والأونلاين',
       subscriptionAdd: 'اشتراك جديد',
@@ -120,6 +123,7 @@
       registrationRequestGovernorate: 'المحافظة',
       registrationRequestGovernorateGaza: 'غزة',
       registrationRequestGovernorateCentral: 'الوسطى',
+      registrationRequestGovernorateOnline: 'أونلاين',
       registrationRequestGovernorateInvalid: 'اختر المحافظة.',
       registrationRequestStudyYear: 'السنة الدراسية',
       registrationRequestStudyYearInvalid: 'أدخل السنة الدراسية كرقم صحيح موجب.',
@@ -149,6 +153,10 @@
       registrationRequestInvalid: 'أكمل العنوان والتخصص والحالة الدراسية بشكل صحيح.',
       registrationRequestCreated: 'تمت إضافة طلب التسجيل بنجاح.',
       workshopAdd: 'إضافة ورشة',
+      workshopNew: 'ورشة جديدة',
+      workshopInPerson: 'ورشة وجاهية',
+      workshopOnline: 'ورشة أونلاين',
+      workshopChooseType: 'اختر نوع الورشة',
       workshopEdit: 'تعديل الورشة',
       workshopTitle: 'اسم الورشة',
       workshopTrainer: 'اسم المدرب',
@@ -204,6 +212,7 @@
       searchPh: 'بحث…',
       all: 'الكل',
       allStatus: 'كل الحالات',
+      workshopCourseTypeFilter: 'نوع الورشة',
       export: 'تصدير CSV',
       exported: 'تم تجهيز ملف التصدير',
       clearSel: 'إلغاء التحديد',
@@ -685,10 +694,11 @@
       trainingCategoryDrag: 'Drag to reorder this field',
       secCourses: 'Online courses',
       secInPersonCourses: 'In-person courses',
+      secInPersonWorkshopCourses: 'Workshops',
       secInPersonStudents: 'In-person students',
       secLessons: 'Lessons',
       secProjects: 'Projects',
-      secWorkshops: 'In-person workshops',
+      secWorkshops: 'Workshops',
       secCourseRegistrationRequests: 'In-person course applications',
       secSubscriptions: 'Subscriptions',
       secStudentCertificates: 'Review certificates',
@@ -715,9 +725,11 @@
       inPersonStudentsEmpty: 'There are no students registered in in-person courses yet.',
       emptyInPersonCourses: 'There are no in-person courses yet.',
       emptyInPersonCoursesSub: 'Add a course using the course editor.',
+      emptyWorkshops: 'There are no workshops yet.',
+      emptyWorkshopsSub: 'Add an in-person or online workshop using the workshop editor.',
       subLessons: 'Manage lessons of every course and section',
       subProjects: 'Manage student projects and their status',
-      subWorkshops: 'Create workshops and manage QR attendance and certificates',
+      subWorkshops: 'Manage in-person and online workshops',
       subCourseRegistrationRequests: 'Review applicants for in-person courses and their contact details',
       subSubscriptions: 'Create and manage student subscriptions to in-person and online courses',
       subscriptionAdd: 'New subscription',
@@ -787,6 +799,7 @@
       registrationRequestGovernorate: 'Governorate',
       registrationRequestGovernorateGaza: 'Gaza',
       registrationRequestGovernorateCentral: 'Central',
+      registrationRequestGovernorateOnline: 'Online',
       registrationRequestGovernorateInvalid: 'Select a governorate.',
       registrationRequestStudyYear: 'Study year',
       registrationRequestStudyYearInvalid: 'Enter the study year as a positive whole number.',
@@ -816,6 +829,10 @@
       registrationRequestInvalid: 'Enter a valid address, specialty, and student status.',
       registrationRequestCreated: 'Registration request added successfully.',
       workshopAdd: 'Add workshop',
+      workshopNew: 'New workshop',
+      workshopInPerson: 'In-person workshop',
+      workshopOnline: 'Online workshop',
+      workshopChooseType: 'Choose workshop type',
       workshopEdit: 'Edit workshop',
       workshopTitle: 'Workshop title',
       workshopTrainer: 'Trainer name',
@@ -871,6 +888,7 @@
       searchPh: 'Search…',
       all: 'All',
       allStatus: 'All statuses',
+      workshopCourseTypeFilter: 'Workshop format',
       export: 'Export CSV',
       exported: 'Export file is ready',
       clearSel: 'Clear selection',
@@ -1408,19 +1426,35 @@
   }
 
   function dashboardEditorFromHash() {
-    var match = (location.hash || '').replace(/^#\/?/, '').match(/^editor\/(course|project)\/(.+)$/);
+    var match = (location.hash || '').replace(/^#\/?/, '').match(/^editor\/(course|in-person-course|in-person-workshop|online-workshop|workshop|project)\/(.+)$/);
     if (!match) return null;
     var id = match[2] === 'new' ? '' : match[2];
     try { id = id ? decodeURIComponent(id) : ''; } catch (error) { /* Keep malformed route values encoded. */ }
-    return { type: match[1], id: id, hash: location.hash };
+    return {
+      type: match[1] === 'project' ? 'project' : 'course',
+      inPerson: match[1] === 'in-person-course' ||
+        match[1] === 'in-person-workshop' || match[1] === 'workshop',
+      workshop: match[1] === 'in-person-workshop' ||
+        match[1] === 'online-workshop' || match[1] === 'workshop',
+      id: id,
+      hash: location.hash
+    };
   }
 
   function curSection() {
     var editor = dashboardEditorFromHash();
-    if (editor) return editor.type === 'course' ? 'courses' : 'projects';
+    if (editor) {
+      if (editor.type !== 'course') return 'projects';
+      if (editor.workshop) return 'workshops';
+      return editor.inPerson ? 'in-person-courses' : 'courses';
+    }
     var h = (location.hash || '').replace(/^#\/?/, '');
     if (h === 'certificate-creator') return 'student-certificates';
-    if (h.indexOf('in-person-course-cohorts/') === 0) return 'in-person-course-cohorts';
+    if (h.indexOf('in-person-course-cohorts/') === 0) {
+      return new URLSearchParams(h.split('?')[1] || '').get('from') === 'workshops'
+        ? 'workshops'
+        : 'in-person-course-cohorts';
+    }
     if (h.indexOf('in-person-students/') === 0) return 'in-person-students';
     return regs[h] ? h : 'overview';
   }
@@ -2459,7 +2493,11 @@
       return;
     }
     var id = curSection();
-    var def = regs[id];
+    var route = (location.hash || '').replace(/^#\/?/, '');
+    var contentId = route.split('?')[0].indexOf('in-person-course-cohorts/') === 0
+      ? 'in-person-course-cohorts'
+      : id;
+    var def = regs[contentId];
     var host = document.getElementById('admContent');
     if (!def || !host) return;
     host.innerHTML = def.render();
@@ -2494,17 +2532,62 @@
         if (!editorContent || !editorContent.querySelector('#edTitle')) {
           throw new Error('استجابة محرر لوحة التحكم غير مكتملة.');
         }
+        if (route.type === 'project') {
+          var projectGalleryBox = editorContent.querySelector('#edProjectGalleryBox');
+          if (!projectGalleryBox || !projectGalleryBox.querySelector('#edProjectGalleryInput')) {
+            throw new Error('معرض صور المشروع غير موجود في المحرر.');
+          }
+          projectGalleryBox.hidden = false;
+        }
+        if (route.type === 'course' && !route.inPerson && !route.workshop) {
+          var courseTypeField = editorContent.querySelector('#edCourseTypeField');
+          if (courseTypeField) courseTypeField.remove();
+        }
+        if (route.type === 'course' && route.workshop) {
+          var workshopTypeField = editorContent.querySelector('#edCourseTypeField');
+          var workshopTypeInput = editorContent.querySelector('#edCourseType');
+          var workshopKindField = editorContent.querySelector('#edInPersonKindField');
+          var workshopKindInput = editorContent.querySelector('#edInPersonKind');
+          if (workshopTypeField && workshopTypeInput) {
+            workshopTypeField.parentNode.insertBefore(workshopTypeInput, workshopTypeField);
+            workshopTypeField.remove();
+          }
+          if (workshopKindField && workshopKindInput) {
+            workshopKindField.parentNode.insertBefore(workshopKindInput, workshopKindField);
+            workshopKindField.remove();
+          }
+          if (workshopTypeInput) {
+            workshopTypeInput.value = route.inPerson ? 'in_person' : 'online';
+          }
+          if (workshopKindInput) workshopKindInput.value = 'workshop';
+        }
+        if (route.type === 'course' && route.inPerson && !route.workshop) {
+          var inPersonKindField = editorContent.querySelector('#edInPersonKindField');
+          var inPersonKindInput = editorContent.querySelector('#edInPersonKind');
+          if (inPersonKindField) inPersonKindField.remove();
+          if (inPersonKindInput) inPersonKindInput.value = 'course';
+        }
         host.innerHTML = editorContent.innerHTML;
         document.body.setAttribute('data-page', route.type === 'course' ? 'edit-course' : 'edit-project');
         document.body.setAttribute('data-admin-dashboard-editor', 'true');
         document.body.setAttribute(route.type === 'course' ? 'data-admin-course-editor' : 'data-admin-project-editor', 'true');
+        if (route.workshop) {
+          document.body.setAttribute('data-admin-in-person-workshop-editor', 'true');
+        } else {
+          document.body.removeAttribute('data-admin-in-person-workshop-editor');
+        }
         document.title = parsed.title || document.title;
         dashboardEditorMounted = true;
         dashboardEditorRoute = route.hash;
         if (!window.ContentEditor || typeof window.ContentEditor.mount !== 'function') {
           throw new Error('محرر لوحة التحكم غير جاهز.');
         }
-        window.ContentEditor.mount(route.type === 'course' ? 'edit-course' : 'edit-project', route.id);
+        window.ContentEditor.mount(
+          route.type === 'course' ? 'edit-course' : 'edit-project',
+          route.id,
+          route.inPerson ? 'in_person' : '',
+          route.workshop ? 'workshop' : ''
+        );
       })
       .catch(function (error) {
         if (location.hash !== route.hash) return;
@@ -2542,6 +2625,7 @@
           document.body.removeAttribute('data-admin-dashboard-editor');
           document.body.removeAttribute('data-admin-course-editor');
           document.body.removeAttribute('data-admin-project-editor');
+          document.body.removeAttribute('data-admin-in-person-workshop-editor');
           document.body.classList.remove('course-editor-flow');
           dashboardEditorLeaveHandler = null;
           render();

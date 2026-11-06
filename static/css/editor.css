@@ -362,6 +362,9 @@ body.in-person-course-editor .course-templates-box,
 body.in-person-course-editor .editor-checklist-box {
   display: none !important;
 }
+body.in-person-course-editor[data-admin-in-person-workshop-editor="true"] #edCourseTypeField {
+  display: block !important;
+}
 body.in-person-course-editor .editor-description-label {
   margin: 0 0 -8px;
   color: var(--ink);
@@ -385,6 +388,7 @@ body.in-person-course-editor #edTagsInput {
   min-width: 0;
 }
 #edCourseMetaBox .field-row { grid-template-columns: minmax(0, 1fr); }
+#edInPersonKindField[hidden] { display: none; }
 .course-type-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -691,6 +695,56 @@ body[data-page='edit-project'] .editor-side #edRole:-webkit-autofill {
 .daily-composer .editable { min-height: 180px; font-size: 15.5px; }
 
 .preview-overlay .modal-body { padding: 0; }
+.course-preview-overlay .modal {
+  width: min(96vw, 1280px);
+  max-width: none;
+}
+.course-preview-overlay .modal-body {
+  padding: 0;
+  overflow: hidden;
+}
+.course-preview-frame {
+  max-height: min(78vh, 920px);
+  overflow: auto;
+  padding: clamp(14px, 3vw, 30px);
+  background: var(--bg);
+}
+.course-preview-frame > section + section {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.course-preview-frame > section > h3 {
+  margin: 0 0 14px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+}
+.course-preview-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 320px));
+  justify-content: center;
+}
+.course-preview-card-grid > .course-home-card { width: 100%; }
+.course-preview-detail { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+.course-preview-detail .cd-hero { min-height: 230px; }
+.course-preview-detail .cd-grid { padding: 20px; }
+.course-preview-detail .cd-side { position: static; }
+.course-preview-detail .course-preview-thumb-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 150px;
+  place-items: center;
+  color: var(--muted);
+  background: var(--line-2);
+}
+.course-preview-detail .cd-author-av { flex: 0 0 44px; }
+.course-preview-detail .cd-inst-av { object-fit: cover; }
+@media (max-width: 560px) {
+  .course-preview-detail .cd-grid { gap: 12px; padding: 12px; }
+  .course-preview-detail .cd-hero { min-height: 200px; }
+}
 .preview-frame {
   background: var(--bg);
   padding: 24px;

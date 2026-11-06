@@ -264,6 +264,7 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertContains(create_response, 'id="admSide"')
         self.assertContains(create_response, 'id="edTitle"')
         self.assertContains(create_response, 'data-admin-course-editor="true"')
+        self.assertContains(create_response, 'id="edDraftBtn"')
         self.assertContains(create_response, 'data-hide-pwa-install')
         self.assertContains(create_response, 'id="editor-object-data"')
         self.assertNotContains(create_response, 'class="header"')
@@ -336,6 +337,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertContains(create_response, 'data-admin-project-editor="true"')
         self.assertContains(create_response, 'data-hide-pwa-install')
         self.assertContains(create_response, 'id="editor-object-data"')
+        self.assertContains(create_response, 'id="edProjectGalleryBox"')
+        self.assertContains(create_response, 'id="edProjectGalleryInput"')
         self.assertNotContains(create_response, 'class="header"')
         self.assertNotContains(create_response, 'id="siteFooter"')
         self.assertEqual(create_response.context['projects_json'], [])
@@ -348,6 +351,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertTemplateUsed(edit_response, 'dashboard/project_editor.html')
         self.assertEqual(edit_response.context['projects_json'][0]['id'], self.project.slug)
         self.assertContains(edit_response, 'id="editor-object-data"')
+        self.assertContains(edit_response, 'id="edProjectGalleryBox"')
+        self.assertContains(edit_response, 'id="edProjectGalleryInput"')
         self.assertEqual(
             edit_response.context['admin_project_owner_id'],
             str(self.trainer.pk),
@@ -388,6 +393,9 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 self.assertContains(response, 'id="edDraftBtn"')
                 self.assertContains(response, 'id="edPublishBtn"')
                 self.assertContains(response, 'training-categories-data')
+                if 'project-editor' in route_name:
+                    self.assertContains(response, 'id="edProjectGalleryBox"')
+                    self.assertContains(response, 'id="edProjectGalleryInput"')
                 self.assertNotContains(response, 'id="admSide"')
                 self.assertNotContains(response, 'admin-projects-data')
                 self.assertNotContains(response, 'admin-course-progress-data')
@@ -420,7 +428,7 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+970123456789',
                 'address': 'غزة',
                 'specialty': 'التصميم',
-                'governorate': 'central',
+                'governorate': 'online',
                 'studyYear': 3,
                 'studentStatus': 'student',
             }),
@@ -433,8 +441,8 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(request.cohort.number, 1)
         self.assertEqual(request.full_name, 'محمد أحمد علي')
         self.assertEqual(request.study_year, 3)
-        self.assertEqual(request.governorate, 'central')
-        self.assertEqual(response.json()['request']['governorate'], 'central')
+        self.assertEqual(request.governorate, 'online')
+        self.assertEqual(response.json()['request']['governorate'], 'online')
         self.assertEqual(response.json()['request']['studyYear'], 3)
         self.assertEqual(request.status, CourseRegistrationRequestStatus.NEW)
 
@@ -792,7 +800,7 @@ class AdminCourseRegistrationRequestTests(TestCase):
                 'phone': '+972564567890',
                 'address': 'غزة - النصر',
                 'specialty': 'تطوير الويب',
-                'governorate': 'gaza',
+                'governorate': 'online',
                 'studyYear': 5,
                 'studentStatus': 'student',
             }),
@@ -807,7 +815,7 @@ class AdminCourseRegistrationRequestTests(TestCase):
         self.assertEqual(self.registration.phone, '+972564567890')
         self.assertEqual(self.registration.address, 'غزة - النصر')
         self.assertEqual(self.registration.specialty, 'تطوير الويب')
-        self.assertEqual(self.registration.governorate, 'gaza')
+        self.assertEqual(self.registration.governorate, 'online')
         self.assertEqual(self.registration.study_year, 5)
         self.assertEqual(self.registration.student_status, 'student')
 

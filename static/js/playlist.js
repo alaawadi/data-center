@@ -23,7 +23,34 @@
   var from = params.get('from') || '';
 
   function e(s) { return UI.esc(s == null ? '' : s); }
-  function t(k, v) { return I18n.t(k, v); }
+  function t(k, v) {
+    var values = [];
+    var translations = v;
+    if (v && typeof v === 'object') {
+      translations = {};
+      Object.keys(v).forEach(function (name, index) {
+        var marker = '__PLAYLIST_I18N_VALUE_' + index + '__';
+        values.push({ marker: marker, value: v[name] });
+        translations[name] = marker;
+      });
+    }
+    var value = I18n.t(k, translations);
+    if (!course || course.inPersonKind !== 'workshop') {
+      return String(value).replace(/__PLAYLIST_I18N_VALUE_(\d+)__/g, function (match, index) {
+        return values[Number(index)] ? values[Number(index)].value : match;
+      });
+    }
+    value = String(value)
+      .replace(/الدورات/g, 'الورش')
+      .replace(/الدورة/g, 'الورشة')
+      .replace(/دورات/g, 'ورش')
+      .replace(/دورة/g, 'ورشة')
+      .replace(/courses/gi, 'workshops')
+      .replace(/course/gi, 'workshop');
+    return value.replace(/__PLAYLIST_I18N_VALUE_(\d+)__/g, function (match, index) {
+      return values[Number(index)] ? values[Number(index)].value : match;
+    });
+  }
   function lessonContentHTML(content) {
     var value = String(content || '');
     if (/<\/?[a-z][^>]*>/i.test(value)) {

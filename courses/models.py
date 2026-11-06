@@ -19,6 +19,11 @@ class CourseType(models.TextChoices):
     IN_PERSON = 'in_person', 'وجاهي'
 
 
+class InPersonCourseKind(models.TextChoices):
+    COURSE = 'course', 'دورة وجاهية'
+    WORKSHOP = 'workshop', 'ورشة وجاهية'
+
+
 class CourseCurrency(models.TextChoices):
     ILS = 'ILS', 'شيكل'
     USD = 'USD', 'دولار'
@@ -84,6 +89,12 @@ class Course(models.Model):
     )
     course_type = models.CharField(
         'نوع الدورة', max_length=16, choices=CourseType.choices, default=CourseType.ONLINE
+    )
+    in_person_kind = models.CharField(
+        'نوع النشاط الوجاهي',
+        max_length=16,
+        choices=InPersonCourseKind.choices,
+        default=InPersonCourseKind.COURSE,
     )
     is_complete = models.BooleanField('الدورة مكتملة', default=True)
     profile_only = models.BooleanField('تظهر في بروفايل المدرب فقط', default=False)
@@ -222,6 +233,8 @@ class Course(models.Model):
             'verifyUrl': self.verify_url,
             'status': self.status,
             'courseType': self.course_type,
+            'inPersonKind': self.in_person_kind,
+            'isFree': bool(price_amount) and not self.is_paid,
             'isComplete': self.is_complete,
             'targetLessons': self.target_lessons_count,
             'profileOnly': self.profile_only,
@@ -386,7 +399,7 @@ class CourseRegistrationRequest(models.Model):
     governorate = models.CharField(
         'المحافظة',
         max_length=16,
-        choices=[('gaza', 'غزة'), ('central', 'الوسطى')],
+        choices=[('gaza', 'غزة'), ('central', 'الوسطى'), ('online', 'أونلاين')],
         blank=True,
         default='',
     )

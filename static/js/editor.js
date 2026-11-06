@@ -3,7 +3,28 @@
 
   var page = document.body.getAttribute('data-page');
   var activeAdminEditorId = '';
-  function t(k) { return I18n.t(k); }
+  var activeAdminCourseType = '';
+  var activeAdminCourseKind = '';
+  var activeWorkshopEditor = false;
+  function replaceCourseText(value) {
+    var text = String(value == null ? '' : value);
+    if (!activeWorkshopEditor) return text;
+    return text
+      .replace(/\bcourses?\b/gi, function (match) {
+        var replacement = match.toLowerCase() === 'courses' ? 'workshops' : 'workshop';
+        if (match === match.toUpperCase()) return replacement.toUpperCase();
+        if (match.charAt(0) === match.charAt(0).toUpperCase()) {
+          return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+        }
+        return replacement;
+      })
+      .replace(/الدورات/g, 'الورشات')
+      .replace(/الدورة/g, 'الورشة')
+      .replace(/دورات/g, 'ورشات')
+      .replace(/دورة/g, 'ورشة')
+      .replace(/دوريتك/g, 'ورشتك');
+  }
+  function t(k, params) { return replaceCourseText(I18n.t(k, params)); }
   function e(s) { return UI.esc(s); }
   function durationHours(value, fallback) {
     var raw = String(value || fallback || '')
@@ -437,8 +458,13 @@
         var courseTypeInput = document.getElementById('edCourseType');
         var isInPersonCourse = document.body.classList.contains('in-person-course-editor') ||
           (courseTypeInput && courseTypeInput.value === 'in_person');
+        var inPersonKindInput = document.getElementById('edInPersonKind');
         window.Admin.navigate(page === 'edit-course'
-          ? (isInPersonCourse ? 'in-person-courses' : 'courses')
+          ? (isInPersonCourse
+            ? (inPersonKindInput && inPersonKindInput.value === 'workshop'
+              ? 'workshops'
+              : 'in-person-courses')
+            : 'courses')
           : 'projects');
         return;
       }
@@ -538,13 +564,20 @@
         else window.location.href = backLink.href;
       });
     });
+    var isAdminCourseEditor = page === 'edit-course' &&
+      document.body.getAttribute('data-admin-course-editor') === 'true';
     var btns = [
       { id: 'edPreviewBtn', icon: 'eye', label: t('preview') },
-      { id: 'edDraftBtn', icon: 'save', label: t('saveDraft') },
+      {
+        id: 'edDraftBtn',
+        icon: isAdminCourseEditor ? 'archive' : 'save',
+        label: isAdminCourseEditor ? t('archiveCourse') : t('saveDraft')
+      },
       { id: 'edPublishBtn', icon: 'send', label: t('publish') }
     ];
     btns.forEach(function (b) {
       var el = document.getElementById(b.id);
+      if (!el) return;
       el.querySelector('.ic-slot').outerHTML = UI.icon(b.icon, 15);
       el.querySelector('.lbl').textContent = b.label;
     });
@@ -597,6 +630,16 @@
 
   function initProjectEditor() {
     var isCourse = page === 'edit-course';
+    if (isCourse && !activeAdminCourseKind) {
+      try {
+        activeAdminCourseKind =
+          new URLSearchParams(window.location.search).get('kind') === 'workshop'
+            ? 'workshop'
+            : '';
+      } catch (error) {
+        activeAdminCourseKind = '';
+      }
+    }
     document.body.classList.remove('in-person-course-editor');
     var mobileLayout = null;
     var syncMobileCourseMetaLayout = null;
@@ -682,7 +725,9 @@
     var p = existing ? JSON.parse(JSON.stringify(existing)) : (isCourse ? {
       id: Store.uid('c'), title: '', slug: '', cover: '', summary: '', content: '',
         issuer: '', description: '', skills: [], image: '', credentialId: '', verifyUrl: '',
-        price: '', currency: 'ILS', duration: '', period: '', syllabus: [], courseType: 'online',
+        price: '', currency: 'ILS', duration: '', period: '', syllabus: [],
+        courseType: activeAdminCourseType === 'in_person' ? 'in_person' : 'online',
+        inPersonKind: activeAdminCourseKind === 'workshop' ? 'workshop' : 'course',
         isComplete: true,
       category: '', date: new Date().toISOString().slice(0, 10),
       links: { github: '', demo: '' }, files: [], gallery: [],
@@ -695,6 +740,7 @@
       views: 0, likes: 0, liked: false, saved: false, comments: [],
       status: 'draft', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     });
+    p.gallery = Array.isArray(p.gallery) ? p.gallery : [];
     if (isCourse) {
       p.coverStorageName = p.coverStorageName || '';
       if (existing) {
@@ -716,9 +762,47 @@
       p.period = p.period || '';
       p.credentialId = p.credentialId || '';
       p.verifyUrl = p.verifyUrl || '';
+      p.inPersonKind = p.inPersonKind === 'workshop' ? 'workshop' : 'course';
     }
     var isNew = !existing;
-    var isInPersonCourseEditor = isCourse && !!existing && p.courseType === 'in_person';
+    var isWorkshopEditor = isCourse &&
+      (activeAdminCourseKind === 'workshop' || p.inPersonKind === 'workshop');
+    activeWorkshopEditor = isWorkshopEditor &&
+      !document.getElementById('edCourseTypeField') &&
+      p.courseType !== 'in_person';
+    function isFreeOnlineWorkshop() {
+      return activeWorkshopEditor && priceEl && String(priceEl.value).trim() !== '' &&
+        Number(priceEl.value) === 0;
+    }
+    function freeWorkshopSyllabusIssue() {
+      var sections = (p.syllabus || []).filter(function (section) {
+        return section && String(section.title || '').trim();
+      });
+      if (sections.length !== 1) return 'freeWorkshopSections';
+      var lessons = (sections[0].lessons || []).filter(function (lesson) {
+        return lesson && String(lesson.title || '').trim();
+      });
+      if (lessons.length < 2 || lessons.length > 3) return 'freeWorkshopLessons';
+      var finalLesson = lessons[lessons.length - 1];
+      if (finalLesson.type !== 'quiz') return 'freeWorkshopFinalQuiz';
+      var questions = finalLesson.quiz && Array.isArray(finalLesson.quiz.questions)
+        ? finalLesson.quiz.questions
+        : [];
+      var validQuestionCount = questions.filter(function (question) {
+        return question && String(question.text || '').trim() &&
+          Array.isArray(question.choices) &&
+          question.choices.filter(function (choice) {
+            return choice && String(choice.text || '').trim();
+          }).length >= 2;
+      }).length;
+      return validQuestionCount >= 10 ? '' : 'freeWorkshopQuizQuestions';
+    }
+    var initialInPersonCourseEditor = isCourse && p.courseType === 'in_person';
+    var isInPersonCourseEditor = function () {
+      return isWorkshopEditor && courseTypeEl
+        ? courseTypeEl.value === 'in_person'
+        : initialInPersonCourseEditor;
+    };
     var createdDuringSession = false;
     var initialCourseSnapshot = isCourse && existing
       ? JSON.parse(JSON.stringify(p))
@@ -757,7 +841,7 @@
       chromeTitles.push({ icon: 'layers', title: t('templates') });
       chromeTitles.push({ icon: 'sliders', title: t('projectMetaLabel') });
       chromeTitles.push({ icon: 'hash', title: t('tagsLabel') });
-      chromeTitles.push({ icon: 'file', title: t('projFiles') });
+      chromeTitles.push({ icon: 'file', title: t('tagsLabel') });
     }
 
     fillChrome({ titles: chromeTitles });
@@ -816,9 +900,53 @@
     var summaryEl = document.getElementById('edSummary');
     var courseTypeEl = document.getElementById('edCourseType');
     var courseTypeChoices = document.querySelectorAll('input[name="courseTypeChoice"]');
+    var inPersonKindEl = document.getElementById('edInPersonKind');
+    var inPersonKindField = document.getElementById('edInPersonKindField');
+    var inPersonKindChoices = document.querySelectorAll('input[name="inPersonKindChoice"]');
     function syncCourseTypeChoices(value) {
       Array.prototype.forEach.call(courseTypeChoices, function (choice) {
         choice.checked = choice.value === value;
+      });
+    }
+    function syncInPersonKindChoices(value) {
+      Array.prototype.forEach.call(inPersonKindChoices, function (choice) {
+        choice.checked = choice.value === value;
+      });
+    }
+    function syncInPersonKindVisibility() {
+      if (inPersonKindField && courseTypeEl) {
+        inPersonKindField.hidden = isWorkshopEditor || courseTypeEl.value !== 'in_person';
+        if (isWorkshopEditor && inPersonKindEl) {
+          inPersonKindEl.value = 'workshop';
+          syncInPersonKindChoices('workshop');
+        }
+      }
+    }
+    function configureWorkshopEditorChoices() {
+      if (!isWorkshopEditor) return;
+      var english = I18n.getLang() === 'en';
+      var typeField = document.getElementById('edCourseTypeField');
+      var typeLabel = typeField && typeField.querySelector('.label');
+      var typeOptions = document.getElementById('edCourseTypeOptions');
+      if (typeLabel) typeLabel.textContent = english ? 'Workshop format' : 'نوع الورشة';
+      if (typeOptions) {
+        typeOptions.setAttribute('aria-label', english ? 'Workshop format' : 'نوع الورشة');
+      }
+      Array.prototype.forEach.call(courseTypeChoices, function (choice) {
+        var card = choice.parentElement.querySelector('.course-type-option-card');
+        var strong = card && card.querySelector('strong');
+        var small = card && card.querySelector('small');
+        var isOnline = choice.value === 'online';
+        if (strong) {
+          strong.textContent = english
+            ? (isOnline ? 'Online workshop' : 'In-person workshop')
+            : (isOnline ? 'ورشة أونلاين' : 'ورشة وجاهية');
+        }
+        if (small) {
+          small.textContent = english
+            ? (isOnline ? 'Delivered online' : 'Attend at the location')
+            : (isOnline ? 'تنفيذ عن بُعد' : 'حضور في الموقع');
+        }
       });
     }
     var categoryEl = document.getElementById('edCategory');
@@ -868,7 +996,7 @@
         .trim();
     }
     function isValidTrainingCategory() {
-      return isInPersonCourseEditor ||
+      return isInPersonCourseEditor() ||
         (!categoryUnavailable && trainingCategories.indexOf(categoryEl.value) !== -1);
     }
     function updateTrainingCategoryValidation(force) {
@@ -1081,6 +1209,12 @@
     titleEl.placeholder = isCourse
       ? (I18n.getLang() === 'en' ? 'Course title in Arabic' : 'اسم الدورة بالعربية')
       : t('editorTitlePlaceholder');
+    if (isWorkshopEditor) {
+      titleEl.placeholder = I18n.getLang() === 'en'
+        ? 'Workshop title in Arabic'
+        : 'اسم الورشة بالعربية';
+    }
+    document.title = replaceCourseText(document.title);
     titleEl.value = p.title || '';
     function updateTitleValidation(force) {
       var valid = !!titleEl.value.trim();
@@ -1096,6 +1230,7 @@
     }
     updateTitleValidation(false);
     if (titleEnglishEl) {
+      titleEnglishEl.placeholder = replaceCourseText(titleEnglishEl.placeholder);
       titleEnglishEl.value = titleEnglishEl.value || p.titleEnglish || p.title_en || '';
     }
     contentEl.setAttribute('data-ph', t('editorContentPlaceholder'));
@@ -1105,7 +1240,14 @@
     if (courseTypeEl) {
       courseTypeEl.value = p.courseType === 'in_person' ? 'in_person' : 'online';
       syncCourseTypeChoices(courseTypeEl.value);
+      if (inPersonKindEl) {
+        if (isWorkshopEditor) p.inPersonKind = 'workshop';
+        inPersonKindEl.value = p.inPersonKind;
+        syncInPersonKindChoices(inPersonKindEl.value);
+      }
+      syncInPersonKindVisibility();
     }
+    configureWorkshopEditorChoices();
     var savedTrainingCategory = String(p.category || '').trim();
     categoryUnavailable = !!savedTrainingCategory &&
       trainingCategories.indexOf(savedTrainingCategory) === -1;
@@ -1157,15 +1299,44 @@
     /* بيانات الدورة (السعر/المدة/الفترة/الشهادة) — لحقلي المحرر فقط في صفحة الدورات */
     var priceEl = document.getElementById('edPrice');
     var currencyEl = document.getElementById('edCurrency');
+    var isTrainerCourseEditor = isCourse &&
+      document.body.getAttribute('data-trainer-course-editor') === 'true';
     var durationEl = document.getElementById('edDuration');
     var periodEl = document.getElementById('edPeriod');
     var courseCompletionEl = document.getElementById('edCourseCompletion');
     var courseMetaEls = [];
+    var trainerCoursePriceHint = null;
+    function trainerCourseMinimumPrice() {
+      return currencyEl && currencyEl.value === 'USD' ? 16 : 50;
+    }
+    function updateTrainerCoursePriceMinimum() {
+      if (!isTrainerCourseEditor || p.inPersonKind === 'workshop') return;
+      var minimum = trainerCourseMinimumPrice();
+      priceEl.min = String(minimum);
+      if (!trainerCoursePriceHint) {
+        trainerCoursePriceHint = document.createElement('span');
+        trainerCoursePriceHint.className = 'tiny muted';
+        priceEl.closest('.field').appendChild(trainerCoursePriceHint);
+      }
+      trainerCoursePriceHint.textContent = t('coursePriceMinimumHint')
+        .replace('{amount}', String(minimum))
+        .replace('{currency}', currencyEl && currencyEl.value === 'USD' ? '$' : '₪');
+    }
+    function trainerCoursePriceIsBelowMinimum() {
+      if (!isTrainerCourseEditor || p.inPersonKind === 'workshop' || !priceEl.value.trim()) return false;
+      return Number(priceEl.value) < trainerCourseMinimumPrice();
+    }
     if (isCourse) {
       document.getElementById('lblPrice').textContent = t('priceLabel');
       document.getElementById('lblDuration').textContent = t('durationLabel');
       document.getElementById('lblPeriod').textContent = t('periodLabel');
       document.getElementById('lblCourseCompletion').textContent = t('courseCompletionLabel');
+      if (activeWorkshopEditor) {
+        var freeWorkshopPriceHint = document.createElement('span');
+        freeWorkshopPriceHint.className = 'tiny muted';
+        freeWorkshopPriceHint.textContent = t('freeWorkshopPriceHint');
+        priceEl.closest('.field').appendChild(freeWorkshopPriceHint);
+      }
       courseCompletionEl.options[0].textContent = t('courseCompletionComplete');
       courseCompletionEl.options[1].textContent = t('courseCompletionIncomplete');
       courseCompletionEl.options[2].textContent = t('courseCompletionComingSoon');
@@ -1178,6 +1349,8 @@
           ? 'USD'
           : 'ILS';
       }
+      updateTrainerCoursePriceMinimum();
+      if (currencyEl) currencyEl.addEventListener('change', updateTrainerCoursePriceMinimum);
       durationEl.value = durationHours(p.duration, p.durationEnglish);
       var periodDigits = String(p.period || '').match(/[0-9٠-٩۰-۹]+/);
       periodEl.value = periodDigits
@@ -1203,7 +1376,7 @@
       dateEl.closest('.field').style.display = 'none';
       demoEl.closest('.field').style.display = 'none';
     }
-    if (isInPersonCourseEditor) {
+    if (isInPersonCourseEditor() && !isWorkshopEditor) {
       document.body.classList.add('in-person-course-editor');
       document.getElementById('lblCourseDescription').textContent = t('ucDesc');
       var inPersonSummaryHost = document.getElementById('edInPersonSummaryHost');
@@ -1221,6 +1394,63 @@
         var courseMetaBox = document.getElementById('edCourseMetaBox');
         if (trainerField && courseMetaBox) courseMetaBox.appendChild(trainerField);
       }
+    }
+    var workshopSummaryField = isWorkshopEditor ? summaryEl.closest('.field') : null;
+    var workshopSummaryParent = workshopSummaryField && workshopSummaryField.parentNode;
+    var workshopSummaryNextSibling = workshopSummaryField && workshopSummaryField.nextSibling;
+    var workshopTrainerField = isWorkshopEditor ? document.getElementById('edTrainerField') : null;
+    var workshopTrainerParent = workshopTrainerField && workshopTrainerField.parentNode;
+    var workshopTrainerNextSibling = workshopTrainerField && workshopTrainerField.nextSibling;
+    var workshopSummaryHost = isWorkshopEditor
+      ? document.getElementById('edInPersonSummaryHost')
+      : null;
+    var workshopCourseMetaBox = isWorkshopEditor
+      ? document.getElementById('edCourseMetaBox')
+      : null;
+    var workshopDefaultTagPlaceholder = tagsInput.placeholder;
+    function syncWorkshopCourseMode() {
+      if (!isWorkshopEditor) return;
+      var inPerson = (courseTypeEl ? courseTypeEl.value : p.courseType) === 'in_person';
+      document.body.classList.toggle('in-person-course-editor', inPerson);
+      document.getElementById('lblCourseDescription').textContent = t('ucDesc');
+      if (inPerson) {
+        if (workshopSummaryField && workshopSummaryHost &&
+            workshopSummaryField.parentNode !== workshopSummaryHost) {
+          workshopSummaryHost.appendChild(workshopSummaryField);
+        }
+        if (workshopSummaryHost) workshopSummaryHost.hidden = false;
+        document.getElementById('lblSummary').textContent = t('inPersonBannerSummaryLabel');
+        tagsInput.placeholder = I18n.getLang() === 'en'
+          ? 'Add a workshop topic and press Enter'
+          : 'أضف محوراً للورشة ثم اضغط Enter';
+        if (workshopTrainerField && workshopCourseMetaBox &&
+            workshopTrainerField.parentNode !== workshopCourseMetaBox) {
+          workshopCourseMetaBox.appendChild(workshopTrainerField);
+        }
+      } else {
+        if (workshopSummaryField && workshopSummaryParent &&
+            workshopSummaryField.parentNode !== workshopSummaryParent) {
+          workshopSummaryParent.insertBefore(
+            workshopSummaryField,
+            workshopSummaryNextSibling && workshopSummaryNextSibling.parentNode === workshopSummaryParent
+              ? workshopSummaryNextSibling
+              : null
+          );
+        }
+        if (workshopSummaryHost) workshopSummaryHost.hidden = true;
+        document.getElementById('lblSummary').textContent = t('editorSummaryLabel');
+        tagsInput.placeholder = workshopDefaultTagPlaceholder;
+        if (workshopTrainerField && workshopTrainerParent &&
+            workshopTrainerField.parentNode !== workshopTrainerParent) {
+          workshopTrainerParent.insertBefore(
+            workshopTrainerField,
+            workshopTrainerNextSibling && workshopTrainerNextSibling.parentNode === workshopTrainerParent
+              ? workshopTrainerNextSibling
+              : null
+          );
+        }
+      }
+      updateTrainingCategoryValidation(false);
     }
 
     initToolbar(document.getElementById('edToolbar'), contentEl, markDirty);
@@ -1242,9 +1472,9 @@
       }).length;
     }
     var CHECKS = isCourse ? [
-      { label: isArabic ? 'اسم الدورة بالعربية' : 'Arabic course title', done: function () { return !!titleEl.value.trim(); } },
-      { label: isArabic ? 'اسم الدورة بالإنجليزية' : 'English course title', done: function () { return !!titleEnglishEl.value.trim(); } },
-      { label: isArabic ? 'صورة الدورة' : 'Course image', done: function () { return !!p.cover; } },
+      { label: isArabic ? (isWorkshopEditor ? 'اسم الورشة بالعربية' : 'اسم الدورة بالعربية') : (isWorkshopEditor ? 'Arabic workshop title' : 'Arabic course title'), done: function () { return !!titleEl.value.trim(); } },
+      { label: isArabic ? (isWorkshopEditor ? 'اسم الورشة بالإنجليزية' : 'اسم الدورة بالإنجليزية') : (isWorkshopEditor ? 'English workshop title' : 'English course title'), done: function () { return !!titleEnglishEl.value.trim(); } },
+      { label: isArabic ? (isWorkshopEditor ? 'صورة الورشة' : 'صورة الدورة') : (isWorkshopEditor ? 'Workshop image' : 'Course image'), done: function () { return !!p.cover; } },
       { label: isArabic ? 'الوصف القصير' : 'Short description', done: function () { return !!summaryEl.value.trim(); } },
       { label: isArabic ? 'الوصف الطويل (50 كلمة على الأقل)' : 'Long description (at least 50 words)', done: function () { return textOf(contentEl).trim().split(/\s+/).filter(Boolean).length >= 50; } },
       { label: isArabic ? 'التصنيف' : 'Category', done: function () { return !!categoryEl.value.trim(); } },
@@ -1260,10 +1490,11 @@
       { label: isArabic ? 'ثلاثة تاقات على الأقل' : 'At least three tags', done: function () { return projectTagCount() >= 3; } },
       { label: isArabic ? 'التاريخ' : 'Date', done: function () { return !!dateEl.value; } }
     ];
-    if (isCourse && !isInPersonCourseEditor) {
+    if (isCourse && (!isInPersonCourseEditor() || isWorkshopEditor)) {
       CHECKS.splice(CHECKS.length - 1, 0, {
         label: isArabic ? 'تاق واحد على الأقل' : 'At least one tag',
-        done: function () { return p.tags.length > 0; }
+        done: function () { return p.tags.length > 0; },
+        workshopOnlineOnly: isWorkshopEditor
       });
       CHECKS.push({
         label: isArabic ? 'قسم ودرس واحد على الأقل' : 'At least one section and lesson',
@@ -1272,11 +1503,14 @@
             return !!String(section.title || '').trim() &&
               (section.lessons || []).some(function (lesson) { return !!String(lesson.title || '').trim(); });
           });
-        }
+        },
+        workshopOnlineOnly: isWorkshopEditor
       });
     }
     function currentChecklist() {
-      var checks = CHECKS.slice();
+      var checks = CHECKS.filter(function (check) {
+        return !check.workshopOnlineOnly || !isInPersonCourseEditor();
+      });
       if (!isCourse && roleEl && roleEl.value.trim()) {
         checks.push({
           label: isArabic ? 'دورك في المشروع (اختياري)' : 'Your project role (optional)',
@@ -1287,6 +1521,12 @@
         checks.push({
           label: isArabic ? 'رابط المعاينة' : 'Preview link',
           done: function () { return isValidProjectUrl(demoEl.value.trim()); }
+        });
+      }
+      if (isFreeOnlineWorkshop()) {
+        checks.push({
+          label: t('freeWorkshopSyllabusRule'),
+          done: function () { return !freeWorkshopSyllabusIssue(); }
         });
       }
       return checks;
@@ -1309,6 +1549,7 @@
           : doneCount + ' of ' + checks.length + ' requirements complete');
       });
     }
+    if (isWorkshopEditor) syncWorkshopCourseMode();
     function coursePublishMissing() {
       var wordCount = textOf(contentEl).trim().split(/\s+/).filter(Boolean).length;
       var hasSyllabus = p.syllabus.some(function (section) {
@@ -1316,18 +1557,28 @@
           return !!String(lesson.title || '').trim();
         });
       });
-      return [
+      var missing = [
         { key: 'title', missing: !titleEl.value.trim(), element: titleEl },
         { key: 'titleEnglish', missing: !titleEnglishEl.value.trim(), element: titleEnglishEl },
         { key: 'cover', missing: !p.cover, element: coverHost },
         { key: 'summary', missing: !summaryEl.value.trim(), element: summaryEl },
-        { key: 'content', missing: !isInPersonCourseEditor && wordCount < 50, element: contentEl },
-        { key: 'category', missing: !isInPersonCourseEditor && !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
+        { key: 'content', missing: !isInPersonCourseEditor() && wordCount < 50, element: contentEl },
+        { key: 'category', missing: !isInPersonCourseEditor() && !categoryEl.value.trim(), element: categorySearchEl || categoryEl },
         { key: 'price', missing: !priceEl.value.trim(), element: priceEl },
+        { key: 'priceMinimum', missing: trainerCoursePriceIsBelowMinimum(), element: priceEl },
         { key: 'duration', missing: !(Number(durationEl.value) > 0), element: durationEl },
-        { key: 'tags', missing: !isInPersonCourseEditor && !p.tags.length, element: tagsInput },
-        { key: 'syllabus', missing: !isInPersonCourseEditor && !hasSyllabus, element: document.getElementById('edSecAdd') }
+        { key: 'tags', missing: !isInPersonCourseEditor() && !p.tags.length, element: tagsInput },
+        { key: 'syllabus', missing: !isInPersonCourseEditor() && !hasSyllabus, element: document.getElementById('edSecAdd') }
       ].filter(function (field) { return field.missing; });
+      var freeWorkshopIssue = isFreeOnlineWorkshop() ? freeWorkshopSyllabusIssue() : '';
+      if (freeWorkshopIssue) {
+        missing.unshift({
+          key: freeWorkshopIssue,
+          missing: true,
+          element: document.getElementById('edSyllabus')
+        });
+      }
+      return missing;
     }
     function coursePublishMessageKey(field) {
       var messages = {
@@ -1338,9 +1589,14 @@
         content: 'courseMissingContent',
         category: 'courseMissingCategory',
         price: 'courseMissingPrice',
+        priceMinimum: 'coursePriceMinimum',
         duration: 'courseMissingDuration',
         tags: 'courseMissingTags',
-        syllabus: 'courseMissingSyllabus'
+        syllabus: 'courseMissingSyllabus',
+        freeWorkshopSections: 'freeWorkshopSections',
+        freeWorkshopLessons: 'freeWorkshopLessons',
+        freeWorkshopFinalQuiz: 'freeWorkshopFinalQuiz',
+        freeWorkshopQuizQuestions: 'freeWorkshopQuizQuestions'
       };
       return messages[field] || 'coursePublishFailure';
     }
@@ -1485,7 +1741,7 @@
       persistDeletionHistory();
     }
 
-    function quizBuilderHTML(ls, li, lessonKey, lessonOpen) {
+    function quizBuilderHTML(ls, li, lessonKey, lessonOpen, freeWorkshopFinalQuiz) {
       var TYPE_OPTS = [
         { v: 'video', l: t('typeVideo') },
         { v: 'article', l: t('typeArticle') },
@@ -1537,18 +1793,46 @@
         if (current && !projects.some(function (pj) { return pj.id === current; })) {
           current = '';
         }
-        var options = '<option value="">' + e(t('projectPickNone')) + '</option>' +
-          projects.map(function (pj) {
-            return '<option value="' + e(pj.id) + '"' + (pj.id === current ? ' selected' : '') + '>' +
-              e(pj.title || pj.id) + '</option>';
-          }).join('');
         var linked = projects.filter(function (pj) { return pj.id === current; })[0];
         body += '<div class="qzb-note proj-pick">' +
           '<label class="proj-pick-field"><span>' + UI.icon('briefcase', 14) + ' ' + e(t('projectPickLabel')) + '</span>' +
-          '<div class="proj-pick-row">' +
-          '<select class="input syl-project" data-k="projectId">' + options + '</select>' +
-          '<a class="btn btn-soft btn-sm proj-pick-new" href="' + SITE.u('projectCreate') + '" target="_blank" rel="noopener">' + UI.icon('plus', 14) + ' ' + e(t('projectPickNew')) + '</a>' +
-          '</div></label>';
+          '<div class="proj-picker" data-project-picker>' +
+          '<input class="input proj-picker-search" type="search" role="combobox" ' +
+          'aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" ' +
+          'aria-controls="syl-project-options-' + e(lessonKey) + '" autocomplete="off" ' +
+          'placeholder="' + e(t('projectPickSearchPlaceholder')) + '" value="' +
+          e(linked ? (linked.title || linked.id) : '') + '" data-project-search>' +
+          '<input type="hidden" data-k="projectId" value="' + e(current) + '">' +
+          '<div class="proj-picker-options" id="syl-project-options-' + e(lessonKey) +
+          '" role="listbox" hidden>' +
+          '<button type="button" class="proj-picker-option" role="option" tabindex="-1" ' +
+          'id="syl-project-option-' + e(lessonKey) + '-none" data-project-option data-project-id="" ' +
+          'data-search="" aria-selected="' + (!current ? 'true' : 'false') + '">' +
+          '<span class="proj-picker-option-icon">' + UI.icon('x', 15) + '</span>' +
+          '<span class="proj-picker-option-meta"><b>' + e(t('projectPickNone')) + '</b></span></button>' +
+          projects.map(function (pj, projectIndex) {
+            var title = pj.title || pj.id;
+            var searchable = [
+              title,
+              pj.summary || '',
+              pj.category || '',
+              Array.isArray(pj.tags) ? pj.tags.join(' ') : ''
+            ].join(' ');
+            return '<button type="button" class="proj-picker-option" role="option" tabindex="-1" ' +
+              'id="syl-project-option-' + e(lessonKey) + '-' + projectIndex +
+              '" data-project-option data-project-id="' + e(pj.id) + '" data-search="' +
+              e(searchable.toLocaleLowerCase()) + '" aria-selected="' +
+              (pj.id === current ? 'true' : 'false') + '">' +
+              (pj.cover
+                ? '<img class="proj-picker-option-cover" src="' + e(pj.cover) + '" alt="" loading="lazy" decoding="async">'
+                : '<span class="proj-picker-option-icon">' + UI.icon('briefcase', 16) + '</span>') +
+              '<span class="proj-picker-option-meta"><b>' + e(title) + '</b>' +
+              (pj.summary ? '<span>' + e(pj.summary) + '</span>' : '') +
+              '</span></button>';
+          }).join('') +
+          '<div class="proj-picker-empty" data-project-empty hidden>' +
+          e(t('projectPickNoResults')) + '</div>' +
+          '</div></div></label>';
         if (linked) {
           body += '<div class="proj-pick-preview">' +
             (linked.cover ? '<img class="proj-pick-cover" src="' + e(linked.cover) + '" alt="" loading="lazy" decoding="async">' : '') +
@@ -1609,7 +1893,9 @@
           '<textarea class="textarea" rows="2" data-qk="instructions" placeholder="' + e(t('quizInstructions')) + '">' + e(qz.instructions || '') + '</textarea>' +
           '<div class="qzb-list">' + (qCount ? questionsHTML : '<div class="tiny muted">' + e(t('quizNoQuestions')) + '</div>') + '</div>' +
           '<button type="button" class="btn btn-soft btn-sm" data-qact="q-add">' + UI.icon('plus', 14) + ' ' + e(t('quizAddQuestion')) + '</button>' +
-          '<div class="qzb-hint">' + UI.icon('info', 14) + ' ' + e(t('quizHint')) + '</div>' +
+          '<div class="qzb-hint">' + UI.icon('info', 14) + ' ' + e(t('quizHint')) +
+          (freeWorkshopFinalQuiz
+            ? '<br>' + e(t('freeWorkshopQuizMinimum')) : '') + '</div>' +
           '</div>';
       }
 
@@ -1632,6 +1918,7 @@
         '</div>';
     }
 
+    var renderSyllabusBuilder = function () {};
     function initSyllabusBuilder() {
       var host = document.getElementById('edSyllabus');
       var secAddBtn = document.getElementById('edSecAdd');
@@ -1768,21 +2055,41 @@
       secAddBtn.innerHTML = UI.icon('plus', 15) + e(t('secAdd'));
 
       function render() {
+        var freeWorkshop = isFreeOnlineWorkshop();
+        secAddBtn.disabled = freeWorkshop && p.syllabus.length >= 1;
+        secAddBtn.title = secAddBtn.disabled ? t('freeWorkshopSections') : '';
+        var freeWorkshopHint = freeWorkshop
+          ? '<div class="tiny muted free-workshop-rule-hint">' +
+            e(t('freeWorkshopStructureLimit')) + '</div>'
+          : '';
         if (!p.syllabus.length) {
-          host.innerHTML = '<div class="tiny muted" style="padding:8px 2px">' + UI.icon('list', 16) + ' ' + e(t('syllabusEmpty')) + '</div>';
+          host.innerHTML = freeWorkshopHint +
+            '<div class="tiny muted" style="padding:8px 2px">' + UI.icon('list', 16) + ' ' + e(t('syllabusEmpty')) + '</div>';
           renderDeletionHistory();
           updateChecklist();
           return;
         }
-        host.innerHTML = p.syllabus.map(function (sec, si) {
+        host.innerHTML = freeWorkshopHint + p.syllabus.map(function (sec, si) {
           var sectionKey = String(sec.id != null ? sec.id : 'new-' + si);
           var sectionOpen = openSections[sectionKey] === true;
           var lessonsPanelId = 'edSectionLessons-' + si;
+          var lastTitledLessonIndex = -1;
+          (sec.lessons || []).forEach(function (lesson, lessonIndex) {
+            if (lesson && String(lesson.title || '').trim()) {
+              lastTitledLessonIndex = lessonIndex;
+            }
+          });
           var lessons = (sec.lessons || []).map(function (ls, li) {
             if (ls.type == null) ls.type = 'video';
             var lessonKey = sectionKey + '-' + String(ls.id != null ? ls.id : 'new-' + li);
             var lessonOpen = openLessons[lessonKey] === true;
-            return quizBuilderHTML(ls, li, lessonKey, lessonOpen);
+            return quizBuilderHTML(
+              ls,
+              li,
+              lessonKey,
+              lessonOpen,
+              freeWorkshop && li === lastTitledLessonIndex
+            );
           }).join('');
           return '<div class="syl-section" data-si="' + si + '">' +
             '<div class="syl-sec-head">' +
@@ -1795,7 +2102,10 @@
             '</div>' +
             '<div class="syl-section-lessons" id="' + lessonsPanelId + '"' + (sectionOpen ? '' : ' hidden') + '>' +
             '<div class="syl-lessons">' + lessons + '</div>' +
-            '<button type="button" class="btn btn-ghost btn-sm" data-act="sec-add-lesson">' + UI.icon('plus', 14) + e(t('lessonAdd')) + '</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm" data-act="sec-add-lesson"' +
+            (freeWorkshop && (sec.lessons || []).length >= 3
+              ? ' disabled title="' + e(t('freeWorkshopLessons')) + '"' : '') + '>' +
+            UI.icon('plus', 14) + e(t('lessonAdd')) + '</button>' +
             '</div>' +
             '</div>';
         }).join('');
@@ -1816,6 +2126,7 @@
         renderDeletionHistory();
         updateChecklist();
       }
+      renderSyllabusBuilder = render;
 
       host.addEventListener('course:restore-version', function (event) {
         p.syllabus = Array.isArray(event.detail) ? event.detail : [];
@@ -1871,6 +2182,11 @@
           return;
         }
 
+        if (el.matches('[data-project-search]')) {
+          if (ev.type === 'input') updateProjectPicker(el, el.value);
+          return;
+        }
+
         var k = el.getAttribute('data-k');
         if (!k) return;
         var lesEl = el.closest('.syl-lesson');
@@ -1893,7 +2209,117 @@
       host.addEventListener('input', onEdit);
       host.addEventListener('change', onEdit);
 
+      function updateProjectPicker(input, query) {
+        var picker = input.closest('[data-project-picker]');
+        if (!picker) return;
+        var options = picker.querySelector('.proj-picker-options');
+        var empty = picker.querySelector('[data-project-empty]');
+        var normalized = String(query || '').trim().toLocaleLowerCase();
+        var terms = normalized ? normalized.split(/\s+/) : [];
+        var visibleCount = 0;
+        options.querySelectorAll('[data-project-option]').forEach(function (option) {
+          var searchable = option.getAttribute('data-search') || '';
+          var matches = terms.every(function (term) {
+            return searchable.indexOf(term) >= 0;
+          });
+          option.hidden = !matches;
+          option.classList.remove('is-active');
+          if (matches) visibleCount += 1;
+        });
+        empty.hidden = visibleCount > 0;
+        options.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+        input.removeAttribute('aria-activedescendant');
+      }
+
+      function closeProjectPicker(picker) {
+        var input = picker.querySelector('[data-project-search]');
+        var options = picker.querySelector('.proj-picker-options');
+        var selected = picker.querySelector('[data-k="projectId"]');
+        var selectedOption = Array.prototype.find.call(
+          picker.querySelectorAll('[data-project-option]'),
+          function (option) {
+            return option.getAttribute('data-project-id') === selected.value;
+          }
+        );
+        options.hidden = true;
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+        input.value = selectedOption
+          ? selectedOption.querySelector('.proj-picker-option-meta b').textContent
+          : '';
+      }
+
+      host.addEventListener('focusin', function (event) {
+        var input = event.target.closest && event.target.closest('[data-project-search]');
+        if (input) {
+          if (input.value) input.select();
+          updateProjectPicker(input, '');
+        }
+      });
+
+      host.addEventListener('focusout', function (event) {
+        var picker = event.target.closest && event.target.closest('[data-project-picker]');
+        if (picker && !picker.contains(event.relatedTarget)) {
+          window.setTimeout(function () {
+            if (!picker.contains(document.activeElement)) closeProjectPicker(picker);
+          }, 0);
+        }
+      });
+
+      host.addEventListener('keydown', function (event) {
+        var input = event.target.closest && event.target.closest('[data-project-search]');
+        if (!input) return;
+        var picker = input.closest('[data-project-picker]');
+        var options = picker.querySelector('.proj-picker-options');
+        if (event.key === 'Escape') {
+          closeProjectPicker(picker);
+          return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+          if (event.key === 'Enter' && !options.hidden) {
+            var activeId = input.getAttribute('aria-activedescendant');
+            var activeOption = activeId && document.getElementById(activeId);
+            if (activeOption) {
+              event.preventDefault();
+              activeOption.click();
+            }
+          }
+          return;
+        }
+        event.preventDefault();
+        if (options.hidden) updateProjectPicker(input, input.value);
+        var visibleOptions = Array.prototype.slice.call(
+          options.querySelectorAll('[data-project-option]:not([hidden])')
+        );
+        if (!visibleOptions.length) return;
+        var activeIndex = visibleOptions.findIndex(function (option) {
+          return option.id === input.getAttribute('aria-activedescendant');
+        });
+        activeIndex = event.key === 'ArrowDown'
+          ? Math.min(activeIndex + 1, visibleOptions.length - 1)
+          : Math.max(activeIndex - 1, 0);
+        visibleOptions.forEach(function (option, index) {
+          option.classList.toggle('is-active', index === activeIndex);
+        });
+        input.setAttribute('aria-activedescendant', visibleOptions[activeIndex].id);
+        visibleOptions[activeIndex].scrollIntoView({ block: 'nearest' });
+      });
+
       host.addEventListener('click', function (ev) {
+        if (!ev.target.closest('[data-project-picker]')) {
+          host.querySelectorAll('[data-project-picker]').forEach(closeProjectPicker);
+        }
+        var projectOption = ev.target.closest ? ev.target.closest('[data-project-option]') : null;
+        if (projectOption) {
+          ev.preventDefault();
+          var projectLesson = lessonFromEl(projectOption);
+          if (!projectLesson) return;
+          projectLesson.projectId = projectOption.getAttribute('data-project-id') || '';
+          markSyllabusDirty();
+          render();
+          return;
+        }
         var formatButton = ev.target.closest ? ev.target.closest('[data-syl-cmd]') : null;
         if (formatButton) {
           ev.preventDefault();
@@ -2005,6 +2431,10 @@
           return;
         } else if (act2 === 'sec-add-lesson') {
           sec.lessons = sec.lessons || [];
+          if (isFreeOnlineWorkshop() && sec.lessons.length >= 3) {
+            UI.toast(t('freeWorkshopLessons'), 'info');
+            return;
+          }
           sec.lessons.push({ title: '', duration: '', type: 'video', free: false, content: '', videoUrl: '' });
         } else if (act2 === 'lesson-del') {
           var lesEl2 = btn.closest('.syl-lesson');
@@ -2040,6 +2470,10 @@
       });
 
       secAddBtn.addEventListener('click', function () {
+        if (isFreeOnlineWorkshop() && p.syllabus.length >= 1) {
+          UI.toast(t('freeWorkshopSections'), 'info');
+          return;
+        }
         p.syllabus.push({
           title: '',
           lessons: [{ title: '', duration: '', type: 'video', free: false, content: '', videoUrl: '' }]
@@ -2051,6 +2485,26 @@
       render();
     }
     if (isCourse) initSyllabusBuilder();
+    if (activeWorkshopEditor) {
+      var previousFreeWorkshopPrice = isFreeOnlineWorkshop();
+      priceEl.addEventListener('input', function () {
+        var freeWorkshop = isFreeOnlineWorkshop();
+        if (freeWorkshop !== previousFreeWorkshopPrice) {
+          previousFreeWorkshopPrice = freeWorkshop;
+          renderSyllabusBuilder();
+          updateChecklist();
+        }
+      });
+
+      priceEl.addEventListener('change', function () {
+        var freeWorkshop = isFreeOnlineWorkshop();
+        if (freeWorkshop !== previousFreeWorkshopPrice) {
+          previousFreeWorkshopPrice = freeWorkshop;
+          renderSyllabusBuilder();
+          updateChecklist();
+        }
+      });
+    }
 
     function initCourseVersionHistory() {
       var historyHost = document.getElementById('edVersionHistory');
@@ -2065,6 +2519,10 @@
 
       var versions = [];
       var selectedIndex = -1;
+      versionSelect.setAttribute(
+        'aria-label',
+        replaceCourseText(versionSelect.getAttribute('aria-label'))
+      );
       versionTitle.textContent = t('versionHistoryTitle');
       previousButton.innerHTML = UI.icon('chevron-right', 14);
       previousButton.title = t('versionHistoryPrevious');
@@ -2074,7 +2532,7 @@
 
       function updateControls() {
         historyHost.hidden = !versions.length;
-        versionCount.textContent = I18n.t('versionHistoryCount', { count: versions.length });
+        versionCount.textContent = t('versionHistoryCount', { count: versions.length });
         versionSelect.innerHTML = versions.map(function (version, index) {
           var publishedAt = new Date(version.createdAt);
           var dateLabel = isNaN(publishedAt.getTime())
@@ -2120,6 +2578,7 @@
               p.summary = snapshot.summary || snapshot.description || '';
               p.description = p.summary;
               p.courseType = snapshot.courseType === 'in_person' ? 'in_person' : 'online';
+              p.inPersonKind = snapshot.inPersonKind === 'workshop' ? 'workshop' : 'course';
               p.category = snapshot.category || '';
               p.content = snapshot.content || '';
               p.price = snapshot.price || '';
@@ -2143,6 +2602,11 @@
               if (courseTypeEl) {
                 courseTypeEl.value = p.courseType;
                 syncCourseTypeChoices(courseTypeEl.value);
+                if (inPersonKindEl) {
+                  inPersonKindEl.value = p.inPersonKind;
+                  syncInPersonKindChoices(inPersonKindEl.value);
+                }
+                syncInPersonKindVisibility();
               }
               categoryEl.value = p.category;
               contentEl.innerHTML = p.content;
@@ -2205,6 +2669,73 @@
     if (isCourse) initCourseVersionHistory();
 
     if (!isCourse) {
+      var projectGalleryInput = document.getElementById('edProjectGalleryInput');
+      var projectGalleryDrop = document.getElementById('edProjectGalleryDrop');
+      var projectGalleryList = document.getElementById('edProjectGalleryList');
+      var projectGalleryCount = document.getElementById('edProjectGalleryCount');
+      var projectGalleryMax = Number(projectGalleryInput.getAttribute('data-max-images')) || 5;
+      var projectGalleryProcessing = false;
+      document.getElementById('lblProjectGallery').textContent = t('projectGalleryLabel');
+      projectGalleryDrop.querySelector('.dz-ic').innerHTML = UI.icon('image', 20);
+      projectGalleryDrop.querySelector('.dz-label').textContent = t('projectGalleryAdd');
+      function renderProjectGallery() {
+        projectGalleryCount.textContent = t('projectGalleryCount')
+          .replace('{count}', String(p.gallery.length))
+          .replace('{max}', String(projectGalleryMax));
+        projectGalleryList.innerHTML = p.gallery.map(function (src, index) {
+          return '<div class="gallery-edit-item">' +
+            '<img src="' + e(src) + '" alt="" loading="lazy" decoding="async">' +
+            '<button type="button" class="gi-x" data-project-gallery-remove="' + index +
+            '" aria-label="' + e(t('projectGalleryRemove')) + '">' + UI.icon('x', 12) + '</button>' +
+            '</div>';
+        }).join('');
+        projectGalleryList.querySelectorAll('[data-project-gallery-remove]').forEach(function (button) {
+          button.addEventListener('click', function () {
+            p.gallery.splice(Number(button.getAttribute('data-project-gallery-remove')), 1);
+            renderProjectGallery();
+            markDirty();
+          });
+        });
+        projectGalleryDrop.hidden = p.gallery.length >= projectGalleryMax;
+      }
+      function addProjectGalleryFiles(files) {
+        if (projectGalleryProcessing) return;
+        var imageFiles = files.filter(function (file) {
+          return file && (file.type || '').indexOf('image/') === 0;
+        });
+        if (imageFiles.length !== files.length) {
+          UI.toast(t('projectGalleryImagesOnly'), 'error');
+          return;
+        }
+        if (p.gallery.length + imageFiles.length > projectGalleryMax) {
+          UI.toast(t('projectGalleryLimit').replace('{max}', String(projectGalleryMax)), 'error');
+          return;
+        }
+        if (!imageFiles.length) return;
+        projectGalleryProcessing = true;
+        projectGalleryInput.disabled = true;
+        Promise.all(imageFiles.map(function (file) {
+          return UI.compressImage(file, 1600, 0.84).then(function (dataUrl) {
+            if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:image/jpeg;base64,') !== 0) {
+              throw new Error('gallery_image_compression_failed');
+            }
+            return dataUrl;
+          });
+        })).then(function (compressedImages) {
+          p.gallery = p.gallery.concat(compressedImages);
+          renderProjectGallery();
+          markDirty();
+        }).catch(function (error) {
+          console.error('تعذر تجهيز صور معرض المشروع.', error);
+          UI.toast(t('editorImageFailed'), 'error');
+        }).then(function () {
+          projectGalleryProcessing = false;
+          projectGalleryInput.disabled = false;
+        });
+      }
+      setupDropzone(projectGalleryDrop, projectGalleryInput, addProjectGalleryFiles);
+      renderProjectGallery();
+
       /* files */
       var filesList = document.getElementById('edFilesList');
       function renderFiles() {
@@ -2245,7 +2776,9 @@
     var tplEls = Array.prototype.slice.call(document.querySelectorAll('[data-editor-templates]'));
     var availableTemplates = isCourse ? COURSE_TEMPLATES : TEMPLATES;
     var templatesHTML = availableTemplates.map(function (tpl, i) {
-      var label = I18n.getLang() === 'en' && tpl.labelEn ? tpl.labelEn : tpl.label;
+      var label = replaceCourseText(
+        I18n.getLang() === 'en' && tpl.labelEn ? tpl.labelEn : tpl.label
+      );
       return '<button class="tpl-btn" data-tpl="' + i + '">' + UI.icon(tpl.icon, 15) + e(label) + '</button>';
     }).join('');
     tplEls.forEach(function (tplEl) {
@@ -2254,7 +2787,7 @@
         var b = ev.target.closest('[data-tpl]');
         if (!b) return;
         contentEl.focus();
-        insertHTML(availableTemplates[+b.getAttribute('data-tpl')].html);
+        insertHTML(replaceCourseText(availableTemplates[+b.getAttribute('data-tpl')].html));
         UI.toast(t('templateInserted'), 'success');
         markDirty();
       });
@@ -2347,7 +2880,18 @@
       choice.addEventListener('change', function () {
         if (!courseTypeEl) return;
         courseTypeEl.value = choice.value;
+        syncInPersonKindVisibility();
+        if (isWorkshopEditor) syncWorkshopCourseMode();
         courseTypeEl.dispatchEvent(new Event('change', { bubbles: true }));
+        updateChecklist();
+      });
+    });
+    Array.prototype.forEach.call(inPersonKindChoices, function (choice) {
+      choice.addEventListener('change', function () {
+        if (!inPersonKindEl) return;
+        inPersonKindEl.value = choice.value;
+        inPersonKindEl.dispatchEvent(new Event('change', { bubbles: true }));
+        markDirty();
       });
     });
     titleEl.addEventListener('input', function () {
@@ -2366,7 +2910,10 @@
       if (titleEnglishEl) p.titleEnglish = titleEnglishEl.value.trim();
       p.summary = summaryEl.value.trim();
       if (isCourse && courseTypeEl) p.courseType = courseTypeEl.value;
-      p.category = isInPersonCourseEditor
+      if (isCourse && inPersonKindEl) {
+        p.inPersonKind = isWorkshopEditor ? 'workshop' : inPersonKindEl.value;
+      }
+      p.category = isInPersonCourseEditor()
         ? (categoryEl.value.trim() || p.category)
         : categoryEl.value.trim();
       p.role = roleEl ? roleEl.value.trim() : '';
@@ -2445,6 +2992,14 @@
         return;
       }
       collect();
+      if (isCourse && trainerCoursePriceIsBelowMinimum()) {
+        setStatusDraft();
+        if (!silent) {
+          UI.toast(t('coursePriceMinimum'), 'error');
+          priceEl.focus();
+        }
+        return;
+      }
       if (!isCourse && ownerIdEl && !ownerIdEl.value) {
         setStatusDraft();
         UI.toast(I18n.getLang() === 'en'
@@ -2470,8 +3025,9 @@
         titleEnglish: p.titleEnglish || '',
         summary: p.summary,
         courseType: p.courseType || 'online',
+        inPersonKind: p.inPersonKind || 'course',
         content: p.content,
-        category: isInPersonCourseEditor ? undefined : p.category,
+        category: isInPersonCourseEditor() ? undefined : p.category,
         price: p.price,
         currency: p.currency || 'ILS',
         duration: p.duration,
@@ -2529,6 +3085,12 @@
       }).then(function (res) {
         if (!res || !res.ok) {
           var errorKey = (res && res.error) || 'required';
+          if (errorKey === 'course_price_below_minimum') {
+            errorKey = 'coursePriceMinimum';
+          }
+          if (errorKey === 'project_gallery_limit_exceeded') {
+            errorKey = 'projectGalleryLimitReached';
+          }
           if (errorKey === 'invalid_category') {
             trainingCategories = trainingCategories.filter(function (category) {
               return category !== p.category;
@@ -2625,7 +3187,9 @@
           if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
               window.Admin && typeof window.Admin.navigate === 'function') {
             window.Admin.navigate(isCourse
-              ? (p.courseType === 'in_person' ? 'in-person-courses' : 'courses')
+              ? (p.inPersonKind === 'workshop'
+                ? 'workshops'
+                : (p.courseType === 'in_person' ? 'in-person-courses' : 'courses'))
               : 'projects');
             return;
           }
@@ -2706,27 +3270,168 @@
 
     document.getElementById('edPreviewBtn').addEventListener('click', function () {
       collect();
+      var previewCourse = Object.assign({}, p, {
+        image: p.cover || p.image || '',
+        description: p.summary || p.description || '',
+        skills: Array.isArray(p.tags) ? p.tags : (Array.isArray(p.skills) ? p.skills : []),
+        status: 'published'
+      });
+      var numericPrice = Number(String(p.price || '').replace(/[^\d.]/g, ''));
+      previewCourse.isFree = !!p.isFree || (String(p.price).trim() !== '' && numericPrice === 0);
+      previewCourse.price = previewCourse.isFree
+        ? ''
+        : p.price
+          ? (/[$₪]/.test(String(p.price))
+            ? String(p.price)
+            : (p.currency === 'USD' ? '$' : '₪') + p.price)
+          : '';
+      var courseCardHTML = window.AppPage && typeof window.AppPage.certCard === 'function'
+        ? window.AppPage.certCard(previewCourse, {
+          course: true,
+          homeCourseCard: true,
+          courseListingBadge: true,
+          viewOnly: true
+        })
+        : '<article class="cert-card course-home-card"><div class="course-home-media">' +
+          (previewCourse.image
+            ? '<img class="course-home-image" src="' + e(previewCourse.image) + '" alt="">'
+            : '<div class="course-home-image-placeholder">' + UI.icon('book-open', 40) + '</div>') +
+          '</div><div class="course-home-content"><h3>' + e(previewCourse.title || '—') + '</h3></div></article>';
+      var instructorName = roleEl && roleEl.tagName === 'SELECT'
+        ? (roleEl.options[roleEl.selectedIndex] && roleEl.options[roleEl.selectedIndex].textContent) || ''
+        : (p.issuer || p.instructor || (roleEl && roleEl.value) || '');
+      var summary = String(p.summary || '').trim();
+      var descriptionHTML = UI.sanitize(p.content || '');
+      var learnHTML = previewCourse.skills.length
+        ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('check-circle', 18) +
+          e(t('ucLearn')) + '</h2><div class="cd-learn">' +
+          previewCourse.skills.map(function (skill) {
+            return '<div class="cd-learn-item">' + UI.icon('check', 16) +
+              '<span>' + e(skill) + '</span></div>';
+          }).join('') + '</div></section>'
+        : '';
+      var descriptionSection = (descriptionHTML || (previewCourse.courseType !== 'in_person' && summary))
+        ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('file-text', 18) +
+          e(t('ucDesc')) + '</h2>' +
+          (descriptionHTML
+            ? '<div class="prose cd-course-description">' + descriptionHTML + '</div>'
+            : '<p class="cd-course-summary">' + e(summary) + '</p>') + '</section>'
+        : '';
+      var instructorSection = instructorName
+        ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('user', 18) +
+          e(t('ucInstructor')) + '</h2><div class="cd-inst">' +
+          '<img class="cd-inst-av" src="' + e(UI.userLetterAvatar(instructorName, 56)) + '" alt="">' +
+          '<div><div class="cd-inst-name">' + e(instructorName) + '</div>' +
+          '<div class="cd-inst-sub">' + e(t('ucInstSub')) +
+          (p.category ? ' · ' + e(p.category) : '') + '</div></div></div></section>'
+        : '';
+      var linkedProjects = [];
+      (p.syllabus || []).forEach(function (section) {
+        (section.lessons || []).forEach(function (lesson) {
+          if (lesson.type !== 'project') return;
+          var project = lesson.project || (typeof SITE.trainerProjects === 'function'
+            ? SITE.trainerProjects().filter(function (item) {
+              return String(item.id) === String(lesson.projectId);
+            })[0]
+            : null);
+          if (project && !linkedProjects.some(function (item) { return item.id === project.id; })) {
+            linkedProjects.push(project);
+          }
+        });
+      });
+      var projectsSection = linkedProjects.length
+        ? '<section class="cd-card"><h2 class="cd-h2">' + UI.icon('briefcase', 18) +
+          e(t('ucLinkedProjects')) + '</h2><div class="cd-projects">' +
+          linkedProjects.map(function (project) {
+            return '<article class="cd-project-card">' +
+              (project.cover
+                ? '<div class="cd-project-cover"><img src="' + e(project.cover) + '" alt=""></div>'
+                : '') +
+              '<div class="cd-project-body"><h3 class="cd-project-title">' +
+              e(project.title || '') + '</h3>' +
+              (project.summary
+                ? '<p class="cd-project-summary">' + e(project.summary) + '</p>'
+                : '') + '</div></article>';
+          }).join('') + '</div></section>'
+        : '';
+      var heroStyle = previewCourse.image
+        ? ' style="background-image:url(&quot;' + e(previewCourse.image) + '&quot;),linear-gradient(135deg,#2563eb,#7c3aed)"'
+        : ' style="background-image:linear-gradient(135deg,#2563eb,#7c3aed)"';
+      var detailHeroHTML =
+        '<section class="cd-hero"' + heroStyle + '><div class="cd-hero-overlay"><div class="cd-hero-inner">' +
+        '<nav class="cd-crumb"><span>' + e(t('ucCourses')) + '</span><span class="cd-crumb-sep">›</span>' +
+        '<span>' + e(p.category || '') + '</span></nav>' +
+        '<h1 class="cd-title">' + e(p.title || '—') + '</h1>' +
+        (summary ? '<p class="cd-sub">' + e(summary) + '</p>' : '') +
+        (instructorName
+          ? '<div class="cd-author"><img class="cd-author-av" src="' +
+            e(UI.userLetterAvatar(instructorName, 44)) + '" alt="">' +
+            '<span>' + e(p.courseType === 'in_person' ? t('ucCourseTrainer') : t('ucBy')) +
+            ' <b>' + e(instructorName) + '</b></span></div>'
+          : '') +
+        '<div class="cd-pills">' +
+        '<span class="cd-pill">' + UI.icon('clock', 14) + e(p.duration || '—') + '</span>' +
+        '<span class="cd-pill">' + UI.icon('calendar', 14) + e(p.period || '—') + '</span>' +
+        '<span class="cd-pill">' + UI.icon('award', 14) + e(t('ucCert')) + '</span>' +
+        '</div></div></div></section>';
+      var detailHTML = detailHeroHTML + (previewCourse.courseType === 'in_person'
+        ? '<div class="cd-inperson-learn">' + descriptionSection + learnHTML +
+          '<section class="cd-card cd-registration-card">' +
+          '<h2 class="cd-h2">' + UI.icon('user', 18) +
+          (p.inPersonKind === 'workshop' ? 'طلب التسجيل في الورشة' : 'طلب التسجيل في الدورة') +
+          '</h2><p class="cd-registration-intro">عبّئ البيانات التالية لإرسال طلب تسجيلك.</p>' +
+          '<div class="cd-registration-fields">' +
+          '<label>الاسم الكامل<input class="input" type="text" disabled></label>' +
+          '<label>رقم الهاتف / واتساب<input class="input" type="tel" disabled></label>' +
+          '<label>التخصص<input class="input" type="text" disabled></label>' +
+          '<label>السنة الدراسية<select class="input" disabled><option>اختر السنة الدراسية</option></select></label>' +
+          '<fieldset class="cd-registration-governorate"><legend>المحافظة / طريقة الحضور</legend>' +
+          '<div class="cd-registration-governorate-options">' +
+          '<span class="cd-registration-governorate-button">غزة</span>' +
+          '<span class="cd-registration-governorate-button">الوسطى</span>' +
+          '<span class="cd-registration-governorate-button">أونلاين</span>' +
+          '</div></fieldset>' +
+          '</div><div class="cd-btn cd-btn-buy">حفظ طلب التسجيل</div></section></div>'
+        : '<div class="cd-grid"><div class="cd-main">' +
+        learnHTML + descriptionSection + instructorSection + projectsSection +
+        '</div><aside class="cd-side"><div class="cd-buy">' +
+        '<div class="cd-thumb">' +
+        (previewCourse.image
+          ? '<img src="' + e(previewCourse.image) + '" alt="">'
+          : '<div class="course-preview-thumb-placeholder">' + UI.icon('book-open', 40) + '</div>') +
+        '</div><div class="cd-buy-body"><div class="cd-price"><b>' +
+        e(previewCourse.isFree ? t('courseFreePrice') : (previewCourse.price || t('ucFree'))) +
+        '</b><span>' + e(t('ucPriceNote')) + '</span></div>' +
+        '<div class="cd-btn cd-btn-buy">' + UI.icon('user', 16) + e(t('ucEnroll')) + '</div>' +
+        '<ul class="cd-includes">' +
+        '<li>' + UI.icon('clock', 15) + '<span>' + e(t('ucDuration')) +
+        ': <b>' + e(p.duration || '—') + '</b></span></li>' +
+        '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('ucSessions')) +
+        ': <b>' + e(p.period || '—') + '</b></span></li>' +
+        '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
+        '</ul></div></div></aside></div>');
       var modal = UI.modal({
         title: t('preview'),
-        size: 'md',
-        body: '<div class="preview-frame"><div class="card" style="max-width:640px;margin-inline:auto;overflow:hidden">' +
-          (p.cover ? '<img src="' + e(p.cover) + '" alt="" style="aspect-ratio:16/9;object-fit:cover;width:100%" loading="lazy" decoding="async">' : '<div style="aspect-ratio:16/9;background:var(--grad);display:grid;place-items:center;color:#fff">' + UI.icon('layers', 40) + '</div>') +
-          '<div style="padding:18px 20px">' +
-          '<h3 style="font-size:18px;margin-bottom:8px">' + e(p.title || '—') + '</h3>' +
-          (p.summary ? '<p class="muted small" style="margin-bottom:10px">' + e(p.summary) + '</p>' : '') +
-          (p.tags.length ? '<div class="row gap-6" style="flex-wrap:wrap;margin-bottom:12px">' + p.tags.map(function (x) { return '<span class="chip">' + e(x) + '</span>'; }).join('') + '</div>' : '') +
-          '<div class="prose">' + (p.content || '<p class="muted">…</p>') + '</div>' +
-          '</div></div></div>'
+        size: 'lg',
+        body: '<div class="course-preview-frame">' +
+          '<section class="course-preview-card-section"><h3>' + e(t('previewCourseCard')) + '</h3>' +
+          '<div class="course-preview-card-grid">' + courseCardHTML + '</div></section>' +
+          '<section class="course-preview-detail-section"><h3>' + e(t('previewCourseDetails')) + '</h3>' +
+          '<div class="course-preview-detail">' + detailHTML + '</div></section></div>'
       });
       modal.el.classList.add('preview-overlay');
+      modal.el.classList.add('course-preview-overlay');
     });
 
-    document.getElementById('edDraftBtn').addEventListener('click', function () {
-      if (SERVER_SAVE) { serverSave('draft', false); return; }
-      persist('draft');
-      setStatusDraft();
-      UI.toast(t('savedOk'), 'success');
-    });
+    var draftButton = document.getElementById('edDraftBtn');
+    if (draftButton) {
+      draftButton.addEventListener('click', function () {
+        if (SERVER_SAVE) { serverSave('draft', false); return; }
+        persist('draft');
+        setStatusDraft();
+        UI.toast(t('savedOk'), 'success');
+      });
+    }
 
     document.getElementById('edPublishBtn').addEventListener('click', function () {
       collect();
@@ -3027,12 +3732,16 @@
   /* ---------- boot ---------- */
 
   window.ContentEditor = {
-    mount: function (editorPage, id) {
+    mount: function (editorPage, id, courseType, courseKind) {
       page = editorPage;
       activeAdminEditorId = id || '';
+      activeAdminCourseType = courseType || '';
+      activeAdminCourseKind = courseKind || '';
       UI.init();
       initProjectEditor();
       activeAdminEditorId = '';
+      activeAdminCourseType = '';
+      activeAdminCourseKind = '';
     }
   };
 
