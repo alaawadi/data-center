@@ -5,7 +5,7 @@
   var searchQuery = '';
   var activeTab = 'certificates';
   var skillsExpanded = false;
-  var trainerProjectVisibility = 'public';
+  var trainerProjectVisibility = 'personal';
   var lastGalleryDrag = 0;
   var relatedCoursesAutoScroll = null;
   var certificateLanguage = 'ar';
@@ -1050,17 +1050,17 @@
     var projects = trainerProjects;
     if (IS_TRAINER && trainerProjectVisibility !== 'all') {
       projects = trainerProjects.filter(function (project) {
-        return project.visibility === trainerProjectVisibility;
+        return trainerProjectVisibility === 'personal'
+          ? project.visibility !== 'courses'
+          : project.visibility === trainerProjectVisibility;
       });
     }
     var projs = projects.filter(matches);
     var savedProjects = filterItems('savedProjects');
     var filterControl = IS_TRAINER
       ? '<div class="row gap-12" style="justify-content:flex-end;margin-bottom:16px"><select class="input" id="trainerProjectVisibilityFilter" aria-label="' + e(t('trainerProjectFilterLabel')) + '" style="width:auto;min-width:190px">' +
-        '<option value="all"' + (trainerProjectVisibility === 'all' ? ' selected' : '') + '>' + e(t('trainerProjectFilterAll')) + ' (' + trainerProjects.length + ')</option>' +
-        '<option value="public"' + (trainerProjectVisibility === 'public' ? ' selected' : '') + '>' + e(t('trainerProjectFilterPublic')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'public'; }).length + ')</option>' +
+        '<option value="personal"' + (trainerProjectVisibility === 'personal' ? ' selected' : '') + '>' + e(t('trainerProjectFilterPersonal')) + ' (' + trainerProjects.filter(function (project) { return project.visibility !== 'courses'; }).length + ')</option>' +
         '<option value="courses"' + (trainerProjectVisibility === 'courses' ? ' selected' : '') + '>' + e(t('trainerProjectFilterCourses')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'courses'; }).length + ')</option>' +
-        '<option value="personal"' + (trainerProjectVisibility === 'personal' ? ' selected' : '') + '>' + e(t('projectVisibilityPersonal')) + ' (' + trainerProjects.filter(function (project) { return project.visibility === 'personal'; }).length + ')</option>' +
         '</select></div>'
       : '';
     var projectGridClass = 'card-grid profile-project-grid' +
