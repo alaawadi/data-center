@@ -1211,7 +1211,7 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   }
   #allCertsGrid .course-home-card .course-home-image,
   #allCertsGrid .course-home-card .course-home-image-placeholder {
-    height: 11.5em;
+    height: 13em;
   }
   #allProjectsGrid .proj-cover { height: 11.5em; }
   #allCertsGrid .course-home-card .course-home-content h3 {
