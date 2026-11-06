@@ -1211,11 +1211,37 @@ html[dir='rtl'] .tabbar { direction: rtl; }
   }
   #allCertsGrid .course-home-card .course-home-image,
   #allCertsGrid .course-home-card .course-home-image-placeholder {
-    height: 13em;
+    height: 124.8px;
+  }
+  #allCertsGrid .course-home-card-inperson .course-home-image,
+  #allCertsGrid .course-home-card-inperson .course-home-image-placeholder {
+    height: 149.76px;
   }
   #allProjectsGrid .proj-cover { height: 11.5em; }
   #allCertsGrid .course-home-card .course-home-content h3 {
     font-size: clamp(1.5em, 4vw, 1.75em);
+  }
+}
+
+@media (max-width: 480px) {
+  #allCertsGrid .course-home-card .course-home-image,
+  #allCertsGrid .course-home-card .course-home-image-placeholder {
+    height: 120px;
+  }
+  #allCertsGrid .course-home-card-inperson .course-home-image,
+  #allCertsGrid .course-home-card-inperson .course-home-image-placeholder {
+    height: 144px;
+  }
+}
+
+@media (max-width: 450px) {
+  #allCertsGrid .course-home-card .course-home-image,
+  #allCertsGrid .course-home-card .course-home-image-placeholder {
+    height: 115.2px;
+  }
+  #allCertsGrid .course-home-card-inperson .course-home-image,
+  #allCertsGrid .course-home-card-inperson .course-home-image-placeholder {
+    height: 138.24px;
   }
 }
 

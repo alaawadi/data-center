@@ -343,6 +343,7 @@
       '</div>';
     if (isCourse && opts.homeCourseCard) {
       return '<article class="cert-card course-home-card' + (opts.activeCourse ? ' profile-active-course-card' : '') +
+        (c.courseType === 'in_person' ? ' course-home-card-inperson' : '') +
         (opts.pinnedInPersonCourse ? ' course-inperson-pinned' : '') +
         (isComingSoon ? ' is-coming-soon' : '') + '"' +
         cardNavigation + ' data-search="' + e((c.title + ' ' + c.category + ' ' + (desc) + ' ' + (c.skills || []).join(' ')).toLowerCase()) + '">' +

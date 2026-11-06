@@ -1399,9 +1399,9 @@ html[data-theme='dark'] .page-loader {
 
   .course-section { min-height: auto; padding-top: 4rem; }
   .course .box-container { grid-template-columns: repeat(2, 1fr); gap: 1.6rem 1.2rem; }
-  .course .box img { height: 13rem; }
+  .course .box img { height: 15rem; }
   .course .inperson-course-card > img,
-  .course .inperson-course-card .inperson-course-art { height: 16rem; }
+  .course .inperson-course-card .inperson-course-art { height: 18rem; }
   .course .box .title { font-size: clamp(1.5rem, 4vw, 1.75rem); }
 
   .contact .box { width: 100%; }
