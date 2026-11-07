@@ -4038,7 +4038,8 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 
 .pl-youtube-label-cover {
   position: absolute;
-  inset-inline-start: clamp(36px, 6vw, 48px);
+  left: clamp(36px, 6vw, 48px);
+  right: auto;
   bottom: clamp(20px, 4vh, 24px);
   z-index: 4;
   width: 119px;
@@ -4055,10 +4056,10 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   direction: rtl;
 }
 
-.plyr.pl-lesson-player:fullscreen,
-.plyr.pl-lesson-player:-webkit-full-screen,
-.plyr.pl-lesson-player:-moz-full-screen,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback {
+.pl-player:fullscreen,
+.pl-player:-webkit-full-screen,
+.pl-player:-moz-full-screen,
+.pl-player.plyr--fullscreen-fallback {
   display: flex;
   width: 100vw;
   height: 100vh;
@@ -4070,12 +4071,22 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   border: 0;
   border-radius: 0;
   background: #000;
+  box-shadow: none;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__video-wrapper,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__video-wrapper,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__video-wrapper,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__video-wrapper {
+.pl-player:fullscreen .pl-video-player,
+.pl-player:-webkit-full-screen .pl-video-player,
+.pl-player:-moz-full-screen .pl-video-player,
+.pl-player.plyr--fullscreen-fallback .pl-video-player {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__video-wrapper,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__video-wrapper,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__video-wrapper,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__video-wrapper {
   display: flex;
   width: min(100%, 177.7778dvh);
   height: min(100%, 56.25dvw);
@@ -4085,10 +4096,10 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   aspect-ratio: 16 / 9;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__video-embed,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__video-embed,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__video-embed,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__video-embed,
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__video-embed,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__video-embed,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__video-embed,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__video-embed,
 .plyr.pl-lesson-player.is-mobile-landscape-fallback .plyr__video-embed {
   width: 100%;
   height: 100%;
@@ -4096,10 +4107,10 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   aspect-ratio: 16 / 9;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__video-embed > .plyr__video-embed__container,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__video-embed > .plyr__video-embed__container,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__video-embed > .plyr__video-embed__container,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__video-embed > .plyr__video-embed__container {
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__video-embed > .plyr__video-embed__container,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__video-embed > .plyr__video-embed__container,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__video-embed > .plyr__video-embed__container,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__video-embed > .plyr__video-embed__container {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -4108,37 +4119,37 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   transform: none !important;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__video-embed > iframe,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__video-embed > iframe,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__video-embed > iframe,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__video-embed > iframe,
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__video-embed > iframe,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__video-embed > iframe,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__video-embed > iframe,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__video-embed > iframe,
 .plyr.pl-lesson-player.is-mobile-landscape-fallback .plyr__video-embed > iframe {
   width: 100%;
   height: 100%;
   transform: none !important;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__video-wrapper--fixed-ratio,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__video-wrapper--fixed-ratio,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__video-wrapper--fixed-ratio,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__video-wrapper--fixed-ratio {
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio {
   width: min(100%, 177.7778dvh);
   height: min(100%, 56.25dvw);
   flex: 0 0 auto;
   aspect-ratio: 16 / 9;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__video-wrapper--fixed-ratio video,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__video-wrapper--fixed-ratio video,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__video-wrapper--fixed-ratio video,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__video-wrapper--fixed-ratio video {
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio video,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio video,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio video,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__video-wrapper--fixed-ratio video {
   object-fit: contain;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__controls,
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__controls,
-.plyr.pl-lesson-player:-moz-full-screen .plyr__controls,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__controls {
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__controls,
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__controls,
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__controls,
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__controls {
   padding-bottom: max(var(--plyr-control-spacing, 10px), env(safe-area-inset-bottom));
   opacity: 1;
   visibility: visible;
@@ -4146,10 +4157,10 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   pointer-events: auto;
 }
 
-.plyr.pl-lesson-player:fullscreen .plyr__control[data-plyr="fullscreen"],
-.plyr.pl-lesson-player:-webkit-full-screen .plyr__control[data-plyr="fullscreen"],
-.plyr.pl-lesson-player:-moz-full-screen .plyr__control[data-plyr="fullscreen"],
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .plyr__control[data-plyr="fullscreen"] {
+.pl-player:fullscreen .plyr.pl-lesson-player .plyr__control[data-plyr="fullscreen"],
+.pl-player:-webkit-full-screen .plyr.pl-lesson-player .plyr__control[data-plyr="fullscreen"],
+.pl-player:-moz-full-screen .plyr.pl-lesson-player .plyr__control[data-plyr="fullscreen"],
+.pl-player.plyr--fullscreen-fallback .plyr.pl-lesson-player .plyr__control[data-plyr="fullscreen"] {
   display: inline-flex;
 }
 
@@ -4184,11 +4195,12 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   }
 }
 
-.plyr.pl-lesson-player:fullscreen .pl-youtube-label-cover,
-.plyr.pl-lesson-player:-webkit-full-screen .pl-youtube-label-cover,
-.plyr.pl-lesson-player:-moz-full-screen .pl-youtube-label-cover,
-.plyr.pl-lesson-player.plyr--fullscreen-fallback .pl-youtube-label-cover {
-  inset-inline-start: clamp(36px, 6vw, 48px);
+.pl-player:fullscreen .pl-youtube-label-cover,
+.pl-player:-webkit-full-screen .pl-youtube-label-cover,
+.pl-player:-moz-full-screen .pl-youtube-label-cover,
+.pl-player.plyr--fullscreen-fallback .pl-youtube-label-cover {
+  left: clamp(36px, 6vw, 48px);
+  right: auto;
   bottom: clamp(20px, 4vh, 24px);
 }
 

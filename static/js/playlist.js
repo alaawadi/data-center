@@ -786,10 +786,26 @@
   function showYoutubeLabelCover(cover, player) {
     if (!cover || activePlyr !== player) return;
     cover.classList.add('is-visible');
+    if (player.fullscreen && player.fullscreen.active) {
+      if (youtubeLabelCoverTimer) {
+        window.clearTimeout(youtubeLabelCoverTimer);
+        youtubeLabelCoverTimer = null;
+      }
+      youtubeLabelCoverRemaining = 5000;
+      youtubeLabelCoverDeadline = 0;
+      return;
+    }
     if (youtubeLabelCoverTimer || youtubeLabelCoverRemaining <= 0) return;
     youtubeLabelCoverDeadline = Date.now() + youtubeLabelCoverRemaining;
     var timer = window.setTimeout(function () {
       if (youtubeLabelCoverTimer !== timer || activePlyr !== player) return;
+      if (player.fullscreen && player.fullscreen.active) {
+        youtubeLabelCoverTimer = null;
+        youtubeLabelCoverRemaining = 5000;
+        youtubeLabelCoverDeadline = 0;
+        cover.classList.add('is-visible');
+        return;
+      }
       cover.classList.remove('is-visible');
       youtubeLabelCoverTimer = null;
       youtubeLabelCoverRemaining = 0;
@@ -924,6 +940,7 @@
           cc_load_policy: 0
         },
         captions: { active: false },
+        fullscreen: { container: '#plPlayer' },
         storage: { enabled: false }
       });
       if (!activePlyr) return;
@@ -953,6 +970,12 @@
         });
         youtubePlayer.on('ended', function () {
           persistYoutubeLabelCover(cover, youtubePlayer);
+        });
+        youtubePlayer.on('enterfullscreen', function () {
+          persistYoutubeLabelCover(cover, youtubePlayer);
+        });
+        youtubePlayer.on('exitfullscreen', function () {
+          showYoutubeLabelCover(cover, youtubePlayer);
         });
       }
       /* ملء مدة الدرس تلقائياً إن كانت فارغة */
