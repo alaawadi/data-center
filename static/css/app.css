@@ -4076,10 +4076,93 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 #plPlayer:-webkit-full-screen .pl-video-player,
 #plPlayer:-moz-full-screen .pl-video-player,
 #plPlayer.plyr--fullscreen-fallback .pl-video-player {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
-  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+  flex: 1 1 0;
   aspect-ratio: auto;
+}
+
+#plPlayer:fullscreen .plyr__video-wrapper,
+#plPlayer:-webkit-full-screen .plyr__video-wrapper,
+#plPlayer:-moz-full-screen .plyr__video-wrapper,
+#plPlayer.plyr--fullscreen-fallback .plyr__video-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#plPlayer:fullscreen .plyr__video-embed,
+#plPlayer:-webkit-full-screen .plyr__video-embed,
+#plPlayer:-moz-full-screen .plyr__video-embed,
+#plPlayer.plyr--fullscreen-fallback .plyr__video-embed {
+  width: min(100%, 177.7778dvh);
+  height: min(100%, 56.25dvw);
+  flex: 0 0 auto;
+  padding: 0 !important;
+  aspect-ratio: 16 / 9;
+}
+
+#plPlayer:fullscreen .plyr__video-embed > .plyr__video-embed__container,
+#plPlayer:-webkit-full-screen .plyr__video-embed > .plyr__video-embed__container,
+#plPlayer:-moz-full-screen .plyr__video-embed > .plyr__video-embed__container,
+#plPlayer.plyr--fullscreen-fallback .plyr__video-embed > .plyr__video-embed__container {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0 !important;
+  transform: none !important;
+}
+
+#plPlayer:fullscreen .plyr__video-embed > iframe,
+#plPlayer:-webkit-full-screen .plyr__video-embed > iframe,
+#plPlayer:-moz-full-screen .plyr__video-embed > iframe,
+#plPlayer.plyr--fullscreen-fallback .plyr__video-embed > iframe,
+#plPlayer.is-mobile-landscape-fallback .plyr__video-embed > iframe {
+  width: 100%;
+  height: 100%;
+  transform: none !important;
+}
+
+#plPlayer:fullscreen .plyr__video-wrapper--fixed-ratio,
+#plPlayer:-webkit-full-screen .plyr__video-wrapper--fixed-ratio,
+#plPlayer:-moz-full-screen .plyr__video-wrapper--fixed-ratio,
+#plPlayer.plyr--fullscreen-fallback .plyr__video-wrapper--fixed-ratio {
+  width: min(100%, 177.7778dvh);
+  height: min(100%, 56.25dvw);
+  flex: 0 0 auto;
+  aspect-ratio: 16 / 9;
+}
+
+#plPlayer:fullscreen .plyr__video-wrapper--fixed-ratio video,
+#plPlayer:-webkit-full-screen .plyr__video-wrapper--fixed-ratio video,
+#plPlayer:-moz-full-screen .plyr__video-wrapper--fixed-ratio video,
+#plPlayer.plyr--fullscreen-fallback .plyr__video-wrapper--fixed-ratio video {
+  object-fit: contain;
+}
+
+#plPlayer:fullscreen .plyr__controls,
+#plPlayer:-webkit-full-screen .plyr__controls,
+#plPlayer:-moz-full-screen .plyr__controls,
+#plPlayer.plyr--fullscreen-fallback .plyr__controls {
+  padding-bottom: max(var(--plyr-control-spacing, 10px), env(safe-area-inset-bottom));
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+}
+
+#plPlayer:fullscreen .plyr__control[data-plyr="fullscreen"],
+#plPlayer:-webkit-full-screen .plyr__control[data-plyr="fullscreen"],
+#plPlayer:-moz-full-screen .plyr__control[data-plyr="fullscreen"],
+#plPlayer.plyr--fullscreen-fallback .plyr__control[data-plyr="fullscreen"] {
+  display: inline-flex;
 }
 
 #plPlayer:fullscreen .pl-player-body,
@@ -4109,6 +4192,21 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
     height: 100%;
     flex: 1 1 auto;
     aspect-ratio: auto;
+  }
+
+  #plPlayer.is-mobile-landscape-fallback .plyr__video-embed,
+  #plPlayer.is-mobile-landscape-fallback .plyr__video-wrapper--fixed-ratio {
+    width: min(100%, 177.7778dvw);
+    height: min(100%, 56.25dvh);
+  }
+
+  #plPlayer.is-mobile-landscape-fallback .plyr__video-embed > .plyr__video-embed__container {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0 !important;
+    transform: none !important;
   }
 
   #plPlayer.is-mobile-landscape-fallback .pl-player-body {
