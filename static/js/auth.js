@@ -204,10 +204,36 @@
 
     function signupPhoneValue() {
       if (!phoneInput || !countryCodeInput || !countryCodeInput.value) return '';
-      var national = phoneInput.value.replace(/\D/g, '').replace(/^0+/, '');
+      var localNumber = phoneInput.value.replace(/\D/g, '');
+      var isPalestinianPrefix = countryCodeInput.value === '+970' ||
+        countryCodeInput.value === '+972';
+      if (isPalestinianPrefix && !/^0?(?:56|59)\d{7}$/.test(localNumber)) return '';
+      var national = localNumber.replace(/^0+/, '');
       var digits = countryCodeInput.value.slice(1) + national;
       if (digits.length < 7 || digits.length > 15) return '';
       return '+' + digits;
+    }
+
+    function signupPalestinianPhoneFeedback() {
+      var localNumber = phoneInput.value;
+      if (!localNumber) return { state: 'idle', message: '' };
+      var startsWithoutZero = localNumber.charAt(0) === '5';
+      var prefixes = startsWithoutZero ? ['56', '59'] : ['056', '059'];
+      var expectedLength = startsWithoutZero ? 9 : 10;
+      var hasValidPrefix = prefixes.some(function (prefix) {
+        return prefix.indexOf(localNumber) === 0 ||
+          (localNumber.indexOf(prefix) === 0 && localNumber.length <= expectedLength);
+      });
+      var message = startsWithoutZero
+        ? 'أدخل رقماً يبدأ بـ59 أو 56 من 9 خانات.'
+        : 'أدخل رقماً يبدأ بـ059 أو 056 من 10 خانات.';
+      if (!hasValidPrefix || localNumber.length > expectedLength) {
+        return { state: 'invalid', message: message };
+      }
+      if (/^0?(?:56|59)\d{7}$/.test(localNumber)) {
+        return { state: 'complete', message: 'الرقم صحيح.' };
+      }
+      return { state: 'valid', message: 'الرقم صحيح، أكمل الرقم.' };
     }
 
     function nameWords() {
@@ -238,7 +264,22 @@
       if (!phoneInput) return true;
       var box = phoneInput.closest('.phone-box');
       var v = phoneInput.value;
-      if (!v) { box.classList.remove('bad'); setPhoneHint('اختر مقدمة الدولة، ثم أدخل رقمك المحلي بدون المقدمة.'); return true; }
+      if (!v) {
+        box.classList.remove('bad', 'is-valid', 'is-complete');
+        setPhoneHint('اختر مقدمة الدولة، ثم أدخل رقمك المحلي بدون المقدمة.');
+        return true;
+      }
+      var isPalestinianPrefix = countryCodeInput &&
+        (countryCodeInput.value === '+970' || countryCodeInput.value === '+972');
+      if (isPalestinianPrefix) {
+        var feedback = signupPalestinianPhoneFeedback();
+        box.classList.toggle('bad', feedback.state === 'invalid');
+        box.classList.toggle('is-valid', feedback.state === 'valid');
+        box.classList.toggle('is-complete', feedback.state === 'complete');
+        setPhoneHint(feedback.message, feedback.state === 'invalid' ? 'error' : 'ok');
+        return feedback.state !== 'invalid';
+      }
+      box.classList.remove('is-valid', 'is-complete');
       if (!signupPhoneValue()) {
         box.classList.add('bad');
         setPhoneHint('رقم الجوال غير صحيح. أدخل رقماً محلياً بطول مناسب بعد اختيار المقدمة.', 'error');

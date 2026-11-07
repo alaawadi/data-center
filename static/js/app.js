@@ -3553,7 +3553,7 @@
       function syncRegistrationPhoneMaxLength() {
         var isPalestinianPrefix = registrationCountryCodeInput.value === '+970' ||
           registrationCountryCodeInput.value === '+972';
-        var firstDigit = registrationPhoneInput.value.replace(/\D/g, '').charAt(0);
+        var firstDigit = registrationPhoneInput.value.charAt(0);
         var maxLength = isPalestinianPrefix
           ? firstDigit === '5' ? 9 : firstDigit === '0' || !firstDigit ? 10 : 14
           : 14;
@@ -3563,24 +3563,32 @@
         }
       }
       function registrationPhoneValue() {
-        var localNumber = registrationPhoneInput.value.replace(/\D/g, '');
-        if (!/^0?(?:56|59)\d{7}$/.test(localNumber)) return '';
+        var localNumber = registrationPhoneInput.value;
+        if (!/^\d+$/.test(localNumber) || !/^0?(?:56|59)\d{7}$/.test(localNumber)) return '';
         var national = localNumber.replace(/^0/, '');
         var digits = registrationCountryCodeInput.value.slice(1) + national;
         return digits.length >= 7 && digits.length <= 15 ? '+' + digits : '';
       }
+      function registrationPhoneValidationMessage(localNumber) {
+        if (localNumber.charAt(0) === '5') {
+          return 'أدخل رقماً يبدأ بـ59 أو 56 من 9 خانات.';
+        }
+        return 'أدخل رقماً يبدأ بـ059 أو 056 من 10 خانات.';
+      }
       function registrationPhoneFeedback() {
-        var localNumber = registrationPhoneInput.value.replace(/\D/g, '');
+        var localNumber = registrationPhoneInput.value;
         if (!localNumber) return { state: 'idle', message: '' };
-        var validPrefixes = ['056', '059', '56', '59'];
+        var startsWithoutZero = localNumber.charAt(0) === '5';
+        var validPrefixes = startsWithoutZero ? ['56', '59'] : ['056', '059'];
+        var expectedLength = startsWithoutZero ? 9 : 10;
         var hasValidPrefix = validPrefixes.some(function (prefix) {
           return prefix.indexOf(localNumber) === 0 ||
-            (localNumber.indexOf(prefix) === 0 && localNumber.length <= prefix.length + 7);
+            (localNumber.indexOf(prefix) === 0 && localNumber.length <= expectedLength);
         });
-        if (!hasValidPrefix) {
+        if (!/^\d+$/.test(localNumber) || !hasValidPrefix) {
           return {
             state: 'invalid',
-            message: 'أدخل رقماً يبدأ بـ056 أو 059 من 10 خانات، أو 56 أو 59 من 9 خانات.'
+            message: registrationPhoneValidationMessage(localNumber)
           };
         }
         if (registrationPhoneValue()) return { state: 'complete', message: 'الرقم صحيح.' };
@@ -3602,7 +3610,9 @@
           error: document.getElementById('registrationPhoneError'),
           validate: function () {
             return registrationPhoneValue()
-              ? '' : 'أدخل رقماً يبدأ بـ056 أو 059 من 10 خانات، أو 56 أو 59 من 9 خانات.';
+              ? '' : registrationPhoneValidationMessage(
+                registrationPhoneInput.value
+              );
           }
         },
         specialty: {
@@ -3711,8 +3721,6 @@
         }
       }
       registrationPhoneInput.addEventListener('input', function () {
-        var digits = registrationPhoneInput.value.replace(/\D/g, '');
-        if (registrationPhoneInput.value !== digits) registrationPhoneInput.value = digits;
         syncRegistrationPhoneMaxLength();
         validateRegistrationField('phone');
         registrationSubmit.disabled = !Object.keys(registrationFields).every(function (name) {
