@@ -3436,7 +3436,7 @@ class PlaylistVideoPlayerTests(TestCase):
         self.assertIn('vendor/plyr/plyr.min.js', html)
         self.assertIn('js/playlist.js', html)
 
-    def test_playlist_payload_carries_video_url(self):
+    def test_playlist_payload_uses_youtube_embed_url_instead_of_watch_url(self):
         res = self.client.get(self.playlist_url)
         lessons = [
             lesson
@@ -3444,7 +3444,61 @@ class PlaylistVideoPlayerTests(TestCase):
             for lesson in section['lessons']
         ]
         video = next(lesson for lesson in lessons if lesson['id'] == self.video_lesson.pk)
-        self.assertEqual(video['videoUrl'], 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+        self.assertEqual(
+            video['videoUrl'],
+            'https://www.youtube.com/embed/dQw4w9WgXcQ',
+        )
+        self.assertNotIn('watch?v=', res.content.decode('utf-8'))
+
+    def test_playlist_query_count_stays_bounded_with_quizzes_and_linked_projects(self):
+        self.client.force_login(self.trainer)
+        with CaptureQueriesContext(connection) as baseline_queries:
+            baseline_response = self.client.get(self.playlist_url)
+        self.assertEqual(baseline_response.status_code, 200)
+
+        for index in range(6):
+            quiz_lesson = Lesson.objects.create(
+                section=self.video_lesson.section,
+                title=f'اختبار {index}',
+                type=LessonType.QUIZ,
+            )
+            quiz = Quiz.objects.create(lesson=quiz_lesson)
+            question = QuizQuestion.objects.create(
+                quiz=quiz,
+                text=f'سؤال {index}',
+            )
+            QuizChoice.objects.create(question=question, text=f'اختيار {index}')
+
+            project = Project.objects.create(
+                owner=self.trainer,
+                title=f'مشروع مرتبط {index}',
+            )
+            Lesson.objects.create(
+                section=self.video_lesson.section,
+                title=f'درس مشروع {index}',
+                type=LessonType.PROJECT,
+                linked_project=project,
+            )
+
+        with CaptureQueriesContext(connection) as expanded_queries:
+            response = self.client.get(self.playlist_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(
+            len(expanded_queries),
+            len(baseline_queries) + 8,
+        )
+        lessons = [
+            lesson
+            for section in response.context['courses_json'][0]['syllabus']
+            for lesson in section['lessons']
+        ]
+        projects = [lesson['project'] for lesson in lessons if lesson['project']]
+        self.assertEqual(len(projects), 6)
+        self.assertTrue(all(not project['gallery'] and not project['comments'] for project in projects))
+        quiz_data = [lesson['quiz'] for lesson in lessons if lesson['type'] == LessonType.QUIZ]
+        self.assertEqual(len(quiz_data), 6)
+        self.assertTrue(all(quiz['questionsTotal'] == 1 for quiz in quiz_data))
 
 class ManualCertificateReviewTests(TestCase):
     _PNG = (

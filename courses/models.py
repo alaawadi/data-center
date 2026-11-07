@@ -174,6 +174,7 @@ class Course(models.Model):
         include_content=True,
         include_lesson_content=True,
         include_related_projects=True,
+        include_related_project_extras=True,
     ):
         """Shape expected by the client-side course pages (cards/detail/playlist/editor).
 
@@ -197,7 +198,10 @@ class Course(models.Model):
                         'content': lesson.content if include_lesson_content else '',
                         'videoUrl': lesson.video_url,
                         'projectId': lesson.linked_project.slug if lesson.linked_project_id else '',
-                        'project': lesson.linked_project.to_public_dict()
+                        'project': lesson.linked_project.to_public_dict(
+                            include_comments=include_related_project_extras,
+                            include_gallery=include_related_project_extras,
+                        )
                         if lesson.linked_project_id and include_related_projects
                         else None,
                         'quiz': lesson.quiz_dict(include_answers=include_answers),

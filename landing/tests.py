@@ -3,7 +3,9 @@ from pathlib import Path
 
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.urls import reverse
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from courses.models import Course, CourseStatus, CourseType, InPersonWorkshop
@@ -112,8 +114,8 @@ class HomePageTests(TestCase):
         self.assertContains(response, 'courseSheetData')
         titles = [course['title'] for course in response.context['courses_json']]
         self.assertEqual(titles, [published.title])
-        self.assertEqual(response.context['courses_json'][0]['syllabus'], [])
-        self.assertEqual(response.context['courses_json'][0]['content'], '')
+        self.assertNotIn('syllabus', response.context['courses_json'][0])
+        self.assertNotIn('content', response.context['courses_json'][0])
         self.assertNotContains(response, 'id="courses-sheet-data"')
 
     def test_homepage_sends_only_card_fields_for_the_visible_course_cards(self):
@@ -132,7 +134,7 @@ class HomePageTests(TestCase):
 
         response = self.client.get(reverse('landing:home'))
 
-        self.assertEqual(len(response.context['courses_json']), 8)
+        self.assertEqual(len(response.context['courses_json']), 6)
         self.assertEqual(len(response.context['landing_courses_json']), 6)
         self.assertEqual(response.context['online_courses_count'], 8)
         self.assertEqual(
@@ -143,6 +145,35 @@ class HomePageTests(TestCase):
             },
         )
         self.assertContains(response, '"landing-online-courses-count"')
+
+    def test_homepage_course_queries_do_not_grow_with_online_course_count(self):
+        trainer = get_user_model().objects.create_user(
+            phone='059444405',
+            password='pass1234',
+            full_name='مدرب اختبار سرعة الرئيسية',
+            role=UserRole.TRAINER,
+        )
+        Course.objects.create(
+            owner=trainer,
+            title='الدورة الأولى',
+            status=CourseStatus.PUBLISHED,
+        )
+
+        self.client.get(reverse('landing:home'))
+        with CaptureQueriesContext(connection) as one_course_queries:
+            response = self.client.get(reverse('landing:home'))
+        for index in range(20):
+            Course.objects.create(
+                owner=trainer,
+                title=f'دورة إضافية {index}',
+                status=CourseStatus.PUBLISHED,
+            )
+        with CaptureQueriesContext(connection) as many_course_queries:
+            response = self.client.get(reverse('landing:home'))
+
+        self.assertEqual(len(one_course_queries), len(many_course_queries))
+        self.assertEqual(response.context['online_courses_count'], 21)
+        self.assertEqual(len(response.context['courses_json']), 6)
 
     def test_homepage_cards_receive_kind_for_online_and_inperson_workshops(self):
         trainer = get_user_model().objects.create_user(
@@ -309,12 +340,12 @@ class HomePageTests(TestCase):
 
         homepage_order = [course['id'] for course in homepage.context['courses_json']]
         all_courses_order = [course['id'] for course in all_courses.context['courses_json']]
-        self.assertEqual(homepage_order, all_courses_order)
+        self.assertEqual(homepage_order, all_courses_order[:6])
         self.assertEqual(
-            homepage_order[:9],
-            [course.slug for course in reversed(courses)][:9],
+            homepage_order,
+            [course.slug for course in reversed(courses)][:6],
         )
-        self.assertTrue(homepage.context['courses_json'][8]['comingSoon'])
+        self.assertEqual(homepage.context['online_courses_count'], len(courses))
         landing_script = (
             Path(__file__).resolve().parent.parent
             / 'static'
@@ -373,9 +404,14 @@ class ProgressiveWebAppTests(TestCase):
         self.assertIn('/static/offline.html', worker)
         self.assertIn('/static/js/pwa.js', worker)
         self.assertIn('/static/css/app.css', worker)
+        self.assertIn('/static/css/fonts-local.css', worker)
+        self.assertIn('/static/fonts/cairo-arabic.woff2', worker)
+        self.assertIn('/static/fonts/tajawal-400-arabic.woff2', worker)
         self.assertIn('/static/images/pwa-512.png', worker)
         self.assertIn('/static/vendor/jsQR.js', worker)
+        self.assertIn('/static/vendor/jspdf.umd.min.js', worker)
         self.assertIn('/static/css/workshops.css', worker)
+        self.assertNotIn('fonts.googleapis.com', worker)
         self.assertIn(
             'event.respondWith(networkFirstPage(request, networkResponse));',
             worker,

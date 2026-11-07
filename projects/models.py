@@ -128,11 +128,12 @@ class Project(models.Model):
         include_comments=True,
         include_comment_count=False,
         include_attachments=True,
+        include_gallery=True,
     ):
         """Shape expected by the client-side card/detail rendering."""
         owner = self.owner
         files = self.files.all()
-        images = self.images.all() if include_attachments else ()
+        images = self.images.all() if include_attachments and include_gallery else ()
         data = {
             'id': self.slug or str(self.pk),
             'pk': self.pk,
@@ -164,7 +165,7 @@ class Project(models.Model):
             ),
             'gallery': (
                 [image.image.url for image in images if image.image]
-                if include_attachments
+                if include_attachments and include_gallery
                 else []
             ),
             'views': self.views,

@@ -3318,8 +3318,13 @@
    } catch (err) { previewLesson = null; previewUrl = ''; }
 
    var heroPlayerHTML = '';
+   courseHeroYoutubePreview = false;
    if (previewUrl) {
      try { heroPlayerHTML = UI.playerHTML(previewUrl, { id: 'cdHeroPlayer' }); } catch (err) { heroPlayerHTML = ''; }
+     courseHeroYoutubePreview = !!UI.youtubeId(previewUrl);
+   }
+   if (heroPlayerHTML && courseHeroYoutubePreview) {
+     heroPlayerHTML += '<span class="pl-youtube-label-cover" aria-hidden="true"></span>';
    }
    if (!heroPlayerHTML) {
      heroPlayerHTML = '<img src="' + e(heroImg) + '" alt="' + e(c.title) + '" fetchpriority="high"><span class="cd-play" aria-hidden="true">' + UI.icon('play', 24) + '</span>';
@@ -4002,11 +4007,100 @@
 
   /* تهيئة مشغّل Plyr لمعاينة أول درس في صفحة تفاصيل الدورة (نفس آلية مشغّل الدروس) */
   var heroPlyr = null;
+  var courseHeroYoutubePreview = false;
+  var courseHeroYoutubeCoverTimer = null;
+  var courseHeroYoutubeCoverRemaining = 5000;
+  var courseHeroYoutubeCoverDeadline = 0;
+
+  function showCourseHeroYoutubeCover() {
+    var cover = document.querySelector('.cd-thumb .pl-youtube-label-cover');
+    if (!cover) return;
+    cover.classList.add('is-visible');
+    if (courseHeroYoutubeCoverTimer || courseHeroYoutubeCoverRemaining <= 0) return;
+    courseHeroYoutubeCoverDeadline = Date.now() + courseHeroYoutubeCoverRemaining;
+    courseHeroYoutubeCoverTimer = window.setTimeout(function () {
+      cover.classList.remove('is-visible');
+      courseHeroYoutubeCoverTimer = null;
+      courseHeroYoutubeCoverRemaining = 0;
+      courseHeroYoutubeCoverDeadline = 0;
+    }, courseHeroYoutubeCoverRemaining);
+  }
+
+  function prepareCourseHeroYoutubeCoverForPlayback() {
+    if (courseHeroYoutubeCoverTimer) {
+      window.clearTimeout(courseHeroYoutubeCoverTimer);
+      courseHeroYoutubeCoverTimer = null;
+    }
+    courseHeroYoutubeCoverRemaining = 5000;
+    courseHeroYoutubeCoverDeadline = 0;
+    var cover = document.querySelector('.cd-thumb .pl-youtube-label-cover');
+    if (cover) cover.classList.add('is-visible');
+  }
+
+  function pauseCourseHeroYoutubeCoverTimer() {
+    if (!courseHeroYoutubeCoverTimer) return;
+    window.clearTimeout(courseHeroYoutubeCoverTimer);
+    courseHeroYoutubeCoverTimer = null;
+    courseHeroYoutubeCoverRemaining = Math.max(0, courseHeroYoutubeCoverDeadline - Date.now());
+    courseHeroYoutubeCoverDeadline = 0;
+  }
+
+  function persistCourseHeroYoutubeCover() {
+    pauseCourseHeroYoutubeCoverTimer();
+    courseHeroYoutubeCoverRemaining = 5000;
+    var cover = document.querySelector('.cd-thumb .pl-youtube-label-cover');
+    if (cover) cover.classList.add('is-visible');
+  }
+
+  function setCourseHeroCoverFullscreen(isFullscreen) {
+    var cover = document.querySelector('.cd-thumb .pl-youtube-label-cover');
+    if (cover) cover.classList.toggle('is-course-fullscreen', isFullscreen);
+  }
+
   function mountCourseHeroPlayer() {
+    if (courseHeroYoutubeCoverTimer) {
+      window.clearTimeout(courseHeroYoutubeCoverTimer);
+      courseHeroYoutubeCoverTimer = null;
+    }
+    courseHeroYoutubeCoverRemaining = 5000;
+    courseHeroYoutubeCoverDeadline = 0;
+    setCourseHeroCoverFullscreen(false);
     var host = document.getElementById('cdHeroPlayer');
     if (!host || !window.Plyr) return;
     if (heroPlyr) { try { heroPlyr.destroy(); } catch (err) { /* ignore */ } heroPlyr = null; }
-    try { heroPlyr = UI.mountPlyr(host); } catch (err) { heroPlyr = null; }
+    try {
+      heroPlyr = UI.mountPlyr(host, {
+        youtube: {
+          noCookie: true,
+          rel: 0,
+          showinfo: 0,
+          iv_load_policy: 3,
+          modestbranding: 1,
+          cc_load_policy: 0
+        },
+        captions: { active: false },
+        storage: { enabled: false }
+      });
+    } catch (err) {
+      heroPlyr = null;
+    }
+    if (!heroPlyr || !courseHeroYoutubePreview) return;
+    UI.disableYoutubeCaptions(heroPlyr);
+    var playerContainer = host.closest('.plyr');
+    var cover = document.querySelector('.cd-thumb .pl-youtube-label-cover');
+    if (playerContainer && cover) playerContainer.appendChild(cover);
+    heroPlyr.on('play', prepareCourseHeroYoutubeCoverForPlayback);
+    heroPlyr.on('playing', showCourseHeroYoutubeCover);
+    heroPlyr.on('waiting', pauseCourseHeroYoutubeCoverTimer);
+    heroPlyr.on('stalled', pauseCourseHeroYoutubeCoverTimer);
+    heroPlyr.on('pause', persistCourseHeroYoutubeCover);
+    heroPlyr.on('ended', persistCourseHeroYoutubeCover);
+    heroPlyr.on('enterfullscreen', function () {
+      setCourseHeroCoverFullscreen(true);
+    });
+    heroPlyr.on('exitfullscreen', function () {
+      setCourseHeroCoverFullscreen(false);
+    });
   }
 
   /* ---------- detail: project ---------- */

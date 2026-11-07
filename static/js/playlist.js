@@ -20,6 +20,9 @@
   var doneFeedback = {};
   var doneFeedbackTimers = {};
   var activePlyr = null;          /* نسخة Plyr النشطة (تُدمَّر عند تغيير الدرس) */
+  var youtubeLabelCoverTimer = null;
+  var youtubeLabelCoverRemaining = 5000;
+  var youtubeLabelCoverDeadline = 0;
   var params = new URLSearchParams(location.search);
   var courseId = SITE.param('id') || '';
   var rawCourseId = courseId;      /* المعرّف كما ورد في الرابط (slug أو pk) */
@@ -557,7 +560,12 @@
   function videoHeroHTML(ls) {
     var url = UI.videoUrl(ls);
     var player = UI.playerHTML(url, { id: 'plMedia' });
-    if (player) return '<div class="pl-video-player">' + player + '</div>';
+    if (player) {
+      var youtubeCover = UI.youtubeId(url)
+        ? '<span class="pl-youtube-label-cover" aria-hidden="true"></span>'
+        : '';
+      return '<div class="pl-video-player">' + player + youtubeCover + '</div>';
+    }
     /* لا يوجد رابط تشغيل صالح: صورة غلاف مع شارة مدة */
     return '<div class="pl-video">' +
       '<img src="' + e(course.courseImage || course.image) + '" alt="' + e(course.title) + '" fetchpriority="high">' +
@@ -762,8 +770,65 @@
   }
 
   /* تهيئة Plyr على عنصر الفيديو الظاهر حالياً (يوتيوب أو ملف مباشر) */
+  function hideYoutubeLabelCover() {
+    if (youtubeLabelCoverTimer) {
+      window.clearTimeout(youtubeLabelCoverTimer);
+      youtubeLabelCoverTimer = null;
+    }
+    youtubeLabelCoverRemaining = 5000;
+    youtubeLabelCoverDeadline = 0;
+    var cover = document.querySelector('.pl-youtube-label-cover');
+    if (cover) cover.classList.remove('is-visible');
+  }
+
+  function showYoutubeLabelCover() {
+    var cover = document.querySelector('.pl-youtube-label-cover');
+    if (!cover) return;
+    cover.classList.add('is-visible');
+    if (youtubeLabelCoverTimer || youtubeLabelCoverRemaining <= 0) return;
+    youtubeLabelCoverDeadline = Date.now() + youtubeLabelCoverRemaining;
+    youtubeLabelCoverTimer = window.setTimeout(function () {
+      cover.classList.remove('is-visible');
+      youtubeLabelCoverTimer = null;
+      youtubeLabelCoverRemaining = 0;
+      youtubeLabelCoverDeadline = 0;
+    }, youtubeLabelCoverRemaining);
+  }
+
+  function prepareYoutubeLabelCoverForPlayback() {
+    if (youtubeLabelCoverTimer) {
+      window.clearTimeout(youtubeLabelCoverTimer);
+      youtubeLabelCoverTimer = null;
+    }
+    youtubeLabelCoverRemaining = 5000;
+    youtubeLabelCoverDeadline = 0;
+    var cover = document.querySelector('.pl-youtube-label-cover');
+    if (cover) cover.classList.add('is-visible');
+  }
+
+  function pauseYoutubeLabelCoverTimer() {
+    if (youtubeLabelCoverTimer) {
+      window.clearTimeout(youtubeLabelCoverTimer);
+      youtubeLabelCoverTimer = null;
+      youtubeLabelCoverRemaining = Math.max(0, youtubeLabelCoverDeadline - Date.now());
+    } else if (youtubeLabelCoverRemaining <= 0) {
+      youtubeLabelCoverRemaining = 5000;
+    }
+    youtubeLabelCoverDeadline = 0;
+    var cover = document.querySelector('.pl-youtube-label-cover');
+    if (cover) cover.classList.add('is-visible');
+  }
+
+  function persistYoutubeLabelCover() {
+    pauseYoutubeLabelCoverTimer();
+    youtubeLabelCoverRemaining = 5000;
+    var cover = document.querySelector('.pl-youtube-label-cover');
+    if (cover) cover.classList.add('is-visible');
+  }
+
   function mountMedia() {
     try {
+      hideYoutubeLabelCover();
       var host = document.getElementById('plMedia');
       if (!host || !window.Plyr) return;
       if (activePlyr) {
@@ -772,8 +837,34 @@
       }
       var f = flat.find(function (x) { return x.key === currentKey; });
       var ls = f ? f.lesson : null;
-      activePlyr = UI.mountPlyr(host);
+      var videoWrapper = host.closest('.pl-video-player');
+      var cover = videoWrapper && videoWrapper.querySelector('.pl-youtube-label-cover');
+      activePlyr = UI.mountPlyr(host, {
+        youtube: {
+          noCookie: true,
+          rel: 0,
+          showinfo: 0,
+          iv_load_policy: 3,
+          modestbranding: 1,
+          cc_load_policy: 0
+        },
+        captions: { active: false },
+        fullscreen: { container: '#plPlayer' },
+        storage: { enabled: false }
+      });
       if (!activePlyr) return;
+      if (ls && UI.youtubeId(UI.videoUrl(ls))) {
+        UI.disableYoutubeCaptions(activePlyr);
+        var playerContainer = host.closest('.plyr');
+        if (playerContainer && cover) playerContainer.appendChild(cover);
+        persistYoutubeLabelCover();
+        activePlyr.on('play', prepareYoutubeLabelCoverForPlayback);
+        activePlyr.on('playing', showYoutubeLabelCover);
+        activePlyr.on('waiting', pauseYoutubeLabelCoverTimer);
+        activePlyr.on('stalled', pauseYoutubeLabelCoverTimer);
+        activePlyr.on('pause', persistYoutubeLabelCover);
+        activePlyr.on('ended', persistYoutubeLabelCover);
+      }
       /* ملء مدة الدرس تلقائياً إن كانت فارغة */
       activePlyr.on('loadedmetadata', function () {
         if (ls && !ls.duration && activePlyr.duration) {
@@ -840,12 +931,17 @@
 
   function selectLesson(key, scroll) {
     if (!flat.some(function (x) { return x.key === key; })) return;
+    var restoreFullscreen = !!(activePlyr && activePlyr.fullscreen && activePlyr.fullscreen.active);
     currentKey = key;
     var selected = flat.find(function (x) { return x.key === key; });
     if (selected) openedSectionIndex = selected.si;
     if (quizState && quizState.lessonId !== idOf(key)) quizState = null;
     syncURL();
     renderPlayer();
+    if (restoreFullscreen && activePlyr && activePlyr.fullscreen &&
+        activePlyr.fullscreen.supported && !activePlyr.fullscreen.active) {
+      activePlyr.fullscreen.enter();
+    }
     if (window.PlaylistUI) PlaylistUI.refreshSheet();
     if (scroll && window.innerWidth <= 991) {
       var p = document.getElementById('plPlayer');

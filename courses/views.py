@@ -9,6 +9,7 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 from mimetypes import guess_extension
+from urllib.parse import parse_qs, urlsplit
 
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -18,7 +19,7 @@ from django.core.files.images import get_image_dimensions
 from django.core.files.storage import default_storage
 from django.core.validators import URLValidator
 from django.db import transaction
-from django.db.models import Count, F, Max, Q, Sum
+from django.db.models import Count, F, Max, Prefetch, Q, Sum
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -212,6 +213,32 @@ def _has_course_access(course, user):
     return user.is_authenticated and active_course_progress(
         CourseProgress.objects.filter(student=user, course=course)
     ).exists()
+
+
+def _playlist_video_url(video_url):
+    """Return YouTube links in embed form for the playlist payload."""
+    try:
+        parsed_url = urlsplit(video_url.strip())
+    except ValueError:
+        return video_url
+
+    host = (parsed_url.hostname or '').lower()
+    video_id = ''
+    if host in {'youtube.com', 'www.youtube.com', 'm.youtube.com'}:
+        if parsed_url.path == '/watch':
+            video_id = parse_qs(parsed_url.query).get('v', [''])[0]
+        else:
+            match = re.fullmatch(
+                r'/(?:embed|shorts|live)/([A-Za-z0-9_-]{6,})/?',
+                parsed_url.path,
+            )
+            video_id = match.group(1) if match else ''
+    elif host in {'youtu.be', 'www.youtu.be'}:
+        video_id = parsed_url.path.strip('/').split('/', 1)[0]
+
+    if re.fullmatch(r'[A-Za-z0-9_-]{6,}', video_id):
+        return f'https://www.youtube.com/embed/{video_id}'
+    return video_url
 
 
 def _find_course(key, queryset=None):
@@ -754,10 +781,23 @@ class PlaylistView(TemplateView):
 
     template_name = 'courses/playlist.html'
 
+    @staticmethod
+    def _course_queryset():
+        linked_projects = Project.objects.select_related(
+            'owner', 'owner__profile'
+        ).prefetch_related('tags', 'files')
+        lessons = Lesson.objects.prefetch_related(
+            Prefetch('linked_project', queryset=linked_projects),
+            'quiz__questions',
+        )
+        return _published_courses(include_syllabus=False).prefetch_related(
+            Prefetch('sections__lessons', queryset=lessons)
+        )
+
     def get(self, request, *args, **kwargs):
-        course = _find_course(kwargs['pk'], _published_courses())
+        course = _find_course(kwargs['pk'], self._course_queryset())
         if course is None:
-            course = _find_course(kwargs['pk'])
+            course = _find_course(kwargs['pk'], self._course_queryset())
         if course is not None and not _can_view(course, request.user):
             course = None
         if course is None:
@@ -765,20 +805,19 @@ class PlaylistView(TemplateView):
         if not _has_course_access(course, request.user):
             detail_url = reverse('courses:detail', kwargs={'pk': course.slug})
             return redirect(f'{detail_url}?registration=required')
+        self.course = course
         return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        key = kwargs['pk']
-        course = _find_course(key, _published_courses())
-        if course is None:
-            course = _find_course(key)
-        if course is not None and not _can_view(course, self.request.user):
-            course = None
-        if course is None:
-            raise Http404('الدورة غير موجودة')
+        course = self.course
         context['course'] = course
-        context['courses_json'] = [course.to_public_dict()]
+        course_data = course.to_public_dict(include_related_project_extras=False)
+        for section in course_data['syllabus']:
+            for lesson in section['lessons']:
+                if lesson['type'] == LessonType.VIDEO:
+                    lesson['videoUrl'] = _playlist_video_url(lesson['videoUrl'])
+        context['courses_json'] = [course_data]
         context['is_course_trainer'] = bool(
             self.request.user.is_authenticated
             and (
@@ -807,13 +846,30 @@ class PlaylistView(TemplateView):
             }
         if self.request.user.is_authenticated:
             # حالة محاولات الكويز (لصفحة المشاهدة): لكل درس اختبار محاولات سابقة
-            quiz_status = {}
-            quizzes = Quiz.objects.filter(
+            quizzes = list(Quiz.objects.filter(
                 lesson__section__course=course,
-            ).select_related('lesson')
-            for quiz in quizzes:
-                quiz_status[str(quiz.lesson_id)] = _quiz_attempt_state(quiz, self.request.user)
-            context['quiz_json'] = quiz_status
+            ).select_related('lesson'))
+            if quizzes:
+                attempts_by_quiz = {}
+                attempts = QuizAttempt.objects.filter(
+                    quiz_id__in=[quiz.pk for quiz in quizzes],
+                    student=self.request.user,
+                    submitted_at__isnull=False,
+                ).order_by('submitted_at', 'attempt_no')
+                for attempt in attempts:
+                    attempts_by_quiz.setdefault(attempt.quiz_id, []).append(attempt)
+                now = timezone.now()
+                context['quiz_json'] = {
+                    str(quiz.lesson_id): _quiz_attempt_state(
+                        quiz,
+                        self.request.user,
+                        now=now,
+                        attempts=attempts_by_quiz.get(quiz.pk, ()),
+                    )
+                    for quiz in quizzes
+                }
+            else:
+                context['quiz_json'] = {}
         return context
 
 
@@ -2205,14 +2261,15 @@ def _quiz_request_payload(course, lesson, quiz, attempt, attempts_left, resumed)
     }
 
 
-def _quiz_attempt_state(quiz, student, now=None):
+def _quiz_attempt_state(quiz, student, now=None, attempts=None):
     """Return the current attempt cycle and cooldown, retaining earlier results."""
     now = now or timezone.now()
-    attempts = QuizAttempt.objects.filter(
-        quiz=quiz,
-        student=student,
-        submitted_at__isnull=False,
-    ).order_by('submitted_at', 'attempt_no')
+    if attempts is None:
+        attempts = QuizAttempt.objects.filter(
+            quiz=quiz,
+            student=student,
+            submitted_at__isnull=False,
+        ).order_by('submitted_at', 'attempt_no')
     used = 0
     retry_at = None
     best = 0

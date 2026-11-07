@@ -3327,6 +3327,17 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 .cd-thumb .plyr__video-wrapper { height: 100%; }
 .cd-thumb .plyr__video-embed { padding-bottom: 0; height: 100%; }
 .cd-thumb-video { width: 100%; height: 100%; display: block; border: 0; }
+.cd-thumb .pl-youtube-label-cover:not(.is-course-fullscreen) {
+  left: clamp(24px, 4vw, 36px);
+  bottom: clamp(12px, 2vh, 18px);
+}
+
+.cd-thumb .pl-youtube-label-cover.is-course-fullscreen {
+  left: clamp(36px, 6vw, 48px);
+  bottom: clamp(20px, 4vh, 24px);
+  width: 134px;
+  height: 44px;
+}
 
 /* شارة معاينة أول درس فوق مشغّل الفيديو (أعلاه لتفادي شريط تحكم Plyr) */
 .cd-preview {
@@ -4023,6 +4034,66 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   --plyr-color-main: #ff9f1a;
   --plyr-video-background: #0a0d12;
   --plyr-control-radius: 8px;
+}
+
+.pl-youtube-label-cover {
+  position: absolute;
+  left: clamp(36px, 6vw, 48px);
+  bottom: clamp(20px, 4vh, 24px);
+  z-index: 4;
+  width: 119px;
+  height: 24px;
+  border-radius: 4px;
+  background: #0a0d12;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .12s ease, visibility .12s ease;
+}
+
+#plPlayer:fullscreen,
+#plPlayer:-webkit-full-screen,
+#plPlayer:-moz-full-screen,
+#plPlayer.plyr--fullscreen-fallback {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #000;
+}
+
+#plPlayer:fullscreen .pl-video-player,
+#plPlayer:-webkit-full-screen .pl-video-player,
+#plPlayer:-moz-full-screen .pl-video-player,
+#plPlayer.plyr--fullscreen-fallback .pl-video-player {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  aspect-ratio: auto;
+}
+
+#plPlayer:fullscreen .pl-player-body,
+#plPlayer:-webkit-full-screen .pl-player-body,
+#plPlayer:-moz-full-screen .pl-player-body,
+#plPlayer.plyr--fullscreen-fallback .pl-player-body {
+  display: none;
+}
+
+#plPlayer:fullscreen .pl-youtube-label-cover,
+#plPlayer:-webkit-full-screen .pl-youtube-label-cover,
+#plPlayer:-moz-full-screen .pl-youtube-label-cover,
+#plPlayer.plyr--fullscreen-fallback .pl-youtube-label-cover {
+  left: clamp(36px, 6vw, 48px);
+  bottom: clamp(20px, 4vh, 24px);
+}
+
+.pl-youtube-label-cover.is-visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .pl-player-body { padding: 20px 22px 18px; }.pl-kicker {

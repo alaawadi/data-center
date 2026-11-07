@@ -707,9 +707,7 @@
 
   /* إعدادات Plyr الموحّدة لكل المشغّلات في الموقع */
   var PLYR_OPTIONS = {
-    controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'pip', 'fullscreen'],
-    settings: ['speed'],
-    speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] },
+    controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'pip', 'fullscreen'],
     hideControls: false,
     clickToPlay: true,
     keyboard: { focused: true, global: false },
@@ -769,6 +767,19 @@
     } catch (err) {
       return null;
     }
+  }
+
+  function disableYoutubeCaptions(player) {
+    if (!player) return;
+    var unloadCaptions = function () {
+      if (player.embed && typeof player.embed.unloadModule === 'function') {
+        player.embed.unloadModule('captions');
+      }
+    };
+    unloadCaptions();
+    player.on('ready', unloadCaptions);
+    player.on('playing', unloadCaptions);
+    player.on('captionsenabled', unloadCaptions);
   }
 
   function setTheme(theme) {
@@ -946,6 +957,7 @@
     playableUrl: playableUrl,
     playerHTML: playerHTML,
     mountPlyr: mountPlyr,
+    disableYoutubeCaptions: disableYoutubeCaptions,
     setTheme: setTheme,
     toggleTheme: toggleTheme,
     mountTopbar: mountTopbar,
