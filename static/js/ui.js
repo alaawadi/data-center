@@ -782,6 +782,30 @@
     player.on('captionsenabled', unloadCaptions);
   }
 
+  function youtubeLabelCoverLanguageMismatch() {
+    var pageLanguage = String(document.documentElement.lang || '').toLowerCase().split('-')[0];
+    var deviceLanguage = String(
+      (navigator.languages && navigator.languages[0]) || navigator.language || ''
+    ).toLowerCase().split('-')[0];
+    return !!pageLanguage && !!deviceLanguage && pageLanguage !== deviceLanguage;
+  }
+
+  function syncYoutubeLabelCoverLanguage() {
+    var mismatch = youtubeLabelCoverLanguageMismatch();
+    document.querySelectorAll('.pl-youtube-label-cover').forEach(function (cover) {
+      cover.classList.toggle('is-language-mismatch', mismatch);
+    });
+  }
+
+  function youtubeLabelCoverHTML() {
+    return '<span class="pl-youtube-label-cover' +
+      (youtubeLabelCoverLanguageMismatch() ? ' is-language-mismatch' : '') +
+      '" aria-hidden="true"></span>';
+  }
+
+  document.addEventListener('i18n:change', syncYoutubeLabelCoverLanguage);
+  window.addEventListener('languagechange', syncYoutubeLabelCoverLanguage);
+
   function setTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     if (window.Store) {
@@ -958,6 +982,7 @@
     playerHTML: playerHTML,
     mountPlyr: mountPlyr,
     disableYoutubeCaptions: disableYoutubeCaptions,
+    youtubeLabelCoverHTML: youtubeLabelCoverHTML,
     setTheme: setTheme,
     toggleTheme: toggleTheme,
     mountTopbar: mountTopbar,

@@ -23,6 +23,8 @@
   var youtubeLabelCoverTimer = null;
   var youtubeLabelCoverRemaining = 5000;
   var youtubeLabelCoverDeadline = 0;
+  var orientationLockToken = 0;
+  var orientationLockApplied = false;
   var params = new URLSearchParams(location.search);
   var courseId = SITE.param('id') || '';
   var rawCourseId = courseId;      /* المعرّف كما ورد في الرابط (slug أو pk) */
@@ -562,7 +564,7 @@
     var player = UI.playerHTML(url, { id: 'plMedia' });
     if (player) {
       var youtubeCover = UI.youtubeId(url)
-        ? '<span class="pl-youtube-label-cover" aria-hidden="true"></span>'
+        ? UI.youtubeLabelCoverHTML()
         : '';
       return '<div class="pl-video-player">' + player + youtubeCover + '</div>';
     }
@@ -826,6 +828,77 @@
     if (cover) cover.classList.add('is-visible');
   }
 
+  function isMobilePortraitViewport() {
+    return window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
+  }
+
+  function applyMobileLandscapeFallback() {
+    var player = document.getElementById('plPlayer');
+    if (player && isMobilePortraitViewport()) {
+      player.classList.add('is-mobile-landscape-fallback');
+    }
+  }
+
+  function unlockMobileScreenOrientation(orientation) {
+    if (!orientation || typeof orientation.unlock !== 'function') return;
+    try {
+      orientation.unlock();
+    } catch (error) {
+      if (window.console && console.warn) {
+        console.warn('[playlist] Could not restore screen orientation after fullscreen.', error);
+      }
+    }
+  }
+
+  function enterMobileLandscapeFullscreen() {
+    if (!isMobilePortraitViewport()) return;
+    var orientation = window.screen && window.screen.orientation;
+    if (orientation && typeof orientation.lock === 'function') {
+      var token = ++orientationLockToken;
+      var lockRequest;
+      try {
+        lockRequest = orientation.lock('landscape');
+      } catch (error) {
+        applyMobileLandscapeFallback();
+        if (window.console && console.warn) {
+          console.warn('[playlist] Landscape orientation lock unavailable; using rotated fullscreen layout.', error);
+        }
+        return;
+      }
+      Promise.resolve(lockRequest).then(function () {
+        if (token !== orientationLockToken) {
+          if (!activePlyr || !activePlyr.fullscreen || !activePlyr.fullscreen.active) {
+            unlockMobileScreenOrientation(orientation);
+          }
+          return;
+        }
+        orientationLockApplied = true;
+        var player = document.getElementById('plPlayer');
+        if (player) player.classList.remove('is-mobile-landscape-fallback');
+      }).catch(function (error) {
+        if (token !== orientationLockToken) return;
+        applyMobileLandscapeFallback();
+        if (window.console && console.warn) {
+          console.warn('[playlist] Landscape orientation lock unavailable; using rotated fullscreen layout.', error);
+        }
+      });
+      return;
+    }
+
+    applyMobileLandscapeFallback();
+  }
+
+  function exitMobileLandscapeFullscreen() {
+    orientationLockToken += 1;
+    var player = document.getElementById('plPlayer');
+    if (player) player.classList.remove('is-mobile-landscape-fallback');
+    if (!orientationLockApplied) return;
+
+    orientationLockApplied = false;
+    var orientation = window.screen && window.screen.orientation;
+    unlockMobileScreenOrientation(orientation);
+  }
+
   function mountMedia() {
     try {
       hideYoutubeLabelCover();
@@ -853,6 +926,8 @@
         storage: { enabled: false }
       });
       if (!activePlyr) return;
+      activePlyr.on('enterfullscreen', enterMobileLandscapeFullscreen);
+      activePlyr.on('exitfullscreen', exitMobileLandscapeFullscreen);
       if (ls && UI.youtubeId(UI.videoUrl(ls))) {
         UI.disableYoutubeCaptions(activePlyr);
         var playerContainer = host.closest('.plyr');

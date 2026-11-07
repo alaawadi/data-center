@@ -3328,12 +3328,12 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 .cd-thumb .plyr__video-embed { padding-bottom: 0; height: 100%; }
 .cd-thumb-video { width: 100%; height: 100%; display: block; border: 0; }
 .cd-thumb .pl-youtube-label-cover:not(.is-course-fullscreen) {
-  left: clamp(24px, 4vw, 36px);
+  inset-inline-start: clamp(24px, 4vw, 36px);
   bottom: clamp(12px, 2vh, 18px);
 }
 
 .cd-thumb .pl-youtube-label-cover.is-course-fullscreen {
-  left: clamp(36px, 6vw, 48px);
+  inset-inline-start: clamp(36px, 6vw, 48px);
   bottom: clamp(20px, 4vh, 24px);
   width: 134px;
   height: 44px;
@@ -4038,7 +4038,7 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 
 .pl-youtube-label-cover {
   position: absolute;
-  left: clamp(36px, 6vw, 48px);
+  inset-inline-start: clamp(36px, 6vw, 48px);
   bottom: clamp(20px, 4vh, 24px);
   z-index: 4;
   width: 119px;
@@ -4051,6 +4051,10 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   transition: opacity .12s ease, visibility .12s ease;
 }
 
+.pl-youtube-label-cover.is-language-mismatch {
+  direction: rtl;
+}
+
 #plPlayer:fullscreen,
 #plPlayer:-webkit-full-screen,
 #plPlayer:-moz-full-screen,
@@ -4058,6 +4062,8 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   display: flex;
   width: 100vw;
   height: 100vh;
+  width: 100dvw;
+  height: 100dvh;
   flex-direction: column;
   justify-content: center;
   overflow: hidden;
@@ -4083,11 +4089,38 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   display: none;
 }
 
+@media (max-width: 900px) and (orientation: portrait) {
+  #plPlayer.is-mobile-landscape-fallback {
+    position: fixed !important;
+    top: 0;
+    left: 100vw;
+    width: 100vh;
+    height: 100vw;
+    width: 100dvh;
+    height: 100dvw;
+    max-width: none;
+    transform: rotate(90deg);
+    transform-origin: top left;
+    z-index: 2147483647;
+  }
+
+  #plPlayer.is-mobile-landscape-fallback .pl-video-player {
+    width: 100%;
+    height: 100%;
+    flex: 1 1 auto;
+    aspect-ratio: auto;
+  }
+
+  #plPlayer.is-mobile-landscape-fallback .pl-player-body {
+    display: none;
+  }
+}
+
 #plPlayer:fullscreen .pl-youtube-label-cover,
 #plPlayer:-webkit-full-screen .pl-youtube-label-cover,
 #plPlayer:-moz-full-screen .pl-youtube-label-cover,
 #plPlayer.plyr--fullscreen-fallback .pl-youtube-label-cover {
-  left: clamp(36px, 6vw, 48px);
+  inset-inline-start: clamp(36px, 6vw, 48px);
   bottom: clamp(20px, 4vh, 24px);
 }
 

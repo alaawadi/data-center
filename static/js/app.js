@@ -3324,7 +3324,7 @@
      courseHeroYoutubePreview = !!UI.youtubeId(previewUrl);
    }
    if (heroPlayerHTML && courseHeroYoutubePreview) {
-     heroPlayerHTML += '<span class="pl-youtube-label-cover" aria-hidden="true"></span>';
+     heroPlayerHTML += UI.youtubeLabelCoverHTML();
    }
    if (!heroPlayerHTML) {
      heroPlayerHTML = '<img src="' + e(heroImg) + '" alt="' + e(c.title) + '" fetchpriority="high"><span class="cd-play" aria-hidden="true">' + UI.icon('play', 24) + '</span>';
