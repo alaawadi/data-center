@@ -833,7 +833,7 @@
   }
 
   function applyMobileLandscapeFallback() {
-    var player = document.getElementById('plPlayer');
+    var player = activePlyr && activePlyr.elements && activePlyr.elements.container;
     if (player && isMobilePortraitViewport()) {
       player.classList.add('is-mobile-landscape-fallback');
     }
@@ -873,7 +873,7 @@
           return;
         }
         orientationLockApplied = true;
-        var player = document.getElementById('plPlayer');
+        var player = activePlyr && activePlyr.elements && activePlyr.elements.container;
         if (player) player.classList.remove('is-mobile-landscape-fallback');
       }).catch(function (error) {
         if (token !== orientationLockToken) return;
@@ -890,7 +890,7 @@
 
   function exitMobileLandscapeFullscreen() {
     orientationLockToken += 1;
-    var player = document.getElementById('plPlayer');
+    var player = activePlyr && activePlyr.elements && activePlyr.elements.container;
     if (player) player.classList.remove('is-mobile-landscape-fallback');
     if (!orientationLockApplied) return;
 
@@ -922,10 +922,10 @@
           cc_load_policy: 0
         },
         captions: { active: false },
-        fullscreen: { container: '#plPlayer' },
         storage: { enabled: false }
       });
       if (!activePlyr) return;
+      activePlyr.elements.container.classList.add('pl-lesson-player');
       activePlyr.on('enterfullscreen', enterMobileLandscapeFullscreen);
       activePlyr.on('exitfullscreen', exitMobileLandscapeFullscreen);
       if (ls && UI.youtubeId(UI.videoUrl(ls))) {
