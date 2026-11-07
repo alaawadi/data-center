@@ -783,32 +783,34 @@
     if (cover) cover.classList.remove('is-visible');
   }
 
-  function showYoutubeLabelCover() {
-    var cover = document.querySelector('.pl-youtube-label-cover');
-    if (!cover) return;
+  function showYoutubeLabelCover(cover, player) {
+    if (!cover || activePlyr !== player) return;
     cover.classList.add('is-visible');
     if (youtubeLabelCoverTimer || youtubeLabelCoverRemaining <= 0) return;
     youtubeLabelCoverDeadline = Date.now() + youtubeLabelCoverRemaining;
-    youtubeLabelCoverTimer = window.setTimeout(function () {
+    var timer = window.setTimeout(function () {
+      if (youtubeLabelCoverTimer !== timer || activePlyr !== player) return;
       cover.classList.remove('is-visible');
       youtubeLabelCoverTimer = null;
       youtubeLabelCoverRemaining = 0;
       youtubeLabelCoverDeadline = 0;
     }, youtubeLabelCoverRemaining);
+    youtubeLabelCoverTimer = timer;
   }
 
-  function prepareYoutubeLabelCoverForPlayback() {
+  function prepareYoutubeLabelCoverForPlayback(cover, player) {
+    if (!cover || activePlyr !== player) return;
     if (youtubeLabelCoverTimer) {
       window.clearTimeout(youtubeLabelCoverTimer);
       youtubeLabelCoverTimer = null;
     }
     youtubeLabelCoverRemaining = 5000;
     youtubeLabelCoverDeadline = 0;
-    var cover = document.querySelector('.pl-youtube-label-cover');
-    if (cover) cover.classList.add('is-visible');
+    cover.classList.add('is-visible');
   }
 
-  function pauseYoutubeLabelCoverTimer() {
+  function pauseYoutubeLabelCoverTimer(cover, player) {
+    if (!cover || activePlyr !== player) return;
     if (youtubeLabelCoverTimer) {
       window.clearTimeout(youtubeLabelCoverTimer);
       youtubeLabelCoverTimer = null;
@@ -817,15 +819,14 @@
       youtubeLabelCoverRemaining = 5000;
     }
     youtubeLabelCoverDeadline = 0;
-    var cover = document.querySelector('.pl-youtube-label-cover');
-    if (cover) cover.classList.add('is-visible');
+    cover.classList.add('is-visible');
   }
 
-  function persistYoutubeLabelCover() {
-    pauseYoutubeLabelCoverTimer();
+  function persistYoutubeLabelCover(cover, player) {
+    pauseYoutubeLabelCoverTimer(cover, player);
+    if (!cover || activePlyr !== player) return;
     youtubeLabelCoverRemaining = 5000;
-    var cover = document.querySelector('.pl-youtube-label-cover');
-    if (cover) cover.classList.add('is-visible');
+    cover.classList.add('is-visible');
   }
 
   function isMobilePortraitViewport() {
@@ -905,8 +906,9 @@
       var host = document.getElementById('plMedia');
       if (!host || !window.Plyr) return;
       if (activePlyr) {
-        try { activePlyr.destroy(); } catch (err) { /* ignore */ }
+        var previousPlayer = activePlyr;
         activePlyr = null;
+        try { previousPlayer.destroy(); } catch (err) { /* ignore */ }
       }
       var f = flat.find(function (x) { return x.key === currentKey; });
       var ls = f ? f.lesson : null;
@@ -932,13 +934,26 @@
         UI.disableYoutubeCaptions(activePlyr);
         var playerContainer = host.closest('.plyr');
         if (playerContainer && cover) playerContainer.appendChild(cover);
-        persistYoutubeLabelCover();
-        activePlyr.on('play', prepareYoutubeLabelCoverForPlayback);
-        activePlyr.on('playing', showYoutubeLabelCover);
-        activePlyr.on('waiting', pauseYoutubeLabelCoverTimer);
-        activePlyr.on('stalled', pauseYoutubeLabelCoverTimer);
-        activePlyr.on('pause', persistYoutubeLabelCover);
-        activePlyr.on('ended', persistYoutubeLabelCover);
+        var youtubePlayer = activePlyr;
+        persistYoutubeLabelCover(cover, youtubePlayer);
+        youtubePlayer.on('play', function () {
+          prepareYoutubeLabelCoverForPlayback(cover, youtubePlayer);
+        });
+        youtubePlayer.on('playing', function () {
+          showYoutubeLabelCover(cover, youtubePlayer);
+        });
+        youtubePlayer.on('waiting', function () {
+          pauseYoutubeLabelCoverTimer(cover, youtubePlayer);
+        });
+        youtubePlayer.on('stalled', function () {
+          pauseYoutubeLabelCoverTimer(cover, youtubePlayer);
+        });
+        youtubePlayer.on('pause', function () {
+          persistYoutubeLabelCover(cover, youtubePlayer);
+        });
+        youtubePlayer.on('ended', function () {
+          persistYoutubeLabelCover(cover, youtubePlayer);
+        });
       }
       /* ملء مدة الدرس تلقائياً إن كانت فارغة */
       activePlyr.on('loadedmetadata', function () {
