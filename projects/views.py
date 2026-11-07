@@ -327,6 +327,11 @@ class ProjectDetailView(TemplateView):
         context['projects_json'][0]['canDownloadFiles'] = _can_download_project_files(
             project, self.request.user
         )
+        if (
+            project.visibility == ProjectVisibility.COURSES
+            and not context['projects_json'][0]['canDownloadFiles']
+        ):
+            context['projects_json'][0]['files'] = []
         return context
 
 

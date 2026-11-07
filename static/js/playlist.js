@@ -9,6 +9,7 @@
   var course = null, syllabus = [], flat = [], progress = {}, currentKey = null;
   var openedSectionIndex = 0;
   var trainerMode = false;
+  var trainerWhatsapp = '';
   var serverProgress = null;      /* {done: [lesson ids], complete: bool} من السيرفر */
   var idKeyMap = {};              /* معرّف الدرس في قاعدة البيانات ← المفتاح الموضعي */
   var completeFlag = false;       /* أنهى الدورة (تُظهر شارة الشهادة وتمنع تكرار التهنئة) */
@@ -16,6 +17,8 @@
   var quizState = null;           /* الحالة الحية للكويز المعروض حالياً */
   var quizCooldownTimer = null;
   var projectFlag = {};           /* دروس «مشروع» أُنشئ لها مشروع في هذه الجلسة */
+  var doneFeedback = {};
+  var doneFeedbackTimers = {};
   var activePlyr = null;          /* نسخة Plyr النشطة (تُدمَّر عند تغيير الدرس) */
   var params = new URLSearchParams(location.search);
   var courseId = SITE.param('id') || '';
@@ -206,6 +209,10 @@
     return isNaN(target) ? flat.length : Math.max(0, target);
   }
 
+  function unpublishedLessonsCount() {
+    return Math.max(0, targetLessonsCount() - flat.length);
+  }
+
   function completionEligible() {
     var target = targetLessonsCount();
     return !!course && course.isComplete !== false && target > 0 &&
@@ -274,6 +281,83 @@
   function idOf(key) {
     var f = flat.find(function (x) { return x.key === key; });
     return f && f.lesson ? f.lesson.id : null;
+  }
+
+  function doneCheckHTML(done) {
+    return done
+      ? '<span class="pl-done-check" role="img" aria-label="تمت المشاهدة" title="تمت المشاهدة">' +
+        UI.icon('check', 14) + '</span>'
+      : '';
+  }
+
+  function showDoneFeedback(key) {
+    doneFeedback[key] = true;
+    if (doneFeedbackTimers[key]) window.clearTimeout(doneFeedbackTimers[key]);
+    doneFeedbackTimers[key] = window.setTimeout(function () {
+      delete doneFeedback[key];
+      delete doneFeedbackTimers[key];
+      if (currentKey === key) renderPlayer();
+    }, 2600);
+  }
+
+  function askTrainerButtonHTML() {
+    if (trainerMode) return '';
+    return '<button type="button" class="pl-btn pl-btn-whatsapp" data-act="ask-trainer">' +
+      UI.icon('whatsapp', 16) + ' اسأل المدرب</button>';
+  }
+
+  function askTrainer() {
+    if (!trainerWhatsapp) {
+      UI.toast('رقم واتساب المدرب غير متاح حالياً.', 'error');
+      return;
+    }
+    var lesson = flat.find(function (item) { return item.key === currentKey; });
+    if (!lesson) return;
+    var modal = UI.modal({
+      title: 'اسأل المدرب',
+      size: 'sm',
+      body: '<div class="pl-ask-trainer">' +
+        '<div class="pl-ask-trainer-note">' + UI.icon('whatsapp', 18) +
+        '<span>اكتب سؤالك، وسيتم إرفاق اسم الدورة والدرس تلقائياً.</span></div>' +
+        '<div class="pl-ask-trainer-field">' +
+        '<label class="label" for="plTrainerQuestion">رسالتك <span aria-hidden="true">*</span></label>' +
+        '<textarea class="textarea" id="plTrainerQuestion" rows="4" maxlength="1500" ' +
+        'placeholder="اكتب سؤالك حول هذا الدرس..." required></textarea>' +
+        '<div class="pl-ask-trainer-hint"><span>اكتب سؤالك بوضوح</span>' +
+        '<span class="pl-ask-trainer-count" aria-live="polite">0 / 1500</span></div>' +
+        '</div></div>',
+      footer: '<button type="button" class="btn btn-ghost" data-ask-trainer="cancel">إلغاء</button>' +
+        '<button type="button" class="btn btn-primary" data-ask-trainer="send">' +
+        UI.icon('send', 15) + ' إرسال</button>'
+    });
+    modal.el.classList.add('pl-ask-trainer-modal');
+    var questionInput = modal.el.querySelector('#plTrainerQuestion');
+    var sendButton = modal.el.querySelector('[data-ask-trainer="send"]');
+    var questionCount = modal.el.querySelector('.pl-ask-trainer-count');
+    questionInput.addEventListener('input', function () {
+      questionCount.textContent = questionInput.value.length + ' / 1500';
+    });
+    questionInput.focus();
+    modal.el.querySelector('[data-ask-trainer="cancel"]').addEventListener('click', modal.close);
+    sendButton.addEventListener('click', function () {
+      var question = questionInput.value.trim();
+      if (!question) {
+        questionInput.focus();
+        UI.toast('اكتب سؤالك أولاً.', 'error');
+        return;
+      }
+      var message = [
+        'السلام عليكم، لدي سؤال حول الدورة: ' + course.title,
+        'الدرس: ' + lesson.lesson.title,
+        'ترتيب الدرس: ' + lesson.num,
+        'سؤالي: ' + question
+      ].join('\n');
+      var url = 'https://wa.me/' + trainerWhatsapp + '?text=' + encodeURIComponent(message);
+      modal.close();
+      var whatsappWindow = window.open(url, '_blank');
+      if (whatsappWindow) whatsappWindow.opener = null;
+      else window.location.href = url;
+    });
   }
 
   function qStatusFor(key) {
@@ -517,13 +601,14 @@
     if (isLinkedProject) {
       return '' +
         '<div class="pl-player-body">' +
-        '<h2 class="pl-lesson-title">' + e(ls.title) + '</h2>' +
+        '<h2 class="pl-lesson-title">' + e(ls.title) + doneCheckHTML(done) + '</h2>' +
         (ls.content ? '<div class="pl-lesson-text prose">' + lessonContentHTML(ls.content) + '</div>' : '') +
         contentBlock +
         '<div class="pl-actions">' +
         (done
           ? '<span class="pl-note is-pass">' + UI.icon('check-circle', 15) + ' ' + e(t('plProjectAdded')) + '</span>'
           : '<span class="pl-note">' + UI.icon('info', 15) + ' ' + e(t('plProjectHint')) + '</span>') +
+        askTrainerButtonHTML() +
         '<div class="pl-nav">' +
         '<button type="button" class="pl-btn pl-btn-ghost" data-act="prev"' + (prev ? '' : ' disabled') + '>' + UI.icon('chevron-right', 15) + ' ' + e(t('plPrev')) + '</button>' +
         '<button type="button" class="pl-btn pl-btn-ghost" data-act="next"' + (next ? '' : ' disabled') + '>' + e(t('plNext')) + ' ' + UI.icon('chevron-left', 15) + '</button>' +
@@ -536,7 +621,7 @@
       hero +
       '<div class="pl-player-body">' +
       '<div class="pl-kicker">' + e(f.sec.title) + ' · ' + e(t('plOf')) + ' ' + lessonsLabel(flat.length) + ' · ' + e(t('plContent')) + '</div>' +
-      '<h2 class="pl-lesson-title">' + e(ls.title) + '</h2>' +
+      '<h2 class="pl-lesson-title">' + e(ls.title) + doneCheckHTML(done) + '</h2>' +
       '<div class="pl-lesson-meta">' +
       '<span>' + lessonIcon(ls.type) + ' ' + e(lessonMetaLabel(ls)) + '</span>' +
       (!isArticle && !isQuiz && !isProject && ls.duration ? '<span>' + UI.icon('clock', 13) + ' ' + e(ls.duration) + '</span>' : '') +
@@ -550,11 +635,12 @@
           ? (done
             ? '<span class="pl-note is-pass">' + UI.icon('check-circle', 15) + ' ' + e(t('plProjectAdded')) + '</span>'
             : '<span class="pl-note">' + UI.icon('info', 15) + ' ' + e(t('plProjectHint')) + '</span>')
-          : (trainerMode ? '' :
-            '<button type="button" class="pl-btn ' + (done ? 'pl-btn-done' : 'pl-btn-primary') + '" data-act="done">' +
+          : (trainerMode || (done && !doneFeedback[f.key]) ? '' :
+            '<button type="button" class="pl-btn ' + (done ? 'pl-btn-done pl-done-feedback' : 'pl-btn-primary') + '" data-act="done">' +
             UI.icon(done ? 'check-circle' : 'check', 16) + ' ' + e(done ? t('plDone') : t('plMark')) +
             '</button>'))) +
       (isProject && !isLinkedProject && (done || projectFlag[f.key]) ? '<span class="pl-note is-pass">' + UI.icon('briefcase', 15) + ' ' + e(t('plProjectAdded')) + '</span>' : '') +
+      askTrainerButtonHTML() +
       '<div class="pl-nav">' +
       '<button type="button" class="pl-btn pl-btn-ghost" data-act="prev"' + (prev ? '' : ' disabled') + '>' + UI.icon('chevron-right', 15) + ' ' + e(t('plPrev')) + '</button>' +
       '<button type="button" class="pl-btn pl-btn-ghost" data-act="next"' + (next ? '' : ' disabled') + '>' + e(t('plNext')) + ' ' + UI.icon('chevron-left', 15) + '</button>' +
@@ -573,7 +659,7 @@
           '<li><button type="button" class="pl-lesson' + (active ? ' is-active' : '') + (done ? ' is-done' : '') + '" data-act="lesson" data-key="' + key + '">' +
           '<span class="pl-lnum">' + (done ? UI.icon('check', 13) : lessonIcon(ls.type)) + '</span>' +
           '<span class="pl-lmain">' +
-          '<span class="pl-ltitle">' + e(ls.title) + '</span>' +
+          '<span class="pl-ltitle-row"><span class="pl-ltitle">' + e(ls.title) + '</span>' + doneCheckHTML(done) + '</span>' +
           '<span class="pl-lmeta">' + lessonIcon(ls.type) + ' ' + e(lessonMetaLabel(ls)) +
           (ls.free ? ' <span class="pl-free">' + e(t('plFree')) + '</span>' : '') + '</span>' +
           '</span>' +
@@ -602,9 +688,10 @@
         '<ul class="pl-sec-list' + (isOpen ? '' : ' collapsed') + '">' + items + '</ul>' +
         '</section>';
     }).join('');
+    var unpublishedCount = unpublishedLessonsCount();
 
     return '' +
-      '<div class="pl-list-card">' +
+        '<div class="pl-list-card">' +
       '<div class="pl-list-head">' +
       '<h3>' + UI.icon('list', 17) + ' ' + e(t('plTitle')) + '</h3>' +
       '<span class="pl-list-count">' + lessonsLabel(flat.length) + '</span>' +
@@ -615,6 +702,9 @@
         '<span class="pl-list-pct">' + pct() + '%</span>' +
         '</div>') +
       secs +
+      (unpublishedCount
+        ? '<p class="pl-unpublished-lessons">متبقي <b>' + unpublishedCount + '</b> درس غير منشور بعد</p>'
+        : '') +
       '</div>';
   }
 
@@ -713,6 +803,10 @@
         b.classList.toggle('is-done', done);
         var chk = b.querySelector('.pl-ldone');
         if (chk) chk.setAttribute('aria-checked', done ? 'true' : 'false');
+        var titleRow = b.querySelector('.pl-ltitle-row');
+        var titleCheck = titleRow && titleRow.querySelector('.pl-done-check');
+        if (done && titleRow && !titleCheck) titleRow.insertAdjacentHTML('beforeend', doneCheckHTML(true));
+        else if (!done && titleCheck) titleCheck.remove();
         var num = b.querySelector('.pl-lnum');
         if (num) {
           var f = flat.find(function (x) { return x.key === k; });
@@ -788,6 +882,7 @@
   function markLessonDone(key) {
     if (trainerMode || progress[key]) return;
     progress[key] = 1;
+    showDoneFeedback(key);
     saveProgress();
     renderPlayer();
     if (window.PlaylistUI) PlaylistUI.refreshSheet();
@@ -1003,6 +1098,7 @@
       return;
     }
     progress[key] = 1;
+    showDoneFeedback(key);
     saveProgress();
     renderPlayer();
     if (window.PlaylistUI) PlaylistUI.refreshSheet();
@@ -1080,6 +1176,10 @@
       toggleDone(currentKey);
       return;
     }
+    if (act === 'ask-trainer') {
+      askTrainer();
+      return;
+    }
     if (act === 'open-project') {
       var url = el.getAttribute('data-url');
       var pkey = el.getAttribute('data-key') || currentKey;
@@ -1144,6 +1244,16 @@
   var trainerData = document.getElementById('course-trainer-data');
   if (trainerData) {
     try { trainerMode = JSON.parse(trainerData.textContent) === true; } catch (err) { trainerMode = false; }
+  }
+  var trainerWhatsappData = document.getElementById('course-trainer-whatsapp-data');
+  if (trainerWhatsappData) {
+    try {
+      var trainerNumber = JSON.parse(trainerWhatsappData.textContent) || '';
+      var trainerDigits = String(trainerNumber).replace(/\D/g, '');
+      if (trainerDigits.length >= 7 && trainerDigits.length <= 15) trainerWhatsapp = trainerDigits;
+    } catch (err) {
+      trainerWhatsapp = '';
+    }
   }
   course = Store.find('certificates', courseId) || null;
   if (course) {

@@ -12,6 +12,7 @@
 
 {% block content %}
   {{ is_course_trainer|json_script:"course-trainer-data" }}
+  {{ course_trainer_whatsapp|json_script:"course-trainer-whatsapp-data" }}
   <main class="container pl-page" id="plHost"></main>
 {% endblock %}
 

@@ -2700,10 +2700,15 @@ class CourseProgressTests(TestCase):
         self.assertEqual(CourseProgress.objects.count(), 0)
 
     def test_playlist_page_injects_progress_json(self):
+        trainer_profile = self.trainer.profile
+        trainer_profile.whatsapp = '+970599999999'
+        trainer_profile.save(update_fields=['whatsapp'])
         self.client.force_login(self.student)
         self._mark(self.lessons[0])
         res = self.client.get(self.playlist_url)
         self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context['course_trainer_whatsapp'], '+970599999999')
+        self.assertContains(res, 'course-trainer-whatsapp-data')
         self.assertEqual(
             res.context['progress_json'],
             {'done': [self.lessons[0].pk], 'complete': False},
@@ -2711,15 +2716,19 @@ class CourseProgressTests(TestCase):
 
         self.client.force_login(self.other_student)
         res = self.client.get(self.playlist_url)
+        self.assertEqual(res.context['course_trainer_whatsapp'], '+970599999999')
         self.assertEqual(res.context['progress_json'], {'done': [], 'complete': False})
 
     def test_trainer_playlist_hides_student_progress(self):
         self.course.price = '₪150'
         self.course.save(update_fields=['price'])
+        self.trainer.profile.whatsapp = '+970599999999'
+        self.trainer.profile.save(update_fields=['whatsapp'])
         self.client.force_login(self.trainer)
         response = self.client.get(self.playlist_url)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.context['is_course_trainer'])
+        self.assertEqual(response.context['course_trainer_whatsapp'], '')
         self.assertNotIn('progress_json', response.context)
         self.assertContains(response, 'id="course-trainer-data"')
 
@@ -2732,6 +2741,7 @@ class CourseProgressTests(TestCase):
     def test_playlist_page_anonymous_has_no_progress(self):
         res = self.client.get(self.playlist_url)
         self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context['course_trainer_whatsapp'], '')
         self.assertNotIn('progress_json', res.context)
 
     def test_portfolio_injects_earned_certificates(self):

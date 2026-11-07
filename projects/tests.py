@@ -908,16 +908,32 @@ class ProjectVisibilityTests(TestCase):
         self.assertEqual(project.to_public_dict()['files'][0]['url'], download_url)
         self.assertEqual(project.to_public_dict()['files'][0]['dataUrl'], download_url)
 
-        self.client.force_login(self.student)
         try:
+            anonymous_detail = self.client.get(detail_url)
+            self.assertEqual(anonymous_detail.status_code, 200)
+            self.assertFalse(anonymous_detail.context['projects_json'][0]['files'])
+            self.assertNotContains(anonymous_detail, 'guide.txt')
+            self.assertEqual(self.client.get(download_url).status_code, 404)
+
+            other_course = Course.objects.create(
+                owner=self.trainer, title='دورة أخرى', status=CourseStatus.PUBLISHED,
+            )
+            CourseProgress.objects.create(student=self.student, course=other_course)
+            self.client.force_login(self.student)
             detail = self.client.get(detail_url)
             self.assertEqual(detail.status_code, 200)
             self.assertFalse(detail.context['projects_json'][0]['canDownloadFiles'])
+            self.assertFalse(detail.context['projects_json'][0]['files'])
+            self.assertNotContains(detail, 'guide.txt')
             self.assertEqual(self.client.get(download_url).status_code, 404)
 
             CourseProgress.objects.create(student=self.student, course=course)
             enrolled_detail = self.client.get(detail_url)
             self.assertTrue(enrolled_detail.context['projects_json'][0]['canDownloadFiles'])
+            self.assertEqual(
+                enrolled_detail.context['projects_json'][0]['files'][0]['name'],
+                'guide.txt',
+            )
             response = self.client.get(download_url)
             self.assertEqual(response.status_code, 200)
             response.close()

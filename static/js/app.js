@@ -3255,6 +3255,8 @@
       return x.id !== c.id && (!isWorkshop || x.inPersonKind === 'workshop');
     }).slice(0, 3);
     var backDest = from === 'landing' || from === 'platform' ? SITE.u('landing') : from === 'all-courses' ? SITE.u('courses') : SITE.u('portfolio');
+    var courseCrumbHref = isInPersonWorkshop ? SITE.u('courses') : backDest;
+    var courseCrumbLabel = isInPersonWorkshop ? t('ucCourses') : t(isWorkshop ? 'ucWorkshops' : 'ucCourses');
     var registrationRequired = false;
     try {
       registrationRequired = new URLSearchParams(location.search).get('registration') === 'required';
@@ -3379,7 +3381,6 @@
      var inPersonRegistrationForm = '<section class="cd-card cd-registration-card">' +
        '<h2 class="cd-h2">' + UI.icon('user', 18) + (isInPersonWorkshop ? 'طلب التسجيل في الورشة' : 'طلب التسجيل في الدورة') + '</h2>' +
        adminRegistrationRequestsLink +
-       '<p class="cd-registration-intro">عبّئ البيانات التالية لإرسال طلب تسجيلك.</p>' +
        '<form class="cd-registration-form" id="inPersonRegistrationForm">' +
        '<div class="cd-registration-fields">' +
        '<label>الاسم الكامل<input class="input" name="fullName" type="text" autocomplete="name" aria-describedby="registrationFullNameError" required><span class="cd-registration-field-error" id="registrationFullNameError" aria-live="polite"></span></label>' +
@@ -3395,9 +3396,8 @@
        '<span class="country-code-current-flag" aria-hidden="true"></span><span class="country-code-current-prefix"></span>' +
        '<span class="country-code-chevron" aria-hidden="true"></span></button><div class="country-code-menu" hidden>' +
        '<div class="country-code-options" role="listbox" aria-label="مقدمات الدول"></div><p class="country-code-empty" aria-live="polite" hidden>لا توجد مقدمة مطابقة</p></div></span>' +
-       '<input class="input" id="registrationPhone" name="phone" type="tel" dir="ltr" inputmode="numeric" autocomplete="tel-national" autocapitalize="off" spellcheck="false" maxlength="10" placeholder="رقمك المحلي" aria-describedby="registrationPhoneHint registrationPhoneError" required></span>' +
-       '<span class="cd-registration-phone-hint" id="registrationPhoneHint">اختر مقدمة الدولة، ثم أدخل رقمك المحلي بدون المقدمة.</span>' +
-       '<span class="cd-registration-field-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
+       '<input class="input" id="registrationPhone" name="phone" type="tel" dir="ltr" inputmode="numeric" autocomplete="tel-national" autocapitalize="off" spellcheck="false" maxlength="10" placeholder="رقمك المحلي" aria-describedby="registrationPhoneError" required></span>' +
+       '<span class="cd-registration-field-error cd-registration-phone-error" id="registrationPhoneError" aria-live="polite"></span></label>' +
        '<label>التخصص<input class="input" name="specialty" type="text" aria-describedby="registrationSpecialtyError" required><span class="cd-registration-field-error" id="registrationSpecialtyError" aria-live="polite"></span></label>' +
        '<label class="cd-registration-study-year-label">السنة الدراسية<span class="cd-registration-study-year-wrap">' +
        '<span class="cd-registration-study-year-icon" aria-hidden="true">' + UI.icon('graduation-cap', 19) + '</span>' +
@@ -3421,12 +3421,12 @@
        '<div class="cd-locations-grid">' +
        '<section class="cd-card cd-location-card">' +
        '<h2 class="cd-h2">' + UI.icon('map-pin', 18) + 'فرع غزة</h2>' +
-       '<div class="cd-location-content"><h3>العنوان</h3>' +
+       '<div class="cd-location-content">' +
        '<p>السرايا - مقابل شركة جوال - عمارة عنان - الطابق الاول</p>' +
        '<p class="cd-location-note">(بجوار حلويات ابو بكر ساق الله)</p></div></section>' +
        '<section class="cd-card cd-location-card">' +
        '<h2 class="cd-h2">' + UI.icon('map-pin', 18) + 'فرع الوسطى</h2>' +
-       '<div class="cd-location-content"><h3>العنوان</h3>' +
+       '<div class="cd-location-content">' +
        '<p>النصيرات - عمارة ابو سرار مقابل مسجد الفاروق</p>' +
        '</div></section></div>';
 
@@ -3434,8 +3434,8 @@
        backLink(null, true) +
       '<section class="cd-hero" style="background-image:url(\'' + heroImg + '\')">' +
       '<div class="cd-hero-overlay"><div class="cd-hero-inner">' +
-      '<nav class="cd-crumb"><a href="' + backDest + '">' +
-      e(t(isWorkshop ? 'ucWorkshops' : 'ucCourses')) +
+      '<nav class="cd-crumb"><a href="' + courseCrumbHref + '">' +
+      e(courseCrumbLabel) +
       '</a><span class="cd-crumb-sep">›</span><span>' + e(c.category || '') + '</span></nav>' +
       '<h1 class="cd-title">' + e(c.title) + '</h1>' +
       (sub ? '<p class="cd-sub">' + e(sub) + '</p>' : '') +
@@ -3569,6 +3569,23 @@
         var digits = registrationCountryCodeInput.value.slice(1) + national;
         return digits.length >= 7 && digits.length <= 15 ? '+' + digits : '';
       }
+      function registrationPhoneFeedback() {
+        var localNumber = registrationPhoneInput.value.replace(/\D/g, '');
+        if (!localNumber) return { state: 'idle', message: '' };
+        var validPrefixes = ['056', '059', '56', '59'];
+        var hasValidPrefix = validPrefixes.some(function (prefix) {
+          return prefix.indexOf(localNumber) === 0 ||
+            (localNumber.indexOf(prefix) === 0 && localNumber.length <= prefix.length + 7);
+        });
+        if (!hasValidPrefix) {
+          return {
+            state: 'invalid',
+            message: 'أدخل رقماً يبدأ بـ056 أو 059 من 10 خانات، أو 56 أو 59 من 9 خانات.'
+          };
+        }
+        if (registrationPhoneValue()) return { state: 'complete', message: 'الرقم صحيح.' };
+        return { state: 'valid', message: 'الرقم صحيح، أكمل الرقم.' };
+      }
       syncRegistrationPhoneMaxLength();
       var registrationFields = {
         fullName: {
@@ -3611,14 +3628,26 @@
       function validateRegistrationField(name) {
         var field = registrationForm.elements[name];
         var error = registrationFields[name].validate(field.value);
-        registrationFields[name].error.textContent = error;
+        var displayError = error;
         if (name === 'phone') {
-          document.getElementById('registrationPhoneBox').classList.toggle('bad', !!error);
+          var phoneFeedback = registrationPhoneFeedback();
+          var phoneBox = document.getElementById('registrationPhoneBox');
+          phoneBox.classList.toggle('bad', phoneFeedback.state === 'invalid');
+          phoneBox.classList.toggle('is-valid', phoneFeedback.state === 'valid');
+          phoneBox.classList.toggle('is-complete', phoneFeedback.state === 'complete');
+          registrationFields[name].error.classList.toggle(
+            'is-valid',
+            phoneFeedback.state === 'valid' || phoneFeedback.state === 'complete'
+          );
+          displayError = phoneFeedback.message;
         }
+        registrationFields[name].error.textContent = displayError;
         Array.prototype.forEach.call(
           registrationForm.querySelectorAll('[name="' + name + '"]'),
           function (control) {
-            if (error) control.setAttribute('aria-invalid', 'true');
+            if (error && (name !== 'phone' || registrationPhoneFeedback().state === 'invalid')) {
+              control.setAttribute('aria-invalid', 'true');
+            }
             else control.removeAttribute('aria-invalid');
           }
         );
@@ -3673,7 +3702,8 @@
                 }
               );
             });
-            document.getElementById('registrationPhoneBox').classList.remove('bad');
+            document.getElementById('registrationPhoneBox').classList.remove('bad', 'is-valid', 'is-complete');
+            registrationFields.phone.error.classList.remove('is-valid');
             syncRegistrationPhoneMaxLength();
             validateRegistrationForm(false);
             registrationForm.elements.fullName.focus();

@@ -787,6 +787,16 @@ class PlaylistView(TemplateView):
                 or self.request.user.is_admin_role
             )
         )
+        context['course_trainer_whatsapp'] = ''
+        if (
+            self.request.user.is_authenticated
+            and not context['is_course_trainer']
+            and course.owner_id
+            and course.owner.is_trainer
+        ):
+            trainer_profile = getattr(course.owner, 'profile', None)
+            if trainer_profile:
+                context['course_trainer_whatsapp'] = trainer_profile.whatsapp
         if self.request.user.is_authenticated and not context['is_course_trainer']:
             progress = active_course_progress(
                 CourseProgress.objects.filter(student=self.request.user, course=course)
