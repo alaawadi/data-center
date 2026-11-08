@@ -119,7 +119,7 @@
       (standalone || navigator.standalone === true);
   }
 
-  function androidAppChooserUrl(url) {
+  function androidAppChooserUrl(url, platform) {
     var parsed;
     try {
       parsed = new URL(url);
@@ -129,10 +129,23 @@
       }
       return url;
     }
+    var packages = {
+      facebook: 'com.facebook.katana',
+      linkedin: 'com.linkedin.android',
+      github: 'com.github.android',
+      behance: 'com.adobe.behance',
+      x: 'com.twitter.android',
+      instagram: 'com.instagram.android',
+      youtube: 'com.google.android.youtube',
+      telegram: 'org.telegram.messenger',
+      whatsapp: 'com.whatsapp'
+    };
     var target = 'intent://' + parsed.host + parsed.pathname + parsed.search;
-    return target + '#Intent;scheme=' + parsed.protocol.slice(0, -1) +
+    var intent = target + '#Intent;scheme=' + parsed.protocol.slice(0, -1) +
       ';action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE' +
-      ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+      ';S.browser_fallback_url=' + encodeURIComponent(url);
+    if (packages[platform]) intent += ';package=' + packages[platform];
+    return intent + ';end';
   }
 
   function socialLinksHTML(links) {
@@ -162,7 +175,7 @@
           !/^https?:\/\/[^\s]+$/i.test(url) || seen[platform]) return '';
       seen[platform] = true;
       var useAppChooser = isAndroidPWA();
-      var href = useAppChooser ? androidAppChooserUrl(url) : url;
+      var href = useAppChooser ? androidAppChooserUrl(url, platform) : url;
       return '<a class="profile-social-link" href="' + esc(href) +
         '"' + (useAppChooser ? '' : ' target="_blank"') +
         ' rel="noopener noreferrer" aria-label="' + esc(labels[platform]) +
