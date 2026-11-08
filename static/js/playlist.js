@@ -950,8 +950,15 @@
       if (ls && UI.youtubeId(UI.videoUrl(ls))) {
         UI.disableYoutubeCaptions(activePlyr);
         var playerContainer = host.closest('.plyr');
-        if (playerContainer && cover) playerContainer.appendChild(cover);
         var youtubePlayer = activePlyr;
+        function placeYoutubeLabelCover() {
+          var videoWrapper = playerContainer && playerContainer.querySelector('.plyr__video-wrapper');
+          if (videoWrapper && cover && cover.parentNode !== videoWrapper) {
+            videoWrapper.appendChild(cover);
+          }
+        }
+        placeYoutubeLabelCover();
+        youtubePlayer.on('ready', placeYoutubeLabelCover);
         persistYoutubeLabelCover(cover, youtubePlayer);
         youtubePlayer.on('play', function () {
           prepareYoutubeLabelCoverForPlayback(cover, youtubePlayer);

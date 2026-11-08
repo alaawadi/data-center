@@ -4022,6 +4022,8 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   aspect-ratio: 16 / 9;
   background: #0a0d12;
   overflow: hidden;
+  --pl-youtube-cover-height: 50px;
+  --pl-player-controls-bottom: 0px;
 }
 
 .pl-video-player .plyr-host,
@@ -4034,6 +4036,26 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   --plyr-color-main: #ff9f1a;
   --plyr-video-background: #0a0d12;
   --plyr-control-radius: 8px;
+}
+
+.pl-video-player .plyr__video-wrapper {
+  position: relative;
+  z-index: 1;
+}
+
+.pl-video-player .plyr__video-wrapper .pl-youtube-label-cover {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  width: auto;
+  height: var(--pl-youtube-cover-height);
+}
+
+.pl-video-player .plyr--video .plyr__controls {
+  position: absolute;
+  bottom: var(--pl-player-controls-bottom);
+  z-index: 2;
 }
 
 .pl-youtube-label-cover {
@@ -4155,6 +4177,7 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
   visibility: visible;
   transform: none;
   pointer-events: auto;
+  z-index: 3;
 }
 
 .pl-player:fullscreen .plyr.pl-lesson-player .plyr__control[data-plyr="fullscreen"],
@@ -4199,9 +4222,27 @@ html[data-theme='dark'] .cd-registration-study-year { color-scheme: dark; }
 .pl-player:-webkit-full-screen .pl-youtube-label-cover,
 .pl-player:-moz-full-screen .pl-youtube-label-cover,
 .pl-player.plyr--fullscreen-fallback .pl-youtube-label-cover {
-  left: clamp(36px, 6vw, 48px);
-  right: auto;
-  bottom: clamp(20px, 4vh, 24px);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: auto;
+  height: var(--pl-youtube-cover-height);
+}
+
+.pl-player:fullscreen .pl-video-player .plyr__video-wrapper,
+.pl-player:-webkit-full-screen .pl-video-player .plyr__video-wrapper,
+.pl-player:-moz-full-screen .pl-video-player .plyr__video-wrapper,
+.pl-player.plyr--fullscreen-fallback .pl-video-player .plyr__video-wrapper {
+  z-index: 1;
+}
+
+.pl-player:fullscreen .pl-video-player .plyr--video .plyr__controls,
+.pl-player:-webkit-full-screen .pl-video-player .plyr--video .plyr__controls,
+.pl-player:-moz-full-screen .pl-video-player .plyr--video .plyr__controls,
+.pl-player.plyr--fullscreen-fallback .pl-video-player .plyr--video .plyr__controls {
+  position: absolute;
+  bottom: var(--pl-player-controls-bottom);
+  z-index: 2;
 }
 
 .pl-youtube-label-cover.is-visible {
