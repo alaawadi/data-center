@@ -20,9 +20,6 @@
   var doneFeedback = {};
   var doneFeedbackTimers = {};
   var activePlyr = null;          /* نسخة Plyr النشطة (تُدمَّر عند تغيير الدرس) */
-  var youtubeLabelCoverTimer = null;
-  var youtubeLabelCoverRemaining = 5000;
-  var youtubeLabelCoverDeadline = 0;
   var orientationLockToken = 0;
   var orientationLockApplied = false;
   var params = new URLSearchParams(location.search);
@@ -563,10 +560,7 @@
     var url = UI.videoUrl(ls);
     var player = UI.playerHTML(url, { id: 'plMedia' });
     if (player) {
-      var youtubeCover = UI.youtubeId(url)
-        ? UI.youtubeLabelCoverHTML()
-        : '';
-      return '<div class="pl-video-player">' + player + youtubeCover + '</div>';
+      return '<div class="pl-video-player">' + player + '</div>';
     }
     /* لا يوجد رابط تشغيل صالح: صورة غلاف مع شارة مدة */
     return '<div class="pl-video">' +
@@ -771,80 +765,6 @@
     syncQuizCooldownTimer();
   }
 
-  /* تهيئة Plyr على عنصر الفيديو الظاهر حالياً (يوتيوب أو ملف مباشر) */
-  function hideYoutubeLabelCover() {
-    if (youtubeLabelCoverTimer) {
-      window.clearTimeout(youtubeLabelCoverTimer);
-      youtubeLabelCoverTimer = null;
-    }
-    youtubeLabelCoverRemaining = 5000;
-    youtubeLabelCoverDeadline = 0;
-    var cover = document.querySelector('.pl-youtube-label-cover');
-    if (cover) cover.classList.remove('is-visible');
-  }
-
-  function showYoutubeLabelCover(cover, player) {
-    if (!cover || activePlyr !== player) return;
-    cover.classList.add('is-visible');
-    if (player.fullscreen && player.fullscreen.active) {
-      if (youtubeLabelCoverTimer) {
-        window.clearTimeout(youtubeLabelCoverTimer);
-        youtubeLabelCoverTimer = null;
-      }
-      youtubeLabelCoverRemaining = 5000;
-      youtubeLabelCoverDeadline = 0;
-      return;
-    }
-    if (youtubeLabelCoverTimer || youtubeLabelCoverRemaining <= 0) return;
-    youtubeLabelCoverDeadline = Date.now() + youtubeLabelCoverRemaining;
-    var timer = window.setTimeout(function () {
-      if (youtubeLabelCoverTimer !== timer || activePlyr !== player) return;
-      if (player.fullscreen && player.fullscreen.active) {
-        youtubeLabelCoverTimer = null;
-        youtubeLabelCoverRemaining = 5000;
-        youtubeLabelCoverDeadline = 0;
-        cover.classList.add('is-visible');
-        return;
-      }
-      cover.classList.remove('is-visible');
-      youtubeLabelCoverTimer = null;
-      youtubeLabelCoverRemaining = 0;
-      youtubeLabelCoverDeadline = 0;
-    }, youtubeLabelCoverRemaining);
-    youtubeLabelCoverTimer = timer;
-  }
-
-  function prepareYoutubeLabelCoverForPlayback(cover, player) {
-    if (!cover || activePlyr !== player) return;
-    if (youtubeLabelCoverTimer) {
-      window.clearTimeout(youtubeLabelCoverTimer);
-      youtubeLabelCoverTimer = null;
-    }
-    youtubeLabelCoverRemaining = 5000;
-    youtubeLabelCoverDeadline = 0;
-    cover.classList.add('is-visible');
-  }
-
-  function pauseYoutubeLabelCoverTimer(cover, player) {
-    if (!cover || activePlyr !== player) return;
-    if (youtubeLabelCoverTimer) {
-      window.clearTimeout(youtubeLabelCoverTimer);
-      youtubeLabelCoverTimer = null;
-      youtubeLabelCoverRemaining = Math.max(0, youtubeLabelCoverDeadline - Date.now());
-    } else if (youtubeLabelCoverRemaining <= 0) {
-      youtubeLabelCoverRemaining = 5000;
-    }
-    youtubeLabelCoverDeadline = 0;
-    cover.classList.add('is-visible');
-  }
-
-  function persistYoutubeLabelCover(cover, player) {
-    pauseYoutubeLabelCoverTimer(cover, player);
-    if (!cover || activePlyr !== player) return;
-    youtubeLabelCoverRemaining = 5000;
-    cover.classList.add('is-visible');
-  }
-
   function isMobilePortraitViewport() {
     return window.matchMedia('(max-width: 900px) and (orientation: portrait)').matches;
   }
@@ -918,7 +838,6 @@
 
   function mountMedia() {
     try {
-      hideYoutubeLabelCover();
       var host = document.getElementById('plMedia');
       if (!host || !window.Plyr) return;
       if (activePlyr) {
@@ -928,8 +847,6 @@
       }
       var f = flat.find(function (x) { return x.key === currentKey; });
       var ls = f ? f.lesson : null;
-      var videoWrapper = host.closest('.pl-video-player');
-      var cover = videoWrapper && videoWrapper.querySelector('.pl-youtube-label-cover');
       activePlyr = UI.mountPlyr(host, {
         youtube: {
           noCookie: true,
@@ -940,7 +857,6 @@
           cc_load_policy: 0
         },
         captions: { active: false },
-        fullscreen: { container: '#plPlayer' },
         storage: { enabled: false }
       });
       if (!activePlyr) return;
@@ -949,41 +865,6 @@
       activePlyr.on('exitfullscreen', exitMobileLandscapeFullscreen);
       if (ls && UI.youtubeId(UI.videoUrl(ls))) {
         UI.disableYoutubeCaptions(activePlyr);
-        var playerContainer = host.closest('.plyr');
-        var youtubePlayer = activePlyr;
-        function placeYoutubeLabelCover() {
-          var videoWrapper = playerContainer && playerContainer.querySelector('.plyr__video-wrapper');
-          if (videoWrapper && cover && cover.parentNode !== videoWrapper) {
-            videoWrapper.appendChild(cover);
-          }
-        }
-        placeYoutubeLabelCover();
-        youtubePlayer.on('ready', placeYoutubeLabelCover);
-        persistYoutubeLabelCover(cover, youtubePlayer);
-        youtubePlayer.on('play', function () {
-          prepareYoutubeLabelCoverForPlayback(cover, youtubePlayer);
-        });
-        youtubePlayer.on('playing', function () {
-          showYoutubeLabelCover(cover, youtubePlayer);
-        });
-        youtubePlayer.on('waiting', function () {
-          pauseYoutubeLabelCoverTimer(cover, youtubePlayer);
-        });
-        youtubePlayer.on('stalled', function () {
-          pauseYoutubeLabelCoverTimer(cover, youtubePlayer);
-        });
-        youtubePlayer.on('pause', function () {
-          persistYoutubeLabelCover(cover, youtubePlayer);
-        });
-        youtubePlayer.on('ended', function () {
-          persistYoutubeLabelCover(cover, youtubePlayer);
-        });
-        youtubePlayer.on('enterfullscreen', function () {
-          persistYoutubeLabelCover(cover, youtubePlayer);
-        });
-        youtubePlayer.on('exitfullscreen', function () {
-          showYoutubeLabelCover(cover, youtubePlayer);
-        });
       }
       /* ملء مدة الدرس تلقائياً إن كانت فارغة */
       activePlyr.on('loadedmetadata', function () {
