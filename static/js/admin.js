@@ -2552,14 +2552,14 @@
             workshopTypeField.parentNode.insertBefore(workshopTypeInput, workshopTypeField);
             workshopTypeField.remove();
           }
-          if (workshopKindField && workshopKindInput) {
+          if (workshopKindField && workshopKindInput && !route.inPerson) {
             workshopKindField.parentNode.insertBefore(workshopKindInput, workshopKindField);
             workshopKindField.remove();
           }
           if (workshopTypeInput) {
             workshopTypeInput.value = route.inPerson ? 'in_person' : 'online';
           }
-          if (workshopKindInput) workshopKindInput.value = 'workshop';
+          if (workshopKindInput && !route.inPerson) workshopKindInput.value = 'workshop';
         }
         if (route.type === 'course' && route.inPerson && !route.workshop) {
           var inPersonKindField = editorContent.querySelector('#edInPersonKindField');

@@ -581,6 +581,29 @@ class CoursePermissionsTests(TestCase):
             InPersonCourseKind.WORKSHOP,
         )
 
+    def test_admin_can_change_inperson_workshop_to_course(self):
+        course = Course.objects.create(
+            owner=self.other_trainer,
+            title='ورشة وجاهية',
+            course_type=CourseType.IN_PERSON,
+            in_person_kind=InPersonCourseKind.WORKSHOP,
+        )
+
+        response = self._post(
+            _payload(
+                id=course.slug,
+                trainerId=str(self.other_trainer.pk),
+                courseType=CourseType.IN_PERSON,
+                inPersonKind=InPersonCourseKind.COURSE,
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        self.assertEqual(course.course_type, CourseType.IN_PERSON)
+        self.assertEqual(course.in_person_kind, InPersonCourseKind.COURSE)
+
     def test_admin_can_create_online_workshop_kind(self):
         response = self._post(
             _payload(

@@ -915,11 +915,7 @@
     }
     function syncInPersonKindVisibility() {
       if (inPersonKindField && courseTypeEl) {
-        inPersonKindField.hidden = isWorkshopEditor || courseTypeEl.value !== 'in_person';
-        if (isWorkshopEditor && inPersonKindEl) {
-          inPersonKindEl.value = 'workshop';
-          syncInPersonKindChoices('workshop');
-        }
+        inPersonKindField.hidden = courseTypeEl.value !== 'in_person';
       }
     }
     function configureWorkshopEditorChoices() {
@@ -1241,7 +1237,6 @@
       courseTypeEl.value = p.courseType === 'in_person' ? 'in_person' : 'online';
       syncCourseTypeChoices(courseTypeEl.value);
       if (inPersonKindEl) {
-        if (isWorkshopEditor) p.inPersonKind = 'workshop';
         inPersonKindEl.value = p.inPersonKind;
         syncInPersonKindChoices(inPersonKindEl.value);
       }
@@ -2911,7 +2906,9 @@
       p.summary = summaryEl.value.trim();
       if (isCourse && courseTypeEl) p.courseType = courseTypeEl.value;
       if (isCourse && inPersonKindEl) {
-        p.inPersonKind = isWorkshopEditor ? 'workshop' : inPersonKindEl.value;
+        p.inPersonKind = isWorkshopEditor && courseTypeEl.value !== 'in_person'
+          ? 'workshop'
+          : inPersonKindEl.value;
       }
       p.category = isInPersonCourseEditor()
         ? (categoryEl.value.trim() || p.category)
