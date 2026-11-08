@@ -542,6 +542,16 @@
 
   function userModal(id) {
     var u = id ? Store.find('users', id) : null;
+    var roleControl = null;
+    var specialtyField = {
+      k: 'specialty', label: t('tSpecialty'), type: 'text',
+      value: u ? (u.specialty || u.specialization || '') : '',
+      validate: function (value) {
+        return roleControl && roleControl.value === 'trainer' && !value
+          ? t('fieldRequired') + ' — ' + t('tSpecialty')
+          : '';
+      }
+    };
     function isDuplicate(field, value) {
       return Store.collection('users').some(function (candidate) {
         return candidate.id !== (u && u.id) &&
@@ -561,6 +571,15 @@
         maxLength: 150, value: u ? (u.fullNameEnglish || '') : '', dir: 'ltr',
         readonly: !!(u && u.fullNameEnglish)
       },
+      {
+        k: 'role', label: t('colRole'), type: 'select',
+        options: [
+          { v: 'student', l: t('roleStudent') },
+          { v: 'trainer', l: t('roleTrainer') }
+        ],
+        value: 'student'
+      },
+      specialtyField,
       {
         k: 'email', label: t('uEmail'), type: 'text', inputType: 'email', maxLength: 254, value: u ? u.email : '', dir: 'ltr',
         validate: function (value) {
@@ -606,25 +625,28 @@
         var isNew = !u;
         var saveButton = m.el.querySelector('[data-fm="save"]');
         saveButton.disabled = true;
-        fetch(SITE.u('studentSave'), {
+        var isTrainer = v.role === 'trainer';
+        var payload = {
+          id: u ? (u.databaseId || u.id) : '',
+          name: v.name,
+          fullNameArabic: v.fullNameArabic,
+          fullNameEnglish: v.fullNameEnglish,
+          email: v.email,
+          phone: v.phone,
+          password: v.password || '',
+          status: isTrainer && v.status === 'suspended' ? 'paused' : v.status,
+          verified: v.verified,
+          avatar: v.avatar
+        };
+        if (isTrainer) payload.specialty = v.specialty;
+        fetch(SITE.u(isTrainer ? 'trainerSave' : 'studentSave'), {
           method: 'POST',
           credentials: 'same-origin',
           headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': window.CSRF_TOKEN || ''
           },
-          body: JSON.stringify({
-            id: u ? (u.databaseId || u.id) : '',
-            name: v.name,
-            fullNameArabic: v.fullNameArabic,
-            fullNameEnglish: v.fullNameEnglish,
-            email: v.email,
-            phone: v.phone,
-            password: v.password || '',
-            status: v.status,
-            verified: v.verified,
-            avatar: v.avatar
-          })
+          body: JSON.stringify(payload)
         }).then(function (response) {
           return response.json().then(function (data) {
             if (!response.ok || !data.ok) {
@@ -633,15 +655,29 @@
                 : '';
               throw new Error(details || data.message || t('saveError'));
             }
+            var user = isTrainer ? data.trainer : data.student;
             var users = Store.collection('users');
             var savedIndex = -1;
-            for (var i = 0; i < users.length; i++) {
-              if (users[i].id === data.student.id) { savedIndex = i; break; }
+            for (var i = users.length - 1; i >= 0; i--) {
+              if (String(users[i].databaseId || users[i].id).replace(/^db-user-/, '') === String(user.databaseId || user.id).replace(/^db-user-/, '')) {
+                if (isTrainer) users.splice(i, 1);
+                else savedIndex = i;
+              }
             }
-            if (savedIndex >= 0) users[savedIndex] = data.student;
-            else users.unshift(data.student);
+            if (!isTrainer) {
+              if (savedIndex >= 0) users[savedIndex] = user;
+              else users.unshift(user);
+            } else {
+              var trainers = Store.collection('trainers');
+              var trainerIndex = -1;
+              for (var j = 0; j < trainers.length; j++) {
+                if (String(trainers[j].id) === String(user.id)) { trainerIndex = j; break; }
+              }
+              if (trainerIndex >= 0) trainers[trainerIndex] = user;
+              else trainers.unshift(user);
+            }
             Store.save(true);
-            AdminData.logActivity(isNew ? 'create' : 'update', 'users', data.student.name);
+            AdminData.logActivity(isNew ? 'create' : 'update', isTrainer ? 'trainers' : 'users', user.name);
             m.close();
             UI.toast(t(isNew ? 'created' : 'updated'), 'success');
             Admin.renderAll();
@@ -653,6 +689,20 @@
         return false;
       }
     });
+    roleControl = modal.body.querySelector('[data-fk="role"]');
+    var specialtyInput = modal.body.querySelector('[data-fk="specialty"]');
+    var specialtyContainer = specialtyInput && specialtyInput.closest('.field');
+    function syncTrainerSpecialty() {
+      var isTrainer = roleControl.value === 'trainer';
+      specialtyField.required = isTrainer;
+      specialtyContainer.hidden = !isTrainer;
+      var label = specialtyContainer.querySelector('.label');
+      var requiredMark = label.querySelector('.req');
+      if (isTrainer && !requiredMark) label.insertAdjacentHTML('beforeend', ' <span class="req">*</span>');
+      else if (!isTrainer && requiredMark) requiredMark.remove();
+    }
+    roleControl.addEventListener('change', syncTrainerSpecialty);
+    syncTrainerSpecialty();
   }
 
   Admin.on('user-add', function () { userModal(null); });
@@ -989,16 +1039,16 @@
       sectionField(t('secBasic')),
       { k: 'name', label: t('uName'), type: 'text', required: true, value: tr ? tr.name : '' },
       {
-        k: 'fullNameArabic', label: t('fullNameArabic'), type: 'text', required: true,
+        k: 'fullNameArabic', label: t('fullNameArabic'), type: 'text',
         maxLength: 150, value: tr ? (tr.fullNameArabic || '') : '',
         readonly: !!(tr && tr.fullNameArabic)
       },
       {
-        k: 'fullNameEnglish', label: t('fullNameEnglish'), type: 'text', required: true,
+        k: 'fullNameEnglish', label: t('fullNameEnglish'), type: 'text',
         maxLength: 150, value: tr ? (tr.fullNameEnglish || '') : '', dir: 'ltr',
         readonly: !!(tr && tr.fullNameEnglish)
       },
-      { k: 'specialty', label: t('tSpecialty'), type: 'text', required: true, value: tr ? tr.specialty : '' },
+      { k: 'specialty', label: t('tSpecialty'), type: 'text', value: tr ? tr.specialty : '' },
       { k: 'avatar', label: t('uAvatar'), type: 'image', emoji: '🎓', value: tr ? tr.avatar : '' },
       { k: 'email', label: t('uEmail'), type: 'text', value: tr ? tr.email : '', dir: 'ltr' },
       {

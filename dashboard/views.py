@@ -2455,22 +2455,24 @@ def _trainer_avatar_data(value, profile):
     return ContentFile(data, name=f'trainer-{uuid4().hex}.{AVATAR_TYPES[match.group(1)]}')
 
 
-def _admin_legal_name_values(payload, user, errors):
+def _admin_legal_name_values(payload, user, errors, require_pair=True):
     full_name_ar = str(
         payload.get('fullNameArabic', user.full_name_ar) or ''
     ).strip()
     full_name_en = str(
         payload.get('fullNameEnglish', user.full_name_en) or ''
     ).strip()
-    if bool(full_name_ar) != bool(full_name_en):
+    if require_pair and bool(full_name_ar) != bool(full_name_en):
         message = 'يجب إدخال الاسم العربي والإنجليزي معاً.'
         errors['fullNameArabic'] = message
         errors['fullNameEnglish'] = message
-    elif full_name_ar:
+    else:
         for key, value, validator in (
             ('fullNameArabic', full_name_ar, validate_arabic_three_part_name),
             ('fullNameEnglish', full_name_en, validate_english_three_part_name),
         ):
+            if not value:
+                continue
             try:
                 validator(value)
             except ValidationError as exc:
@@ -2502,7 +2504,10 @@ def trainer_save(request):
     trainer_id = payload.get('id')
     if trainer_id:
         try:
-            trainer = User.objects.get(pk=trainer_id, role=UserRole.TRAINER)
+            trainer = User.objects.get(
+                pk=trainer_id,
+                role__in=(UserRole.STUDENT, UserRole.TRAINER),
+            )
         except (User.DoesNotExist, ValueError, TypeError):
             return _admin_api_error('المدرب غير موجود.', 404)
         is_new = False
@@ -2522,7 +2527,9 @@ def trainer_save(request):
     specialty = str(payload.get('specialty') or '').strip()
     bio = str(payload.get('bio') or '').strip() if 'bio' in payload else None
     errors = {}
-    full_name_ar, full_name_en = _admin_legal_name_values(payload, trainer, errors)
+    full_name_ar, full_name_en = _admin_legal_name_values(
+        payload, trainer, errors, require_pair=False
+    )
 
     if not name or len(name) > 150:
         errors['name'] = 'أدخل الاسم، على ألا يتجاوز 150 حرفاً.'
@@ -2536,8 +2543,8 @@ def trainer_save(request):
         errors['phone'] = 'رقم الجوال مستخدم بالفعل.'
     if 'whatsapp' in payload and whatsapp and not re.fullmatch(r'\+?[0-9]{1,12}', whatsapp):
         errors['whatsapp'] = 'أدخل + اختيارياً ثم من 1 إلى 12 رقماً.'
-    if len(specialty) > 150 or not specialty:
-        errors['specialty'] = 'أدخل التخصص، على ألا يتجاوز 150 حرفاً.'
+    if len(specialty) > 150:
+        errors['specialty'] = 'يجب ألا يتجاوز التخصص 150 حرفاً.'
     if len(email) > 254:
         errors['email'] = 'البريد الإلكتروني طويل جداً.'
     elif email:

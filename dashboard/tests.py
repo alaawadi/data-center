@@ -2385,6 +2385,32 @@ class StudentPersistenceTests(TestCase):
         self.assertIsNone(authenticate(phone=self.student.phone, password='Old#Student2026'))
         self.assertTrue(authenticate(phone=self.student.phone, password='New#Student2026'))
 
+    def test_admin_can_change_student_role_to_trainer(self):
+        response = self.client.post(
+            reverse('dashboard:trainer-save'),
+            data=json.dumps({
+                'id': str(self.student.pk),
+                'name': self.student.full_name,
+                'fullNameArabic': 'محمد أحمد علي',
+                'fullNameEnglish': 'Mohammad Ahmad Ali',
+                'phone': self.student.phone,
+                'email': self.student.email,
+                'specialty': 'تصميم واجهات',
+                'status': 'active',
+                'verified': False,
+                'password': '',
+                'avatar': '',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.role, UserRole.TRAINER)
+        self.assertEqual(self.student.phone, '0591011002')
+        self.assertEqual(self.student.profile.specialization, 'تصميم واجهات')
+        self.assertEqual(response.json()['trainer']['id'], str(self.student.pk))
+
     def test_student_creation_requires_valid_password_and_admin_access(self):
         response = self.post_json(self.payload(password=''))
         self.assertEqual(response.status_code, 400)
@@ -3526,7 +3552,11 @@ class TrainerPersistenceTests(TestCase):
             name='Automatic Trainer',
             phone='1234567891',
         )
-        for field in ('handle', 'rating', 'bio', 'linkedin', 'github', 'joined'):
+        for field in (
+            'fullNameArabic', 'fullNameEnglish', 'handle', 'specialty', 'rating',
+            'email', 'whatsapp', 'bio', 'linkedin', 'github', 'avatar', 'joined',
+            'status', 'verified',
+        ):
             payload.pop(field)
 
         response = self.post_json(self.save_url, payload)
@@ -3535,8 +3565,11 @@ class TrainerPersistenceTests(TestCase):
         trainer = User.objects.get(phone='1234567891')
         profile = Profile.objects.get(user=trainer)
         self.assertEqual(trainer.handle, 'automatic-trainer')
+        self.assertEqual(trainer.full_name_ar, '')
+        self.assertEqual(trainer.full_name_en, '')
         self.assertEqual(trainer.date_joined.date(), timezone.localdate())
         self.assertEqual(profile.bio, '')
+        self.assertEqual(profile.specialization, '')
         self.assertEqual(profile.trainer_rating, Decimal('0'))
 
         profile.bio = 'نبذة محفوظة'

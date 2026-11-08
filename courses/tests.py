@@ -684,6 +684,44 @@ class CoursePermissionsTests(TestCase):
         self.assertEqual(course.owner, self.other_trainer)
         self.assertEqual(course.title, 'دورة معدلة')
 
+    def test_admin_can_reassign_course_without_changing_other_fields(self):
+        course = Course.objects.create(owner=self.trainer, title='دورة قائمة')
+        section = CourseSection.objects.create(course=course, title='قسم المشاريع')
+        template_project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع المدرب',
+            status=ProjectStatus.PUBLISHED,
+        )
+        lesson = Lesson.objects.create(
+            section=section,
+            title='مشروع تطبيقي',
+            type=LessonType.PROJECT,
+            linked_project=template_project,
+        )
+        student_project = Project.objects.create(
+            owner=self.student,
+            title='نسخة الطالب',
+            source_lesson=lesson,
+            status=ProjectStatus.PUBLISHED,
+        )
+
+        response = self._post(
+            {
+                'id': course.slug,
+                'trainerId': str(self.other_trainer.pk),
+                'status': CourseStatus.DRAFT,
+            },
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course.refresh_from_db()
+        template_project.refresh_from_db()
+        student_project.refresh_from_db()
+        self.assertEqual(course.owner, self.other_trainer)
+        self.assertEqual(template_project.owner, self.other_trainer)
+        self.assertEqual(student_project.owner, self.student)
+
     def test_admin_must_select_a_trainer_to_create_a_course(self):
         res = self._post(_payload(), self.admin)
 

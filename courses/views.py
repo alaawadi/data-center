@@ -1679,6 +1679,7 @@ def course_save(request):
             return JsonResponse({'ok': False, 'error': 'invalid_cover_version'}, status=400)
 
     created = course is None
+    owner_changed = False
     if created:
         if is_admin:
             trainer_id = payload.get('trainerId')
@@ -1696,6 +1697,7 @@ def course_save(request):
         ).first()
         if trainer is None:
             return JsonResponse({'ok': False, 'error': 'trainer_required'}, status=400)
+        owner_changed = course.owner_id != trainer.pk
         course.owner = trainer
 
     is_online_workshop = (
@@ -1831,10 +1833,19 @@ def course_save(request):
         if getattr(course, field) != value:
             setattr(course, field, value)
             changed_course_fields.append(field)
+    if owner_changed and 'owner' not in changed_course_fields:
+        changed_course_fields.append('owner')
     if created:
         course.save()
     elif changed_course_fields:
         course.save(update_fields=[*changed_course_fields, 'updated_at'])
+
+    if owner_changed:
+        linked_project_ids = Lesson.objects.filter(
+            section__course=course,
+            linked_project__isnull=False,
+        ).values('linked_project_id')
+        Project.objects.filter(pk__in=linked_project_ids).update(owner=course.owner)
 
     if decoded_cover:
         name, image_content = decoded_cover
