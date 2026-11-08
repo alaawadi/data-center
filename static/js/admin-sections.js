@@ -545,12 +545,7 @@
     var roleControl = null;
     var specialtyField = {
       k: 'specialty', label: t('tSpecialty'), type: 'text',
-      value: u ? (u.specialty || u.specialization || '') : '',
-      validate: function (value) {
-        return roleControl && roleControl.value === 'trainer' && !value
-          ? t('fieldRequired') + ' — ' + t('tSpecialty')
-          : '';
-      }
+      value: u ? (u.specialty || u.specialization || '') : ''
     };
     function isDuplicate(field, value) {
       return Store.collection('users').some(function (candidate) {
@@ -562,12 +557,12 @@
       sectionField(t('secBasic')),
       { k: 'name', label: t('uName'), type: 'text', required: true, maxLength: 150, value: u ? u.name : '' },
       {
-        k: 'fullNameArabic', label: t('fullNameArabic'), type: 'text', required: true,
+        k: 'fullNameArabic', label: t('fullNameArabic'), type: 'text',
         maxLength: 150, value: u ? (u.fullNameArabic || '') : '',
         readonly: !!(u && u.fullNameArabic)
       },
       {
-        k: 'fullNameEnglish', label: t('fullNameEnglish'), type: 'text', required: true,
+        k: 'fullNameEnglish', label: t('fullNameEnglish'), type: 'text',
         maxLength: 150, value: u ? (u.fullNameEnglish || '') : '', dir: 'ltr',
         readonly: !!(u && u.fullNameEnglish)
       },
@@ -599,8 +594,7 @@
       },
       {
         k: 'password', label: t('accountPassword'), type: 'text', inputType: 'password',
-        required: !u, value: '', dir: 'ltr',
-        hint: u ? t('passwordKeepHint') : ''
+        required: true, value: '', dir: 'ltr'
       },
       { k: 'avatar', label: t('uAvatar'), type: 'image', emoji: '👤', value: u ? u.avatar : '' },
       sectionField(t('secMeta')),
@@ -694,12 +688,7 @@
     var specialtyContainer = specialtyInput && specialtyInput.closest('.field');
     function syncTrainerSpecialty() {
       var isTrainer = roleControl.value === 'trainer';
-      specialtyField.required = isTrainer;
       specialtyContainer.hidden = !isTrainer;
-      var label = specialtyContainer.querySelector('.label');
-      var requiredMark = label.querySelector('.req');
-      if (isTrainer && !requiredMark) label.insertAdjacentHTML('beforeend', ' <span class="req">*</span>');
-      else if (!isTrainer && requiredMark) requiredMark.remove();
     }
     roleControl.addEventListener('change', syncTrainerSpecialty);
     syncTrainerSpecialty();

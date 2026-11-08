@@ -2337,7 +2337,10 @@ class StudentPersistenceTests(TestCase):
             name='Automatic Student',
             phone='0591011004',
         )
-        for field in ('handle', 'bio'):
+        for field in (
+            'fullNameArabic', 'fullNameEnglish', 'handle', 'email', 'status',
+            'verified', 'bio', 'avatar',
+        ):
             payload.pop(field)
 
         response = self.post_json(payload)
@@ -2351,11 +2354,14 @@ class StudentPersistenceTests(TestCase):
 
         profile.bio = 'نبذة محفوظة'
         profile.save(update_fields=['bio'])
+        student.email = 'preserved@example.com'
+        student.is_active = False
+        student.is_verified = True
+        student.save(update_fields=['email', 'is_active', 'is_verified'])
         original_handle = student.handle
         original_joined = student.date_joined
         update = dict(payload)
         update.update({'id': str(student.pk), 'name': 'Automatic Student Updated'})
-        update.pop('password')
 
         response = self.post_json(update)
 
@@ -2364,9 +2370,12 @@ class StudentPersistenceTests(TestCase):
         profile.refresh_from_db()
         self.assertEqual(student.handle, original_handle)
         self.assertEqual(student.date_joined, original_joined)
+        self.assertEqual(student.email, 'preserved@example.com')
+        self.assertFalse(student.is_active)
+        self.assertTrue(student.is_verified)
         self.assertEqual(profile.bio, 'نبذة محفوظة')
 
-    def test_admin_can_change_student_password_and_blank_keeps_it(self):
+    def test_admin_can_change_student_password_and_password_is_required_on_update(self):
         payload = self.payload(
             id=str(self.student.pk),
             name=self.student.full_name,
@@ -2376,7 +2385,8 @@ class StudentPersistenceTests(TestCase):
             password='',
         )
         response = self.post_json(payload)
-        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('password', response.json()['fields'])
         self.assertTrue(authenticate(phone=self.student.phone, password='Old#Student2026'))
 
         payload['password'] = 'New#Student2026'

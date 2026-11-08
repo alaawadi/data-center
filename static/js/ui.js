@@ -111,6 +111,30 @@
     return '<span class="social-platform-logo social-platform-logo--' + key + '" aria-hidden="true">' + logos[key] + '</span>';
   }
 
+  function isAndroidPWA() {
+    var standalone = window.matchMedia &&
+      (window.matchMedia('(display-mode: standalone)').matches ||
+        window.matchMedia('(display-mode: fullscreen)').matches);
+    return /Android/i.test(navigator.userAgent || '') &&
+      (standalone || navigator.standalone === true);
+  }
+
+  function androidAppChooserUrl(url) {
+    var parsed;
+    try {
+      parsed = new URL(url);
+    } catch (error) {
+      if (window.console && console.warn) {
+        console.warn('[ui] Invalid social profile URL; using its web address.', error);
+      }
+      return url;
+    }
+    var target = 'intent://' + parsed.host + parsed.pathname + parsed.search;
+    return target + '#Intent;scheme=' + parsed.protocol.slice(0, -1) +
+      ';action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE' +
+      ';S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+  }
+
   function socialLinksHTML(links) {
     var labels = {
       facebook: 'فيسبوك',
@@ -137,8 +161,11 @@
       if (!Object.prototype.hasOwnProperty.call(labels, platform) ||
           !/^https?:\/\/[^\s]+$/i.test(url) || seen[platform]) return '';
       seen[platform] = true;
-      return '<a class="profile-social-link" href="' + esc(url) +
-        '" target="_blank" rel="noopener noreferrer" aria-label="' + esc(labels[platform]) +
+      var useAppChooser = isAndroidPWA();
+      var href = useAppChooser ? androidAppChooserUrl(url) : url;
+      return '<a class="profile-social-link" href="' + esc(href) +
+        '"' + (useAppChooser ? '' : ' target="_blank"') +
+        ' rel="noopener noreferrer" aria-label="' + esc(labels[platform]) +
         '" title="' + esc(labels[platform]) + '">' + socialPlatformLogo(platform) + '</a>';
     }).filter(Boolean);
     return anchors.length

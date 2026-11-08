@@ -2697,11 +2697,13 @@ def student_save(request):
         else (student.handle if not is_new else '')
     )
     phone = str(payload.get('phone') or '').strip()
-    email = str(payload.get('email') or '').strip()
+    email = str(payload.get('email', student.email if not is_new else '') or '').strip()
     bio = str(payload.get('bio') or '').strip() if 'bio' in payload else None
     password = str(payload.get('password') or '')
     errors = {}
-    full_name_ar, full_name_en = _admin_legal_name_values(payload, student, errors)
+    full_name_ar, full_name_en = _admin_legal_name_values(
+        payload, student, errors, require_pair=False
+    )
 
     if not name or len(name) > 150:
         errors['name'] = 'أدخل الاسم، على ألا يتجاوز 150 حرفاً.'
@@ -2720,18 +2722,21 @@ def student_save(request):
             EmailValidator()(email)
         except ValidationError:
             errors['email'] = 'أدخل بريداً إلكترونياً صحيحاً.'
-    if not password and is_new:
-        errors['password'] = 'كلمة المرور مطلوبة لإنشاء حساب الطالب.'
+    if not password:
+        errors['password'] = 'كلمة المرور مطلوبة لإنشاء الحساب أو تعديله.'
     if password:
         try:
             validate_password(password, student)
         except ValidationError as exc:
             errors['password'] = ' '.join(exc.messages)
 
-    status = payload.get('status', 'active')
+    status = payload.get(
+        'status',
+        'active' if is_new else ('active' if student.is_active else 'suspended'),
+    )
     if status not in ('active', 'suspended'):
         return _admin_api_error('حالة الحساب غير صالحة.', 400)
-    verified = payload.get('verified', False)
+    verified = payload.get('verified', student.is_verified if not is_new else False)
     if not isinstance(verified, bool):
         return _admin_api_error('قيمة التوثيق غير صالحة.', 400)
 
@@ -2769,7 +2774,7 @@ def student_save(request):
                 profile.bio = bio
             if avatar_file:
                 profile.avatar.save(avatar_file.name, avatar_file, save=False)
-            elif not payload.get('avatar') and profile.avatar:
+            elif 'avatar' in payload and not payload.get('avatar') and profile.avatar:
                 profile.avatar.delete(save=False)
             profile.save()
     except IntegrityError:
