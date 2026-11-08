@@ -2395,6 +2395,24 @@ class StudentPersistenceTests(TestCase):
         self.assertIsNone(authenticate(phone=self.student.phone, password='Old#Student2026'))
         self.assertTrue(authenticate(phone=self.student.phone, password='New#Student2026'))
 
+    def test_admin_can_update_student_specialization(self):
+        response = self.post_json(self.payload(
+            id=str(self.student.pk),
+            name=self.student.full_name,
+            handle=self.student.handle,
+            phone=self.student.phone,
+            email=self.student.email,
+            specialization='تصميم تجربة المستخدم',
+        ))
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.student.profile.refresh_from_db()
+        self.assertEqual(self.student.profile.specialization, 'تصميم تجربة المستخدم')
+        self.assertEqual(
+            response.json()['student']['specialization'],
+            'تصميم تجربة المستخدم',
+        )
+
     def test_admin_can_change_student_role_to_trainer(self):
         response = self.client.post(
             reverse('dashboard:trainer-save'),
@@ -4324,6 +4342,43 @@ class TrainingCategoryManagementTests(TestCase):
 
         listed = self.client.get(self.url)
         self.assertFalse(listed.json()['categories'][0]['is_active'])
+
+    def test_category_projects_filter_visibility_is_saved_and_returned(self):
+        category = TrainingCategory.objects.create(name='البرمجة')
+
+        response = self.post_json({
+            'action': 'set_projects_filter',
+            'id': category.pk,
+            'visible': False,
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertFalse(response.json()['category']['show_in_projects_filter'])
+        category.refresh_from_db()
+        self.assertFalse(category.show_in_projects_filter)
+
+        listed = self.client.get(self.url)
+        listed_category = next(
+            item for item in listed.json()['categories'] if item['id'] == category.pk
+        )
+        self.assertFalse(listed_category['show_in_projects_filter'])
+
+    def test_projects_filter_visibility_only_affects_all_projects_filter(self):
+        visible = TrainingCategory.objects.create(name='تحليل البيانات')
+        hidden = TrainingCategory.objects.create(
+            name='التصميم',
+            show_in_projects_filter=False,
+        )
+
+        response = self.client.get(reverse('projects:list'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(visible.name, response.context['training_categories_json'])
+        self.assertNotIn(hidden.name, response.context['training_categories_json'])
+        self.assertTrue(hidden.is_active)
+
+        courses_response = self.client.get(reverse('courses:list'))
+        self.assertIn(hidden.name, courses_response.context['training_categories_json'])
 
     def test_inactive_category_and_courses_are_hidden_from_all_courses_listing(self):
         active = TrainingCategory.objects.create(name='تحليل البيانات')

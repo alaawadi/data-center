@@ -1668,6 +1668,7 @@ def _training_categories_payload():
             'id': category.pk,
             'name': category.name,
             'is_active': category.is_active,
+            'show_in_projects_filter': category.show_in_projects_filter,
             'display_order': category.display_order,
             'courses': course_counts.get(category.name, 0),
             'projects': project_counts.get(category.name, 0),
@@ -1730,6 +1731,25 @@ def training_categories(request):
         if category.is_active != active:
             category.is_active = active
             category.save(update_fields=['is_active'])
+        category_data = next(
+            item for item in _training_categories_payload() if item['id'] == category.pk
+        )
+        return JsonResponse({'ok': True, 'category': category_data})
+
+    if action == 'set_projects_filter':
+        try:
+            category_id = int(payload.get('id'))
+        except (TypeError, ValueError):
+            return _admin_api_error('المجال التدريبي غير موجود.', 404)
+        visible = payload.get('visible')
+        if not isinstance(visible, bool):
+            return _admin_api_error('حالة ظهور المجال في فلتر المشاريع غير صالحة.', 400)
+        category = TrainingCategory.objects.filter(pk=category_id).first()
+        if category is None:
+            return _admin_api_error('المجال التدريبي غير موجود.', 404)
+        if category.show_in_projects_filter != visible:
+            category.show_in_projects_filter = visible
+            category.save(update_fields=['show_in_projects_filter'])
         category_data = next(
             item for item in _training_categories_payload() if item['id'] == category.pk
         )
@@ -2699,6 +2719,7 @@ def student_save(request):
     phone = str(payload.get('phone') or '').strip()
     email = str(payload.get('email', student.email if not is_new else '') or '').strip()
     bio = str(payload.get('bio') or '').strip() if 'bio' in payload else None
+    specialization = str(payload.get('specialization') or '').strip()
     password = str(payload.get('password') or '')
     errors = {}
     full_name_ar, full_name_en = _admin_legal_name_values(
@@ -2722,6 +2743,8 @@ def student_save(request):
             EmailValidator()(email)
         except ValidationError:
             errors['email'] = 'أدخل بريداً إلكترونياً صحيحاً.'
+    if len(specialization) > 150:
+        errors['specialization'] = 'يجب ألا يتجاوز التخصص 150 حرفاً.'
     if not password:
         errors['password'] = 'كلمة المرور مطلوبة لإنشاء الحساب أو تعديله.'
     if password:
@@ -2772,6 +2795,8 @@ def student_save(request):
             profile, _ = Profile.objects.get_or_create(user=student)
             if bio is not None:
                 profile.bio = bio
+            if 'specialization' in payload:
+                profile.specialization = specialization
             if avatar_file:
                 profile.avatar.save(avatar_file.name, avatar_file, save=False)
             elif 'avatar' in payload and not payload.get('avatar') and profile.avatar:
@@ -2780,7 +2805,6 @@ def student_save(request):
     except IntegrityError:
         return _admin_api_error('رقم الجوال أو المعرّف مستخدم بالفعل.', 409)
 
-    profile = _trainer_profile(student)
     return JsonResponse({
         'ok': True,
         'student': {

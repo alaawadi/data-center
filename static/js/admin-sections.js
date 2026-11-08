@@ -254,6 +254,28 @@
     return [{ v: '', l: t(includePlaceholder ? 'cTrainerPick' : 'noTrainer') }].concat(available);
   }
 
+  function freelancerSpecialtyOptions(currentValue) {
+    var current = String(currentValue || '').trim();
+    var categories = AdminData.freelancerCategories().filter(function (category) {
+      return category && category.name &&
+        (category.is_active !== false || category.name === current);
+    }).slice().sort(function (left, right) {
+      var leftOrder = left.display_order == null ? Number.MAX_SAFE_INTEGER : left.display_order;
+      var rightOrder = right.display_order == null ? Number.MAX_SAFE_INTEGER : right.display_order;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return String(left.name).localeCompare(String(right.name), I18n.getLang() === 'en' ? 'en' : 'ar');
+    }).map(function (category) {
+      return { v: category.name, l: category.name };
+    });
+    if (current && !categories.some(function (category) { return category.v === current; })) {
+      categories.unshift({ v: current, l: current });
+    }
+    return [{
+      v: '',
+      l: I18n.getLang() === 'en' ? 'No specialization' : 'بدون تخصص'
+    }].concat(categories);
+  }
+
   function trainerLabel(id) {
     var tr = AdminData.trainerName(Store.state, id);
     return tr ? tr.name : t('noTrainer');
@@ -542,10 +564,14 @@
 
   function userModal(id) {
     var u = id ? Store.find('users', id) : null;
-    var roleControl = null;
+    var currentSpecialty = u ? (u.specialty || u.specialization || '') : '';
     var specialtyField = {
-      k: 'specialty', label: t('tSpecialty'), type: 'text',
-      value: u ? (u.specialty || u.specialization || '') : ''
+      k: 'specialty',
+      label: t('tSpecialty'),
+      type: 'category-search',
+      placeholder: I18n.getLang() === 'en' ? 'Search freelancer categories' : 'ابحث عن فئة',
+      options: freelancerSpecialtyOptions(currentSpecialty),
+      value: currentSpecialty
     };
     function isDuplicate(field, value) {
       return Store.collection('users').some(function (candidate) {
@@ -633,6 +659,7 @@
           avatar: v.avatar
         };
         if (isTrainer) payload.specialty = v.specialty;
+        else payload.specialization = v.specialty;
         fetch(SITE.u(isTrainer ? 'trainerSave' : 'studentSave'), {
           method: 'POST',
           credentials: 'same-origin',
@@ -683,15 +710,6 @@
         return false;
       }
     });
-    roleControl = modal.body.querySelector('[data-fk="role"]');
-    var specialtyInput = modal.body.querySelector('[data-fk="specialty"]');
-    var specialtyContainer = specialtyInput && specialtyInput.closest('.field');
-    function syncTrainerSpecialty() {
-      var isTrainer = roleControl.value === 'trainer';
-      specialtyContainer.hidden = !isTrainer;
-    }
-    roleControl.addEventListener('change', syncTrainerSpecialty);
-    syncTrainerSpecialty();
   }
 
   Admin.on('user-add', function () { userModal(null); });
@@ -1037,7 +1055,14 @@
         maxLength: 150, value: tr ? (tr.fullNameEnglish || '') : '', dir: 'ltr',
         readonly: !!(tr && tr.fullNameEnglish)
       },
-      { k: 'specialty', label: t('tSpecialty'), type: 'text', value: tr ? tr.specialty : '' },
+      {
+        k: 'specialty',
+        label: t('tSpecialty'),
+        type: 'category-search',
+        placeholder: I18n.getLang() === 'en' ? 'Search freelancer categories' : 'ابحث عن فئة',
+        options: freelancerSpecialtyOptions(tr ? tr.specialty : ''),
+        value: tr ? tr.specialty : ''
+      },
       { k: 'avatar', label: t('uAvatar'), type: 'image', emoji: '🎓', value: tr ? tr.avatar : '' },
       { k: 'email', label: t('uEmail'), type: 'text', value: tr ? tr.email : '', dir: 'ltr' },
       {
@@ -1409,6 +1434,22 @@
             csv: function (category) { return category.students || 0; }
           },
           {
+            k: 'projects-filter',
+            label: t('trainingCategoryProjectsFilter'),
+            sortVal: function (category) { return category.show_in_projects_filter ? 1 : 0; },
+            render: function (category) {
+              var visible = category.show_in_projects_filter !== false;
+              return '<button type="button" class="st st-toggle ' +
+                (visible ? 'st-ok' : 'st-mute') +
+                '" data-act="training-category-project-filter-toggle" data-id="' +
+                e(category.id) + '">' +
+                e(t(visible ? 'stActive' : 'stInactive')) + '</button>';
+            },
+            csv: function (category) {
+              return category.show_in_projects_filter !== false ? t('stActive') : t('stInactive');
+            }
+          },
+          {
             k: 'status', label: t('status'), sortVal: function (category) { return category.is_active ? 1 : 0; },
             render: function (category) {
               var active = category.is_active !== false;
@@ -1545,6 +1586,42 @@
         action: 'set_active',
         id: category.id,
         active: active
+      })
+    }).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+        var categories = AdminData.trainingCategories();
+        var index = categories.findIndex(function (item) {
+          return String(item.id) === String(data.category.id);
+        });
+        if (index !== -1) categories[index] = data.category;
+        AdminData.setTrainingCategories(categories);
+        Admin.renderAll();
+        UI.toast(t('statusUpd'), 'success');
+      });
+    }).catch(function (error) {
+      el.disabled = false;
+      UI.toast(error.message || t('saveError'), 'error');
+    });
+  });
+  Admin.on('training-category-project-filter-toggle', function (el) {
+    var category = AdminData.trainingCategories().filter(function (item) {
+      return String(item.id) === String(el.getAttribute('data-id'));
+    })[0];
+    if (!category) return;
+    var visible = category.show_in_projects_filter === false;
+    el.disabled = true;
+    fetch(SITE.u('trainingCategories'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': window.CSRF_TOKEN || ''
+      },
+      body: JSON.stringify({
+        action: 'set_projects_filter',
+        id: category.id,
+        visible: visible
       })
     }).then(function (response) {
       return response.json().then(function (data) {

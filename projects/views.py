@@ -149,7 +149,10 @@ class ProjectListView(TemplateView):
             F('display_order').asc(nulls_last=True), '-project_date', '-created_at'
         )
         context['training_categories_json'] = list(
-            TrainingCategory.objects.filter(is_active=True)
+            TrainingCategory.objects.filter(
+                is_active=True,
+                show_in_projects_filter=True,
+            )
             .order_by('display_order', 'name')
             .values_list('name', flat=True)
         )

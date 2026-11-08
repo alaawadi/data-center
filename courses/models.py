@@ -41,6 +41,7 @@ class TrainingCategory(models.Model):
 
     name = models.CharField('المجال التدريبي', max_length=120, unique=True)
     is_active = models.BooleanField('نشط', default=True)
+    show_in_projects_filter = models.BooleanField('يظهر في فلتر المشاريع', default=True)
     display_order = models.PositiveIntegerField('ترتيب العرض', null=True, blank=True, db_index=True)
     created_at = models.DateTimeField('أُنشئ في', auto_now_add=True)
 

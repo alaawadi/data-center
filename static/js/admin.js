@@ -257,6 +257,7 @@
       trainingCategoryAdd: 'إضافة مجال',
       trainingCategoryEdit: 'تعديل المجال',
       trainingCategoryName: 'اسم المجال التدريبي',
+      trainingCategoryProjectsFilter: 'في فلاتر صفحة كل المشاريع',
       trainingCategoryDeleteConfirm: 'سيؤدي حذف المجال إلى إزالته من الدورات والمشاريع وتخصصات المستقلين المرتبطة به. هل تريد المتابعة؟',
       trainingCategoryTrainers: 'المدربون',
       trainingCategoryStudents: 'الطلاب',
@@ -934,6 +935,7 @@
       trainingCategoryAdd: 'Add field',
       trainingCategoryEdit: 'Edit field',
       trainingCategoryName: 'Training field name',
+      trainingCategoryProjectsFilter: 'All Projects filter',
       trainingCategoryDeleteConfirm: 'Deleting this field removes it from associated courses, projects, and freelancer specialties. Continue?',
       trainingCategoryTrainers: 'Trainers',
       trainingCategoryStudents: 'Students',
@@ -2020,6 +2022,24 @@
     if (f.type === 'info') {
       return '<div class="form-info">' + (f.html || '') + '</div>';
     }
+    if (f.type === 'category-search') {
+      var categorySearchId = f.k + '-search';
+      var categoryResultsId = f.k + '-results';
+      var selectedCategory = (f.options || []).filter(function (option) {
+        return String(option.v) === String(val);
+      })[0];
+      return '<div class="field full online-invoice-search-field">' +
+        '<label class="label" for="' + e(categorySearchId) + '">' + e(f.label) + '</label>' +
+        '<div class="online-invoice-search-picker">' +
+        '<input class="input" type="search" id="' + e(categorySearchId) +
+        '" data-fk-search="' + e(f.k) + '" role="combobox" aria-autocomplete="list"' +
+        ' aria-expanded="false" aria-controls="' + e(categoryResultsId) + '"' +
+        ' autocomplete="off" placeholder="' + e(f.placeholder || '') +
+        '" value="' + e(selectedCategory ? selectedCategory.l : '') + '">' +
+        '<input type="hidden" data-fk="' + e(f.k) + '" value="' + e(val) + '">' +
+        '<div class="online-invoice-search-results" id="' + e(categoryResultsId) +
+        '" role="listbox" hidden></div></div></div>';
+    }
     if (f.type === 'invoice-search') {
       var searchId = f.k + '-search';
       var resultsId = f.k + '-results';
@@ -2153,6 +2173,114 @@
       });
       el.addEventListener('blur', function () {
         validateField(f);
+      });
+    });
+
+    (opts.fields || []).filter(function (field) {
+      return field.type === 'category-search';
+    }).forEach(function (field) {
+      var input = m.body.querySelector('[data-fk-search="' + field.k + '"]');
+      var value = m.body.querySelector('[data-fk="' + field.k + '"]');
+      var results = m.body.querySelector('#' + field.k + '-results');
+      var activeIndex = -1;
+      if (!input || !value || !results) return;
+
+      function normalize(value) {
+        return String(value || '').toLocaleLowerCase()
+          .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+          .replace(/[أإآ]/g, 'ا')
+          .replace(/ى/g, 'ي')
+          .replace(/ة/g, 'ه')
+          .trim();
+      }
+
+      function closeResults() {
+        results.hidden = true;
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+        activeIndex = -1;
+      }
+
+      function renderResults(query) {
+        var normalizedQuery = normalize(query);
+        var queryWords = normalizedQuery ? normalizedQuery.split(/\s+/) : [];
+        var options = (field.options || []).filter(function (option) {
+          var searchable = normalize(option.l);
+          return queryWords.every(function (word) {
+            return searchable.indexOf(word) !== -1;
+          });
+        });
+        results.innerHTML = options.length
+          ? options.map(function (option, index) {
+            return '<button class="online-invoice-search-option" type="button" role="option"' +
+              ' id="' + e(field.k) + '-option-' + index + '" aria-selected="' +
+              (String(option.v) === String(value.value) ? 'true' : 'false') +
+              '" data-category-option="' + e(field.k) + '" data-option-value="' +
+              e(option.v) + '" data-option-label="' + e(option.l) + '">' +
+              e(option.l || (I18n.getLang() === 'en' ? 'No specialization' : 'بدون تخصص')) +
+              '</button>';
+          }).join('')
+          : '<div class="online-invoice-search-empty" role="presentation">' +
+            e(I18n.getLang() === 'en' ? 'No matching categories' : 'لا توجد فئات مطابقة') +
+            '</div>';
+        results.hidden = false;
+        input.setAttribute('aria-expanded', 'true');
+        activeIndex = -1;
+      }
+
+      input.addEventListener('focus', function () {
+        renderResults(input.value);
+      });
+      input.addEventListener('input', function () {
+        value.value = '';
+        renderResults(input.value);
+      });
+      input.addEventListener('keydown', function (event) {
+        var options = results.querySelectorAll('[data-category-option]');
+        if (event.key === 'Escape') {
+          closeResults();
+          var selected = (field.options || []).filter(function (option) {
+            return String(option.v) === String(value.value);
+          })[0];
+          input.value = selected ? selected.l : '';
+          return;
+        }
+        if (!options.length || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) {
+          if (event.key === 'Enter' && activeIndex >= 0 && options[activeIndex]) {
+            event.preventDefault();
+            options[activeIndex].click();
+          }
+          return;
+        }
+        event.preventDefault();
+        activeIndex = event.key === 'ArrowDown'
+          ? (activeIndex + 1) % options.length
+          : (activeIndex - 1 + options.length) % options.length;
+        Array.prototype.forEach.call(options, function (option, index) {
+          option.classList.toggle('is-active', index === activeIndex);
+        });
+        input.setAttribute('aria-activedescendant', options[activeIndex].id);
+      });
+      results.addEventListener('mousedown', function (event) {
+        if (event.target.closest('[data-category-option]')) event.preventDefault();
+      });
+      results.addEventListener('click', function (event) {
+        var option = event.target.closest('[data-category-option]');
+        if (!option || option.getAttribute('data-category-option') !== field.k) return;
+        value.value = option.getAttribute('data-option-value');
+        input.value = option.getAttribute('data-option-label');
+        closeResults();
+        value.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      input.addEventListener('blur', function () {
+        window.setTimeout(function () {
+          if (results.contains(document.activeElement)) return;
+          closeResults();
+          var selected = (field.options || []).filter(function (option) {
+            return String(option.v) === String(value.value);
+          })[0];
+          input.value = selected ? selected.l : '';
+        }, 0);
       });
     });
 
