@@ -73,12 +73,12 @@ if not DEBUG and not ALLOWED_HOSTS:
 
 CSRF_TRUSTED_ORIGINS = _env_list(
     'DJANGO_CSRF_TRUSTED_ORIGINS',
-    ('https://alaawadi99998.pythonanywhere.com',) if not DEBUG else (),
+    ('datacenterps.pythonanywhere.com',) if not DEBUG else (),
 )
 SEO_SITE_URL = os.environ.get(
     'DJANGO_SEO_SITE_URL',
-    'https://alaawadi99998.pythonanywhere.com',
-).strip().rstrip('/') or 'https://alaawadi99998.pythonanywhere.com'
+    'datacenterps.pythonanywhere.com',
+).strip().rstrip('/') or 'datacenterps.pythonanywhere.com'
 
 # Application definition
 
