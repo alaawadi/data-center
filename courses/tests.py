@@ -2522,6 +2522,36 @@ class CoursePageTests(TestCase):
         )
         self.assertContains(editor_response, 'id="edInPersonSummaryHost"')
 
+    def test_admin_dashboard_editor_keeps_inperson_course_and_workshop_choices(self):
+        self.client.force_login(self.admin)
+        for kind in (InPersonCourseKind.COURSE, InPersonCourseKind.WORKSHOP):
+            with self.subTest(kind=kind):
+                self.published.course_type = CourseType.IN_PERSON
+                self.published.in_person_kind = kind
+                self.published.save(update_fields=['course_type', 'in_person_kind'])
+
+                response = self.client.get(
+                    reverse(
+                        'dashboard:course-editor-edit',
+                        kwargs={'pk': self.published.slug},
+                    )
+                )
+
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(
+                    response.context['editor_course_json'][0]['inPersonKind'],
+                    kind,
+                )
+                self.assertContains(response, 'id="edInPersonKindField"')
+                self.assertContains(
+                    response,
+                    'name="inPersonKindChoice" value="course"',
+                )
+                self.assertContains(
+                    response,
+                    'name="inPersonKindChoice" value="workshop"',
+                )
+
 
 class CourseProgressTests(TestCase):
     """تتبّع تقدّم الطالب: إكمال الدروس ← تهنئة ← شهادة تلقائية في قائمة شهاداته."""
