@@ -15,9 +15,9 @@ import os
 
 os.environ['DJANGO_DEBUG'] = 'False'
 os.environ['DJANGO_SECRET_KEY'] = '<a unique secret generated for this deployment>'
-os.environ['DJANGO_ALLOWED_HOSTS'] = 'alaawadi99998.pythonanywhere.com'
-os.environ['DJANGO_CSRF_TRUSTED_ORIGINS'] = 'https://alaawadi99998.pythonanywhere.com'
-os.environ['DJANGO_SEO_SITE_URL'] = 'https://alaawadi99998.pythonanywhere.com'
+os.environ['DJANGO_ALLOWED_HOSTS'] = 'datacenterps.pythonanywhere.com'
+os.environ['DJANGO_CSRF_TRUSTED_ORIGINS'] = 'https://datacenterps.pythonanywhere.com'
+os.environ['DJANGO_SEO_SITE_URL'] = 'https://datacenterps.pythonanywhere.com'
 os.environ['DJANGO_SQLITE_PATH'] = '/home/<your-username>/data-center/db.sqlite3'
 os.environ['DJANGO_MEDIA_ROOT'] = '/home/<your-username>/data-center/media'
 ```

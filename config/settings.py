@@ -63,7 +63,10 @@ elif not DEBUG and (
         'DJANGO_SECRET_KEY must be at least 50 characters and use a secure random value.'
     )
 
-_production_hosts = ('alaawadi99998.pythonanywhere.com',)
+_production_hosts = (
+    'alaawadi99998.pythonanywhere.com',
+    'datacenterps.pythonanywhere.com',
+)
 ALLOWED_HOSTS = _env_list(
     'DJANGO_ALLOWED_HOSTS',
     _production_hosts if not DEBUG else (*_production_hosts, '127.0.0.1', 'localhost'),
@@ -73,14 +76,14 @@ if not DEBUG and not ALLOWED_HOSTS:
 
 CSRF_TRUSTED_ORIGINS = _env_list(
     'DJANGO_CSRF_TRUSTED_ORIGINS',
-    ('datacenterps.pythonanywhere.com',) if not DEBUG else (),
+    ('https://datacenterps.pythonanywhere.com',) if not DEBUG else (),
 )
 SEO_SITE_URL = os.environ.get(
     'DJANGO_SEO_SITE_URL',
-    'datacenterps.pythonanywhere.com',
-).strip().rstrip('/') or 'datacenterps.pythonanywhere.com'
+    'https://datacenterps.pythonanywhere.com',
+).strip().rstrip('/') or 'https://datacenterps.pythonanywhere.com'
 
-# Application definition
+# Application definition 
 
 INSTALLED_APPS = [
     'django.contrib.admin',
