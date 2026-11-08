@@ -148,10 +148,13 @@ class ProjectListView(TemplateView):
         queryset = _published_projects().filter(owner__role=UserRole.TRAINER).order_by(
             F('display_order').asc(nulls_last=True), '-project_date', '-created_at'
         )
+        project_categories = queryset.exclude(category='').values_list(
+            'category', flat=True
+        ).distinct()
         context['training_categories_json'] = list(
             TrainingCategory.objects.filter(
-                is_active=True,
-                show_in_projects_filter=True,
+                Q(is_active=True, show_in_projects_filter=True)
+                | Q(name__in=project_categories)
             )
             .order_by('display_order', 'name')
             .values_list('name', flat=True)
@@ -341,7 +344,7 @@ class ProjectDetailView(TemplateView):
 def project_editor_context(request, key=None):
     context = {
         'training_categories_json': list(
-            TrainingCategory.objects.filter(is_active=True)
+            TrainingCategory.objects.all()
             .order_by('display_order', 'name')
             .values_list('name', flat=True)
         )

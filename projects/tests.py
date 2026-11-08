@@ -74,6 +74,33 @@ class ProjectVisibilityTests(TestCase):
                 self.assertEqual(response.json()['error'], 'invalid_category')
         self.assertFalse(Project.objects.filter(owner=self.trainer).exists())
 
+    def test_project_filter_includes_category_when_public_project_uses_it(self):
+        category = TrainingCategory.objects.create(
+            name='مجال للمشاريع المنشورة',
+            is_active=False,
+            show_in_projects_filter=False,
+        )
+        project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع غير منشور',
+            category=category.name,
+            status=ProjectStatus.DRAFT,
+            visibility=ProjectVisibility.PUBLIC,
+        )
+
+        listing = self.client.get(reverse('projects:list'))
+        self.assertNotIn(category.name, listing.context['training_categories_json'])
+
+        project.status = ProjectStatus.PUBLISHED
+        project.save(update_fields=['status'])
+        listing = self.client.get(reverse('projects:list'))
+        self.assertIn(category.name, listing.context['training_categories_json'])
+
+        project.visibility = ProjectVisibility.PERSONAL
+        project.save(update_fields=['visibility'])
+        listing = self.client.get(reverse('projects:list'))
+        self.assertNotIn(category.name, listing.context['training_categories_json'])
+
     def test_project_save_rejects_draft_without_title(self):
         self.client.force_login(self.trainer)
         for title in ('', '   '):
@@ -553,12 +580,17 @@ class ProjectVisibilityTests(TestCase):
 
     def test_project_editor_has_project_details_and_responsive_templates_only(self):
         category = TrainingCategory.objects.create(name='تصميم المنتجات')
+        inactive_category = TrainingCategory.objects.create(
+            name='مجال غير نشط للمحرر',
+            is_active=False,
+        )
         self.client.force_login(self.trainer)
 
         response = self.client.get(reverse('projects:create'))
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(category.name, response.context['training_categories_json'])
+        self.assertIn(inactive_category.name, response.context['training_categories_json'])
         self.assertContains(response, 'id="edCategorySearch"')
         self.assertContains(response, 'id="edCategoryOptions"')
         self.assertContains(response, 'id="edCategoryValidation"')
