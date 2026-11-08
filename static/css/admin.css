@@ -493,6 +493,7 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
 .tbl-wrap {
   overflow-x: clip;
   scrollbar-width: none;
+  touch-action: pan-y;
 }
 .tbl-wrap::-webkit-scrollbar { display: none; }
 
@@ -861,6 +862,10 @@ html[dir='rtl'] .tbl-select { padding: 8px 12px 8px 36px; background-position: l
   .tbl-toolbar > .spacer { display: none; }
   .tbl-actions { padding: 10px 12px; }
   .tbl-actions .btn { flex: 1 1 auto; justify-content: center; }
+  .tbl-toolbar-scroll {
+    height: 32px;
+    touch-action: pan-x;
+  }
   .tbl-select {
     min-height: 46px;
     max-width: none;

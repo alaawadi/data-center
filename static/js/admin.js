@@ -1813,6 +1813,19 @@
     return Math.max(0, Math.min(max, position));
   }
 
+  function setTableScrollPosition(element, position) {
+    var max = Math.max(0, element.scrollWidth - element.clientWidth);
+    position = Math.max(0, Math.min(max, position));
+    if (window.getComputedStyle(element).direction !== 'rtl') {
+      element.scrollLeft = position;
+      return;
+    }
+    var model = getTableRtlScrollModel(element);
+    if (model === 'negative') element.scrollLeft = -position;
+    else if (model === 'default') element.scrollLeft = max - position;
+    else element.scrollLeft = position;
+  }
+
   function syncTableScrollbars(root) {
     syncTableFilterToolbars(root);
     var cards = root.querySelectorAll('.tbl-card');
@@ -1843,6 +1856,41 @@
         var position = getTableScrollPosition(toolbarScrollbar);
         table.style.transform = 'translateX(' + (rtl ? position : -position) + 'px)';
       }
+
+      var touchStart = null;
+      tableWrap.addEventListener('touchstart', function (event) {
+        if (event.touches.length !== 1 || toolbarScrollbar.hidden) {
+          touchStart = null;
+          return;
+        }
+        var touch = event.touches[0];
+        touchStart = {
+          x: touch.clientX,
+          y: touch.clientY,
+          position: getTableScrollPosition(toolbarScrollbar),
+          horizontal: false
+        };
+      }, { passive: true });
+      tableWrap.addEventListener('touchmove', function (event) {
+        if (!touchStart || event.touches.length !== 1) return;
+        var touch = event.touches[0];
+        var deltaX = touch.clientX - touchStart.x;
+        var deltaY = touch.clientY - touchStart.y;
+        if (!touchStart.horizontal && Math.abs(deltaX) > 8 &&
+            Math.abs(deltaX) > Math.abs(deltaY)) {
+          touchStart.horizontal = true;
+        }
+        if (!touchStart.horizontal) return;
+        event.preventDefault();
+        var rtl = window.getComputedStyle(toolbarScrollbar).direction === 'rtl';
+        setTableScrollPosition(
+          toolbarScrollbar,
+          touchStart.position + (rtl ? deltaX : -deltaX)
+        );
+        syncHorizontalPosition();
+      }, { passive: false });
+      tableWrap.addEventListener('touchend', function () { touchStart = null; }, { passive: true });
+      tableWrap.addEventListener('touchcancel', function () { touchStart = null; }, { passive: true });
 
       toolbarScrollbar.addEventListener('scroll', function () {
         syncHorizontalPosition();
@@ -2560,12 +2608,6 @@
             workshopTypeInput.value = route.inPerson ? 'in_person' : 'online';
           }
           if (workshopKindInput && !route.inPerson) workshopKindInput.value = 'workshop';
-        }
-        if (route.type === 'course' && route.inPerson && !route.workshop) {
-          var inPersonKindField = editorContent.querySelector('#edInPersonKindField');
-          var inPersonKindInput = editorContent.querySelector('#edInPersonKind');
-          if (inPersonKindField) inPersonKindField.remove();
-          if (inPersonKindInput) inPersonKindInput.value = 'course';
         }
         host.innerHTML = editorContent.innerHTML;
         document.body.setAttribute('data-page', route.type === 'course' ? 'edit-course' : 'edit-project');
