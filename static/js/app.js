@@ -3432,7 +3432,7 @@
        '<section class="cd-card cd-location-card">' +
        '<h2 class="cd-h2">' + UI.icon('map-pin', 18) + 'فرع الوسطى</h2>' +
        '<div class="cd-location-content">' +
-       '<p>النصيرات - عمارة ابو سرار مقابل مسجد الفاروق</p>' +
+       '<p>النصيرات مخيم 2 - مقابل مسجد الشقاقي - عمارة الشافعي - الطابق الاول</p>' +
        '</div></section></div>';
 
      host.innerHTML =
