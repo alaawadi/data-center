@@ -2178,6 +2178,37 @@ class CoursePageTests(TestCase):
         self.assertEqual(playlist_response.status_code, 200)
         self.assertEqual(registration.student, self.student)
 
+    def test_workshop_attendance_hides_registration_and_grants_playlist_access(self):
+        self.published.course_type = CourseType.IN_PERSON
+        self.published.in_person_kind = InPersonCourseKind.WORKSHOP
+        self.published.save(update_fields=['course_type', 'in_person_kind'])
+        workshop = InPersonWorkshop.objects.create(
+            course=self.published,
+            title=self.published.title,
+            starts_at=timezone.now(),
+            duration_minutes=60,
+        )
+        WorkshopAttendance.objects.create(
+            workshop=workshop,
+            student=self.student,
+        )
+        self.client.force_login(self.student)
+
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.published.slug})
+        )
+        playlist_response = self.client.get(
+            reverse('courses:playlist', kwargs={'pk': self.published.slug})
+        )
+
+        self.assertTrue(detail_response.context['is_course_enrolled'])
+        self.assertTrue(detail_response.context['is_course_student_enrolled'])
+        self.assertContains(
+            detail_response,
+            '<script id="course-student-enrollment-data" type="application/json">true</script>',
+        )
+        self.assertEqual(playlist_response.status_code, 200)
+
     def test_unaccepted_inperson_registration_does_not_grant_playlist_access(self):
         self.published.course_type = CourseType.IN_PERSON
         self.published.price = '150.00'

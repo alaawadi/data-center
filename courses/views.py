@@ -58,6 +58,7 @@ from .models import (
     StudentPointTransaction,
     StudentReferral,
     StudentReferralLink,
+    WorkshopAttendance,
     TrainingCategory,
     WorkshopCertificate,
     close_active_inperson_cohort,
@@ -207,6 +208,13 @@ def _has_course_access(course, user):
                 student=user,
                 status=CourseRegistrationRequestStatus.ACCEPTED,
             ).exists()
+            or (
+                course.in_person_kind == InPersonCourseKind.WORKSHOP
+                and WorkshopAttendance.objects.filter(
+                    workshop__course=course,
+                    student=user,
+                ).exists()
+            )
         )
     if not _course_is_paid(course):
         return True
@@ -588,13 +596,29 @@ class CourseDetailView(TemplateView):
                 status=CourseRegistrationRequestStatus.ACCEPTED,
             ).exists()
         )
+        has_workshop_attendance = (
+            course.course_type == CourseType.IN_PERSON
+            and course.in_person_kind == InPersonCourseKind.WORKSHOP
+            and self.request.user.is_authenticated
+            and self.request.user.is_student
+            and WorkshopAttendance.objects.filter(
+                workshop__course=course,
+                student=self.request.user,
+            ).exists()
+        )
         context['is_course_enrolled'] = bool(
-            has_course_progress or has_accepted_inperson_registration
+            has_course_progress
+            or has_accepted_inperson_registration
+            or has_workshop_attendance
         )
         context['is_course_student_enrolled'] = (
             self.request.user.is_authenticated
             and self.request.user.is_student
-            and (has_course_progress or has_accepted_inperson_registration)
+            and (
+                has_course_progress
+                or has_accepted_inperson_registration
+                or has_workshop_attendance
+            )
         )
         context['is_course_trainer_owner'] = bool(
             self.request.user.is_authenticated

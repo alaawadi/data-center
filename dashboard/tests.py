@@ -4309,6 +4309,21 @@ class InPersonWorkshopTests(TestCase):
             in_person_kind=InPersonCourseKind.WORKSHOP,
             status=CourseStatus.PUBLISHED,
         )
+        project_section = CourseSection.objects.create(
+            course=course,
+            title='مشاريع الورشة',
+        )
+        trainer_project = Project.objects.create(
+            owner=self.trainer,
+            title='مشروع صفحة هبوط',
+            summary='أنشئ صفحة هبوط بسيطة.',
+        )
+        project_lesson = Lesson.objects.create(
+            section=project_section,
+            title='تنفيذ صفحة الهبوط',
+            type=LessonType.PROJECT,
+            linked_project=trainer_project,
+        )
         trainer_profile, _ = Profile.objects.get_or_create(user=self.trainer)
         trainer_profile.avatar.name = 'avatars/workshop-trainer.png'
         trainer_profile.save(update_fields=['avatar'])
@@ -4367,8 +4382,25 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(certificate.workshop_title, course.title)
         self.assertEqual(certificate.duration_minutes, 150)
         self.assertEqual(certificate.attended_on, timezone.localdate())
+        student_project = Project.objects.get(
+            owner=self.student,
+            source_lesson=project_lesson,
+        )
+        self.assertEqual(student_project.title, trainer_project.title)
+        self.assertEqual(student_project.status, ProjectStatus.PUBLISHED)
+        self.assertEqual(
+            Project.objects.filter(
+                owner=self.student,
+                source_lesson=project_lesson,
+            ).count(),
+            1,
+        )
         profile = self.client.get(reverse('accounts:profile', args=[self.student.handle]))
         self.assertEqual(profile.status_code, 200)
+        self.assertTrue(any(
+            item['id'] == student_project.slug
+            for item in profile.context['projects_json']
+        ))
         self.assertTrue(any(
             item.get('workshop') and item['title'] == course.title
             for item in profile.context['profile_certs_json']

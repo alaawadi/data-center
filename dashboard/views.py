@@ -73,7 +73,7 @@ from courses.models import (
     close_active_inperson_cohort,
     start_next_inperson_cohort,
 )
-from courses.views import _sync_quiz, course_editor_context
+from courses.views import _ensure_project_for_lesson, _sync_quiz, course_editor_context
 from projects.models import Project, ProjectStatus, ProjectVisibility
 from projects.views import project_editor_context
 from users.models import (
@@ -2491,6 +2491,20 @@ def workshop_attendance_scan(request):
                     'duration_minutes': workshop.duration_minutes,
                 },
             )
+            if workshop.course_id:
+                project_lessons = Lesson.objects.filter(
+                    section__course_id=workshop.course_id,
+                    type=LessonType.PROJECT,
+                ).select_related(
+                    'section__course__owner',
+                    'linked_project',
+                )
+                for lesson in project_lessons:
+                    _ensure_project_for_lesson(
+                        request.user,
+                        lesson.section.course,
+                        lesson,
+                    )
     except IntegrityError:
         attendance = WorkshopAttendance.objects.get(
             workshop__qr_token=token,
