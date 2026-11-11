@@ -2375,7 +2375,7 @@ class StudentPersistenceTests(TestCase):
         self.assertTrue(student.is_verified)
         self.assertEqual(profile.bio, 'نبذة محفوظة')
 
-    def test_admin_can_change_student_password_and_password_is_required_on_update(self):
+    def test_admin_can_update_student_without_changing_password_or_set_a_new_one(self):
         payload = self.payload(
             id=str(self.student.pk),
             name=self.student.full_name,
@@ -2385,8 +2385,7 @@ class StudentPersistenceTests(TestCase):
             password='',
         )
         response = self.post_json(payload)
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn('password', response.json()['fields'])
+        self.assertEqual(response.status_code, 200, response.content)
         self.assertTrue(authenticate(phone=self.student.phone, password='Old#Student2026'))
 
         payload['password'] = 'New#Student2026'
@@ -2394,6 +2393,16 @@ class StudentPersistenceTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertIsNone(authenticate(phone=self.student.phone, password='Old#Student2026'))
         self.assertTrue(authenticate(phone=self.student.phone, password='New#Student2026'))
+
+    def test_password_is_required_when_creating_student(self):
+        payload = self.payload(phone='0591011005')
+        payload.pop('password')
+
+        response = self.post_json(payload)
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn('password', response.json()['fields'])
+        self.assertFalse(User.objects.filter(phone='0591011005').exists())
 
     def test_admin_can_update_student_specialization(self):
         response = self.post_json(self.payload(
@@ -3569,6 +3578,7 @@ class TrainerPersistenceTests(TestCase):
         self.assertEqual(profile.trainer_rating, Decimal('4.2'))
         self.assertEqual(profile.whatsapp, '+123456789012')
         self.assertFalse(profile.social_links.filter(platform=SocialPlatform.LINKEDIN).exists())
+        self.assertTrue(authenticate(phone=trainer.phone, password='Secure#Trainer2026'))
         update['password'] = 'Changed#Trainer2026'
         response = self.post_json(self.save_url, update)
         self.assertEqual(response.status_code, 200, response.content)

@@ -620,7 +620,8 @@
       },
       {
         k: 'password', label: t('accountPassword'), type: 'text', inputType: 'password',
-        required: true, value: '', dir: 'ltr'
+        required: !u, value: '', dir: 'ltr',
+        hint: u ? t('passwordKeepHint') : ''
       },
       { k: 'avatar', label: t('uAvatar'), type: 'image', emoji: '👤', value: u ? u.avatar : '' },
       sectionField(t('secMeta')),

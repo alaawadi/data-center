@@ -2745,8 +2745,8 @@ def student_save(request):
             errors['email'] = 'أدخل بريداً إلكترونياً صحيحاً.'
     if len(specialization) > 150:
         errors['specialization'] = 'يجب ألا يتجاوز التخصص 150 حرفاً.'
-    if not password:
-        errors['password'] = 'كلمة المرور مطلوبة لإنشاء الحساب أو تعديله.'
+    if is_new and not password:
+        errors['password'] = 'كلمة المرور مطلوبة لإنشاء الحساب.'
     if password:
         try:
             validate_password(password, student)
