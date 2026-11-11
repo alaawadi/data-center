@@ -1340,6 +1340,29 @@ class CoursePermissionsTests(TestCase):
         )
         self.assertFalse(Course.objects.exists())
 
+    def test_admin_can_publish_in_person_workshop_without_online_course_content(self):
+        response = self._post(
+            _payload(
+                title='ورشة حضورية',
+                titleEnglish='In-person workshop',
+                content='',
+                category='',
+                tags=[],
+                syllabus=[],
+                courseType=CourseType.IN_PERSON,
+                inPersonKind=InPersonCourseKind.WORKSHOP,
+                trainerId=self.trainer.pk,
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        workshop = Course.objects.get(owner=self.trainer)
+        self.assertEqual(workshop.status, CourseStatus.PUBLISHED)
+        self.assertEqual(workshop.course_type, CourseType.IN_PERSON)
+        self.assertEqual(workshop.in_person_kind, InPersonCourseKind.WORKSHOP)
+        self.assertEqual(workshop.category, '')
+
     def test_course_period_number_is_saved_with_automatic_arabic_label(self):
         response = self._post(_payload(period='12'), self.trainer)
 

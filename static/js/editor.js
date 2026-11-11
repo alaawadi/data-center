@@ -819,6 +819,20 @@
     var versionRestorePending = false;
     var leaveRequested = false;
     var SERVER_SAVE = (page === 'edit-project' || page === 'edit-course');
+    var courseReturnUrl = '';
+    if (isCourse) {
+      var requestedReturnUrl = new URLSearchParams(window.location.search).get('returnTo');
+      if (requestedReturnUrl) {
+        try {
+          var parsedReturnUrl = new URL(requestedReturnUrl, window.location.origin);
+          if (parsedReturnUrl.origin === window.location.origin) {
+            courseReturnUrl = parsedReturnUrl.pathname + parsedReturnUrl.search + parsedReturnUrl.hash;
+          }
+        } catch (error) {
+          console.warn('تعذر قراءة مسار العودة من محرر الدورة.', error);
+        }
+      }
+    }
 
     /* صناديق الدورة لا تظهر في محرر المشاريع (ولكنها تُحذف قبل ضبط عناوين البطاقات) */
     if (!isCourse) {
@@ -3181,6 +3195,10 @@
               console.warn('تعذر حفظ تنبيه نشر الدورة.', error);
             }
           }
+          if (isCourse && courseReturnUrl) {
+            location.href = courseReturnUrl;
+            return;
+          }
           if (document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
               window.Admin && typeof window.Admin.navigate === 'function') {
             window.Admin.navigate(isCourse
@@ -3466,8 +3484,8 @@
           return;
         }
       }
-      if (!p.title) { UI.toast(t('required'), 'error'); titleEl.focus(); return; }
-      if (textOf(contentEl).length < 10) { UI.toast(t('required'), 'error'); contentEl.focus(); return; }
+      if (!isCourse && !p.title) { UI.toast(t('required'), 'error'); titleEl.focus(); return; }
+      if (!isCourse && textOf(contentEl).length < 10) { UI.toast(t('required'), 'error'); contentEl.focus(); return; }
       if (SERVER_SAVE) { serverSave('published', true); return; }
       p.status = 'published';
       Store.upsert(COL, p);

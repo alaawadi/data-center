@@ -2905,7 +2905,7 @@
         '<span class="tv">' + UI.icon('eye', 13) + (p.views || 0) + '</span></a>';
     }).join('');
 
-    return statHTML +
+    return '<div class="overview-page">' + statHTML +
       '<div class="adm-grid ov-two overview-row">' +
       '<section class="panel">' +
       '<div class="sec-head"><div><h2>' + UI.icon('layers', 18) + e(t('growthTitle')) + '</h2><p>' + e(t('growthSub')) + '</p></div></div>' +
@@ -2939,7 +2939,7 @@
       '<section class="panel"><div class="sec-head"><div><h2>' + UI.icon('clock', 18) + e(t('recentContent')) + '</h2></div></div>' +
       '<div class="toplist">' + (recentHTML || '<p class="tiny muted">' + e(t('emptySub')) + '</p>') + '</div>' +
       '</section>' +
-      '</div>';
+      '</div></div>';
   }
 
   function settingsHTML() {

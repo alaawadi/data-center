@@ -1752,7 +1752,7 @@ def course_save(request):
             missing.append('summary')
         if raw_course_type != CourseType.IN_PERSON and len(strip_tags(content).split()) < 50:
             missing.append('content')
-        if not category_is_valid:
+        if raw_course_type != CourseType.IN_PERSON and not category_is_valid:
             missing.append('category')
         if not price_match:
             missing.append('price')

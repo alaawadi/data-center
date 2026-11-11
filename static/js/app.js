@@ -3353,11 +3353,17 @@
         e(rewardsData.shareUrl || SITE.u('course', e(c.id))) + '">' +
         UI.icon('share-2', 16) + e(t('shareCta')) + '</button>';
     }
-    var courseEditButtonHTML = canManageCourse(c)
-      ? '<button class="cd-btn cd-btn-edit" type="button" data-act="goto" data-url="' +
-        SITE.u(adminCourseManager ? 'adminCourseEditorEdit' : 'courseEdit', e(c.id)) +
-        '">' + UI.icon('pencil', 15) + e(t('edit')) + '</button>'
-      : '';
+    var courseEditButtonHTML = '';
+    if (canManageCourse(c)) {
+      var courseEditorUrl = SITE.u(
+        adminCourseManager ? 'adminCourseEditorEdit' : 'courseEdit',
+        e(c.id)
+      );
+      var returnTo = window.location.pathname + window.location.search + window.location.hash;
+      courseEditorUrl += '?returnTo=' + encodeURIComponent(returnTo);
+      courseEditButtonHTML = '<button class="cd-btn cd-btn-edit" type="button" data-act="goto" data-url="' +
+        e(courseEditorUrl) + '">' + UI.icon('pencil', 15) + e(t('edit')) + '</button>';
+    }
     var registrationCounts = { new: 0, accepted: 0 };
     var registrationCountsElement = document.getElementById('course-registration-status-counts');
     if (registrationCountsElement) {
