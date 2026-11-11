@@ -752,7 +752,8 @@ class CertificateDetailView(TemplateView):
         if key.startswith('workshop-'):
             try:
                 certificate = WorkshopCertificate.objects.select_related(
-                    'attendance__student', 'attendance__workshop'
+                    'attendance__student',
+                    'attendance__workshop__course__owner__profile',
                 ).get(pk=key[len('workshop-'):])
             except (WorkshopCertificate.DoesNotExist, ValueError):
                 raise Http404('الشهادة غير موجودة')

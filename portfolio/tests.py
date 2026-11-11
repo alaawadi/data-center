@@ -13,8 +13,11 @@ from courses.models import (
     CourseStatus,
     CourseType,
     InPersonCourseCohort,
+    InPersonCourseKind,
+    InPersonWorkshop,
     StudentPointTransaction,
     StudentReferralLink,
+    WorkshopAttendance,
 )
 from projects.models import Project, ProjectInteraction, ProjectStatus
 from users.models import (
@@ -210,6 +213,37 @@ class TrainerPortfolioTests(TestCase):
             [item['id'] for item in response.context['active_courses_json']],
             [course.slug],
         )
+
+    def test_attended_workshop_stays_in_active_courses_after_attendance_closes(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='ورشة حضرها الطالب',
+            status=CourseStatus.DRAFT,
+            course_type=CourseType.IN_PERSON,
+            in_person_kind=InPersonCourseKind.WORKSHOP,
+        )
+        workshop = InPersonWorkshop.objects.create(
+            course=course,
+            title=course.title,
+            starts_at=timezone.now(),
+            duration_minutes=60,
+            attendance_open=False,
+        )
+        WorkshopAttendance.objects.create(
+            workshop=workshop,
+            student=self.student,
+        )
+        self.client.force_login(self.student)
+
+        response = self.client.get(reverse('portfolio:home'))
+
+        self.assertEqual(response.status_code, 200)
+        active_workshops = [
+            item for item in response.context['active_courses_json']
+            if item['id'] == course.slug
+        ]
+        self.assertEqual(len(active_workshops), 1)
+        self.assertEqual(active_workshops[0]['inPersonKind'], InPersonCourseKind.WORKSHOP)
 
     def test_personal_profile_title_uses_current_user_and_data_center_brand(self):
         self.client.force_login(self.student)

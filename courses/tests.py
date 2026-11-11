@@ -4262,7 +4262,14 @@ class EarnedCertificateDetailTests(TestCase):
         self.assertEqual(self.client.get(url).status_code, 200)
 
     def test_workshop_certificate_detail_includes_workshop_information_and_names(self):
+        workshop_course = Course.objects.create(
+            owner=self.trainer,
+            title='ورشة أساسيات التصميم',
+            course_type=CourseType.IN_PERSON,
+            in_person_kind=InPersonCourseKind.WORKSHOP,
+        )
         workshop = InPersonWorkshop.objects.create(
+            course=workshop_course,
             title='ورشة أساسيات التصميم',
             title_en='Design Fundamentals Workshop',
             trainer_name='مدرب الورشة',
@@ -4309,3 +4316,10 @@ class EarnedCertificateDetailTests(TestCase):
         self.assertEqual(certificate_data['workshopDetails']['title'], workshop.title)
         self.assertEqual(certificate_data['workshopDetails']['location'], workshop.location)
         self.assertEqual(certificate_data['workshopDetails']['description'], workshop.description)
+        self.assertEqual(certificate_data['duration'], '1.5')
+        self.assertEqual(certificate_data['workshopDetails']['duration'], '1.5')
+        self.assertEqual(
+            certificate_data['trainerProfileUrl'],
+            reverse('accounts:profile', kwargs={'handle': self.trainer.handle}),
+        )
+        self.assertEqual(certificate_data['trainerAvatar'], '')

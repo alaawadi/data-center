@@ -3334,7 +3334,7 @@ class AdminStudentCertificateTests(TestCase):
         self.assertEqual(workshop_certificate['issuer'], workshop.trainer_name)
         self.assertEqual(workshop_certificate['studentName'], self.student.display_name)
         self.assertEqual(workshop_certificate['studentId'], str(self.student.pk))
-        self.assertEqual(workshop_certificate['workshopDuration'], 120)
+        self.assertEqual(workshop_certificate['workshopDuration'], '2')
         self.assertEqual(workshop_certificate['workshopLocation'], 'غزة')
         self.assertTrue(workshop_certificate['active'])
 
@@ -4258,6 +4258,19 @@ class InPersonWorkshopTests(TestCase):
         profile = self.client.get(reverse('accounts:profile', args=[self.student.handle]))
         self.assertEqual(profile.status_code, 200)
         self.assertNotContains(profile, 'vendor/jsQR.js')
+        portfolio = self.client.get(reverse('portfolio:home'))
+        self.assertEqual(portfolio.status_code, 200)
+        active_workshops = [
+            item for item in portfolio.context['active_courses_json']
+            if item.get('workshop')
+        ]
+        self.assertEqual(len(active_workshops), 1)
+        self.assertEqual(active_workshops[0]['title'], workshop.title)
+        self.assertEqual(active_workshops[0]['inPersonKind'], 'workshop')
+        self.assertEqual(
+            active_workshops[0]['id'],
+            f'workshop-{certificate.pk}',
+        )
         self.assertNotContains(profile, 'workshop-scanner.js')
         workshop_certs = [
             item for item in profile.context['profile_certs_json']
@@ -4266,7 +4279,8 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(len(workshop_certs), 1)
         self.assertEqual(workshop_certs[0]['title'], workshop.title)
         self.assertEqual(workshop_certs[0]['trainerName'], 'مدرب الورشة')
-        self.assertEqual(workshop_certs[0]['duration'], workshop.duration_minutes)
+        self.assertEqual(workshop_certs[0]['duration'], '1.5')
+        self.assertEqual(workshop_certs[0]['workshopDetails']['duration'], '1.5')
 
         self.client.force_login(self.admin)
         edited = self.post_json(
@@ -4295,6 +4309,9 @@ class InPersonWorkshopTests(TestCase):
             in_person_kind=InPersonCourseKind.WORKSHOP,
             status=CourseStatus.PUBLISHED,
         )
+        trainer_profile, _ = Profile.objects.get_or_create(user=self.trainer)
+        trainer_profile.avatar.name = 'avatars/workshop-trainer.png'
+        trainer_profile.save(update_fields=['avatar'])
         self.client.force_login(self.admin)
 
         qr_response = self.post_json(
@@ -4328,6 +4345,21 @@ class InPersonWorkshopTests(TestCase):
         )
 
         self.assertEqual(scan.status_code, 201, scan.content)
+        self.assertEqual(
+            scan.json()['certificateUrl'],
+            reverse(
+                'courses:certificate',
+                kwargs={'pk': f'workshop-{scan.json()["certificate"]["id"].split("-")[1]}'},
+            ),
+        )
+        self.assertEqual(
+            scan.json()['certificate']['trainerProfileUrl'],
+            reverse('accounts:profile', kwargs={'handle': self.trainer.handle}),
+        )
+        self.assertEqual(
+            scan.json()['certificate']['trainerAvatar'],
+            trainer_profile.avatar.url,
+        )
         certificate = WorkshopCertificate.objects.get(
             attendance__workshop=workshop,
             attendance__student=self.student,

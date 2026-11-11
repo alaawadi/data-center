@@ -1,10 +1,11 @@
 """Course models — الدورات التدريبية وأقسامها ودروسكها وتقدّم الطلاب وشهاداتهم."""
 import re
 import uuid
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models, transaction
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -1201,9 +1202,20 @@ class WorkshopCertificate(models.Model):
             self.code = 'WS-' + uuid.uuid4().hex.upper()
         super().save(*args, **kwargs)
 
+    @property
+    def duration_hours(self):
+        hours = (Decimal(self.duration_minutes) / Decimal(60)).quantize(
+            Decimal('0.01'),
+            rounding=ROUND_HALF_UP,
+        )
+        return format(hours, 'f').rstrip('0').rstrip('.')
+
     def to_public_dict(self):
         student = self.attendance.student
         workshop = self.attendance.workshop
+        trainer = workshop.course.owner if workshop.course_id else None
+        trainer_profile = getattr(trainer, 'profile', None) if trainer else None
+        duration_hours = self.duration_hours
         return {
             'id': f'workshop-{self.pk}',
             'workshop': True,
@@ -1211,12 +1223,19 @@ class WorkshopCertificate(models.Model):
             'titleEnglish': self.workshop_title_en,
             'trainerName': self.trainer_name,
             'trainerNameEnglish': self.trainer_name_en,
+            'trainerAvatar': trainer_profile.avatar.url
+            if trainer_profile and trainer_profile.avatar
+            else '',
+            'trainerProfileUrl': reverse(
+                'accounts:profile',
+                kwargs={'handle': trainer.handle},
+            ) if trainer else '',
             'studentName': self.student_name,
             'studentNameArabic': student.full_name_ar,
             'studentNameEnglish': student.full_name_en,
             'handle': student.handle,
             'date': self.attended_on.isoformat(),
-            'duration': self.duration_minutes,
+            'duration': duration_hours,
             'code': self.code,
             'earned': True,
             'workshopDetails': {
@@ -1225,7 +1244,7 @@ class WorkshopCertificate(models.Model):
                 'trainer': self.trainer_name,
                 'trainerEnglish': self.trainer_name_en,
                 'date': self.attended_on.isoformat(),
-                'duration': self.duration_minutes,
+                'duration': duration_hours,
                 'location': workshop.location,
                 'locationEnglish': workshop.location_en,
                 'description': workshop.description,

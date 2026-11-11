@@ -204,7 +204,11 @@
       ? (isWorkshop ? 'Workshop Trainer' : 'Course Instructor')
       : (isWorkshop ? 'مدرب الورشة' : 'مدرب الدورة');
     var duration = c.workshop
-      ? (c.duration ? c.duration + ' ' + (english ? 'minutes' : 'دقيقة') : '—')
+      ? (c.duration
+        ? c.duration + ' ' + (english
+          ? (Number(c.duration) === 1 ? 'hour' : 'hours')
+          : 'ساعة')
+        : '—')
       : (english ? (c.durationEnglish || 'Not specified') : (c.duration || '—'));
     var labels = english ? {
       title: 'Training Certificate',
@@ -290,9 +294,11 @@
     var courseParams = [];
     if (opts.from) courseParams.push('from=' + encodeURIComponent(opts.from));
     if (opts.returnTo) courseParams.push('return=' + encodeURIComponent(opts.returnTo));
-    var detailUrl = opts.course
-      ? SITE.u('course', e(c.id)) + (courseParams.length ? '?' + courseParams.join('&') : '')
-      : SITE.u('certificate', e(c.certificateId || c.id)) + returnTo;
+    var detailUrl = c.workshop
+      ? SITE.u('certificate', e(c.certificateId || c.id)) + returnTo
+      : opts.course
+        ? SITE.u('course', e(c.id)) + (courseParams.length ? '?' + courseParams.join('&') : '')
+        : SITE.u('certificate', e(c.certificateId || c.id)) + returnTo;
     if (opts.imageOnly) {
       return '<article class="cert-card cert-card-preview" data-goto="' + detailUrl + '" data-search="' +
         e((c.title + ' ' + c.issuer + ' ' + (c.category || '') + ' ' + (c.studentName || '')).toLowerCase()) + '">' +
@@ -3014,7 +3020,9 @@
       ? SITE.u('portfolio')
       : SITE.u('course', e(c.courseId || c.id));
     var trainerAvatar = (c.owner && c.owner.avatar) || c.trainerAvatar || '';
+    trainerAvatar = c.trainerAvatar || trainerAvatar;
     var trainerLabel = isWorkshop ? 'مدرب الورشة:' : 'المدرب:';
+    var trainerProfileUrl = c.trainerProfileUrl || '';
     var languageTabs =
       '<div class="cert-language-tabs" role="group" aria-label="Certificate language">' +
       '<button type="button" class="btn btn-sm ' + (certificateLanguage === 'ar' ? 'btn-primary' : 'btn-ghost') + '" data-act="certificate-language" data-language="ar" aria-pressed="' + (certificateLanguage === 'ar') + '">العربية</button>' +
@@ -3028,8 +3036,12 @@
       '<span class="cert-hero-seal">' + UI.verifiedBadge(15) + e(t('certPageStatusValid')) + '</span>' +
       '<h1 class="cd-title">' + e(certificateTitle) + '</h1>' +
       '<div class="cd-author">' +
+      (trainerProfileUrl
+        ? '<a class="cd-author-profile" href="' + e(trainerProfileUrl) + '">'
+        : '<span class="cd-author-profile">') +
       '<img class="cd-author-av" src="' + e(trainerAvatar || UI.userLetterAvatar(instName, 64)) + '" alt="">' +
       '<span>' + e(trainerLabel) + ' <b>' + e(instName) + '</b></span>' +
+      (trainerProfileUrl ? '</a>' : '</span>') +
       '</div>' +
       '<div class="cd-pills">' +
       '<span class="cd-pill">' + UI.icon('calendar', 14) + e(issued) + '</span>' +
@@ -3056,7 +3068,7 @@
         '<div class="prose"><p><b>الورشة:</b> ' + e(workshopDetails.title || c.title || '—') + '</p>' +
         '<p><b>المدرب:</b> ' + e(workshopDetails.trainer || c.trainerName || '—') + '</p>' +
         '<p><b>التاريخ:</b> ' + e(certificateDate(workshopDetails.date || c.date, 'ar')) + '</p>' +
-        '<p><b>المدة:</b> ' + e(workshopDetails.duration || c.duration || '—') + ' دقيقة</p>' +
+        '<p><b>المدة:</b> ' + e(workshopDetails.duration || c.duration || '—') + ' ساعة</p>' +
         (workshopDetails.location
           ? '<p><b>الموقع:</b> ' + e(workshopDetails.location) + '</p>'
           : '') +

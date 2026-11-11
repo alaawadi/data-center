@@ -2503,6 +2503,10 @@ def workshop_attendance_scan(request):
         'alreadyRegistered': not created,
         'message': 'تم تسجيل حضورك وإصدار شهادتك.' if created else 'حضورك مسجل مسبقاً.',
         'certificate': certificate.to_public_dict(),
+        'certificateUrl': reverse(
+            'courses:certificate',
+            kwargs={'pk': f'workshop-{certificate.pk}'},
+        ),
     }, status=201 if created else 200)
 
 
@@ -3819,7 +3823,7 @@ class PanelView(LoginRequiredMixin, UserPassesTestMixin, TemplateView):
                 'date': certificate.attended_on.isoformat(),
                 'code': certificate.code,
                 'active': True,
-                'workshopDuration': certificate.duration_minutes,
+                'workshopDuration': certificate.duration_hours,
                 'workshopLocation': certificate.attendance.workshop.location,
             }
             for certificate in workshop_certificates

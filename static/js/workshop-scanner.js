@@ -75,8 +75,13 @@
           throw new Error(data.message || text('تعذر تسجيل الحضور.', 'Could not record attendance.'));
         }
         stopCamera();
-        setStatus(data.message || text('تم تسجيل حضورك وإصدار شهادتك.', 'Attendance recorded and certificate issued.'));
-        window.setTimeout(function () { window.location.reload(); }, 900);
+        if (!data.certificateUrl) {
+          throw new Error(text(
+            'تم تسجيل الحضور لكن تعذر فتح الشهادة.',
+            'Attendance was recorded, but the certificate could not be opened.'
+          ));
+        }
+        window.location.assign(data.certificateUrl);
       });
     }).catch(function (error) {
       stopCamera();

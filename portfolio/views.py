@@ -138,7 +138,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
             ).select_related('student')
             workshop_certs = WorkshopCertificate.objects.filter(
                 attendance__student=user
-            ).select_related('attendance__student')
+            ).select_related(
+                'attendance__student',
+                'attendance__workshop__course__owner__profile',
+            )
             context['my_certs_json'] = (
                 [
                     certificate.to_public_dict(
@@ -173,18 +176,43 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 ).select_related(
                     'owner', 'owner__profile'
                 ).distinct()
-                active_courses.extend(
-                    course
-                    for course in accepted_inperson_courses
-                    if course.pk not in active_course_ids
-                )
-                context['active_courses_json'] = [
+                for course in accepted_inperson_courses:
+                    if course.pk not in active_course_ids:
+                        active_courses.append(course)
+                        active_course_ids.add(course.pk)
+                attended_workshop_courses = Course.objects.filter(
+                    attendance_workshop__attendances__student=user,
+                ).select_related(
+                    'owner',
+                    'owner__profile',
+                ).distinct()
+                for course in attended_workshop_courses:
+                    if course.pk not in active_course_ids:
+                        active_courses.append(course)
+                        active_course_ids.add(course.pk)
+                active_courses_json = [
                     course.to_public_dict(
                         include_syllabus=False,
                         include_content=False,
                     )
                     for course in active_courses
                 ]
+                standalone_workshop_certificates = WorkshopCertificate.objects.filter(
+                    attendance__student=user,
+                    attendance__workshop__course__isnull=True,
+                ).select_related(
+                    'attendance__student',
+                    'attendance__workshop',
+                )
+                for certificate in standalone_workshop_certificates:
+                    workshop_data = certificate.to_public_dict()
+                    workshop_data.update({
+                        'courseType': CourseType.IN_PERSON,
+                        'inPersonKind': 'workshop',
+                        'duration': f"{workshop_data['duration']} ساعة",
+                    })
+                    active_courses_json.append(workshop_data)
+                context['active_courses_json'] = active_courses_json
             # الدورات المنشورة تُدمج مع الشهادات المكتسبة في لائحة الشهادات
             context['courses_json'] = published_courses_payload()
             # للمدرب: دوراته هو (منشورة + مسودّات) تُعرض في قسم «الدورات التدريبية»

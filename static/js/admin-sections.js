@@ -6280,7 +6280,7 @@
       '<div class="if-row"><span class="k">' + e(t('certificateDate')) + '</span><span class="v">' + e(UI.formatDate(certificate.date) || '—') + '</span></div>' +
       (certificate.code ? '<div class="if-row"><span class="k">' + e(t('certificateCode')) + '</span><span class="v" dir="ltr">' + e(certificate.code) + '</span></div>' : '') +
       (certificate.workshopDuration
-        ? '<div class="if-row"><span class="k">' + e(t('workshopDuration')) + '</span><span class="v">' + e(certificate.workshopDuration) + ' ' + e(t('minutesShort')) + '</span></div>'
+        ? '<div class="if-row"><span class="k">' + e(t('workshopDuration')) + '</span><span class="v">' + e(certificate.workshopDuration) + ' ' + e(t('hoursShort')) + '</span></div>'
         : '') +
       (certificate.workshopLocation
         ? '<div class="if-row"><span class="k">' + e(t('workshopLocation')) + '</span><span class="v">' + e(certificate.workshopLocation) + '</span></div>'
