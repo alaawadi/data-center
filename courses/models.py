@@ -1108,6 +1108,14 @@ class ManualCertificate(models.Model):
 class InPersonWorkshop(models.Model):
     """An in-person workshop with a revocable QR attendance token."""
 
+    course = models.OneToOneField(
+        Course,
+        on_delete=models.SET_NULL,
+        related_name='attendance_workshop',
+        null=True,
+        blank=True,
+        verbose_name='الدورة المرتبطة',
+    )
     title = models.CharField('اسم الورشة', max_length=200)
     title_en = models.CharField('اسم الورشة بالإنجليزية', max_length=200, blank=True)
     trainer_name = models.CharField('اسم المدرب', max_length=200, blank=True, default='')

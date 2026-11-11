@@ -31,6 +31,7 @@ from courses.models import (
     CourseSection,
     CourseStatus,
     CourseType,
+    InPersonCourseKind,
     InPersonCourseCohort,
     InPersonWorkshop,
     Lesson,
@@ -1340,6 +1341,23 @@ class AdminSubscriptionCreateTests(TestCase):
             student=self.student,
             course=self.inperson_course,
         ).exists())
+
+    def test_inperson_subscription_without_payment_is_assigned_to_selected_cohort(self):
+        response = self.create_subscription(
+            self.inperson_course,
+            CourseType.IN_PERSON,
+            cohort_id=self.cohort.pk,
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        registration = CourseRegistrationRequest.objects.get(
+            student=self.student,
+            course=self.inperson_course,
+            cohort=self.cohort,
+        )
+        self.assertEqual(registration.status, CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertEqual(response.json()['registration']['cohortId'], str(self.cohort.pk))
+        self.assertEqual(response.json()['registration']['paidAmount'], '0.00')
 
     def test_inperson_subscription_rejects_student_already_in_selected_cohort(self):
         CourseRegistrationRequest.objects.create(
@@ -4127,6 +4145,11 @@ class InPersonWorkshopTests(TestCase):
 
         create_response = self.post_json(self.save_url, self.workshop_payload())
         self.assertEqual(create_response.status_code, 403)
+        course_qr_response = self.post_json(
+            reverse('dashboard:course-workshop-qr', args=[1]),
+            {},
+        )
+        self.assertEqual(course_qr_response.status_code, 403)
 
         workshop = InPersonWorkshop.objects.create(
             title='ورشة خاصة',
@@ -4260,6 +4283,91 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(certificate.workshop_title, 'ورشة التصميم الرقمي')
         self.assertEqual(certificate.trainer_name, 'مدرب الورشة')
         self.assertEqual(certificate.duration_minutes, 90)
+
+    def test_inperson_workshop_course_qr_records_attendance_and_issues_profile_certificate(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='ورشة تصميم واجهات',
+            title_en='Interface Design Workshop',
+            summary='تدريب عملي على تصميم الواجهات.',
+            duration='2.5 ساعة',
+            course_type=CourseType.IN_PERSON,
+            in_person_kind=InPersonCourseKind.WORKSHOP,
+            status=CourseStatus.PUBLISHED,
+        )
+        self.client.force_login(self.admin)
+
+        qr_response = self.post_json(
+            reverse('dashboard:course-workshop-qr', args=[course.pk]),
+            {},
+        )
+
+        self.assertEqual(qr_response.status_code, 200, qr_response.content)
+        workshop = InPersonWorkshop.objects.get(course=course)
+        self.assertEqual(workshop.duration_minutes, 150)
+        self.assertEqual(workshop.title, course.title)
+        self.assertEqual(qr_response.json()['workshop']['courseId'], course.pk)
+
+        qr_again = self.post_json(
+            reverse('dashboard:course-workshop-qr', args=[course.pk]),
+            {},
+        )
+        self.assertEqual(qr_again.status_code, 200, qr_again.content)
+        self.assertEqual(qr_again.json()['workshop']['id'], workshop.pk)
+        self.assertEqual(InPersonWorkshop.objects.filter(course=course).count(), 1)
+
+        opened = self.post_json(
+            reverse('dashboard:workshop-attendance-status', args=[workshop.pk]),
+            {'open': True},
+        )
+        self.assertEqual(opened.status_code, 200, opened.content)
+        self.client.force_login(self.student)
+        scan = self.post_json(
+            self.scan_url,
+            {'token': str(workshop.qr_token)},
+        )
+
+        self.assertEqual(scan.status_code, 201, scan.content)
+        certificate = WorkshopCertificate.objects.get(
+            attendance__workshop=workshop,
+            attendance__student=self.student,
+        )
+        self.assertEqual(certificate.workshop_title, course.title)
+        self.assertEqual(certificate.duration_minutes, 150)
+        self.assertEqual(certificate.attended_on, timezone.localdate())
+        profile = self.client.get(reverse('accounts:profile', args=[self.student.handle]))
+        self.assertEqual(profile.status_code, 200)
+        self.assertTrue(any(
+            item.get('workshop') and item['title'] == course.title
+            for item in profile.context['profile_certs_json']
+        ))
+
+    def test_course_workshop_qr_rejects_non_workshop_courses_and_invalid_durations(self):
+        course = Course.objects.create(
+            owner=self.trainer,
+            title='دورة وجاهية',
+            duration='2',
+            course_type=CourseType.IN_PERSON,
+            in_person_kind=InPersonCourseKind.COURSE,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.post_json(
+            reverse('dashboard:course-workshop-qr', args=[course.pk]),
+            {},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(InPersonWorkshop.objects.filter(course=course).exists())
+        course.in_person_kind = InPersonCourseKind.WORKSHOP
+        course.duration = '25'
+        course.save(update_fields=['in_person_kind', 'duration'])
+        invalid_duration = self.post_json(
+            reverse('dashboard:course-workshop-qr', args=[course.pk]),
+            {},
+        )
+        self.assertEqual(invalid_duration.status_code, 400)
+        self.assertFalse(InPersonWorkshop.objects.filter(course=course).exists())
 
     def test_regenerating_qr_revokes_old_code_and_closes_attendance(self):
         workshop = self.create_workshop()

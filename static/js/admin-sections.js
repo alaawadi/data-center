@@ -2177,8 +2177,11 @@
                   '" aria-label="' + e(t('courseCohorts') + ' — ' + c.title) + '">' +
                   e(t('courseCohorts')) + ' (' + cohortCount + ')</button>'
                 : '';
+              var workshopQrButton = workshopsOnly && c.courseType === 'in_person'
+                ? iconBtn('course-workshop-qr', c.pk || c.id, 'qr-code', t('workshopShowQr'))
+                : '';
               return '<div class="course-table-row-actions">' +
-                (inPersonKind ? '' : orderDragHandle()) + cohortButton +
+                (inPersonKind ? '' : orderDragHandle()) + cohortButton + workshopQrButton +
                 linkBtn(SITE.u('course', c.id), 'eye', t('openCourse')) +
                 linkBtn(
                   editorRoute(
@@ -4491,8 +4494,8 @@
     return replacement;
   }
 
-  function renderCourseCohortSubscriptions(paidStudents) {
-    if (!paidStudents.length) {
+  function renderCourseCohortSubscriptions(acceptedStudents) {
+    if (!acceptedStudents.length) {
       return '<p class="tiny muted">' + e(t('inPersonPaymentInvoicesEmpty')) + '</p>';
     }
 
@@ -4512,7 +4515,7 @@
       payments: t('courseRegistrationPaymentDetails'),
       actions: t('colActions')
     };
-    var rows = paidStudents.map(function (request) {
+    var rows = acceptedStudents.map(function (request) {
       var isPaid = Number(request.remainingAmount) <= 0;
       return '<tr class="course-cohort-applicant-row" data-registration-request-row="' +
         e(request.id) + '" data-request-course="' + e(request.courseId || '') +
@@ -4550,8 +4553,8 @@
     var cohortRequests = requests.filter(function (request) {
       return String(request.cohortId) === String(cohort.id);
     });
-    var paidStudents = cohortRequests.filter(function (request) {
-      return request.status === 'accepted' && Number(request.paidAmount) > 0;
+    var acceptedStudents = cohortRequests.filter(function (request) {
+      return request.status === 'accepted';
     });
     var historyToggle = cohort.active ? '' :
       '<button type="button" class="btn btn-soft btn-sm" data-act="course-cohort-history-toggle" data-id="' +
@@ -4565,9 +4568,9 @@
       '<div class="course-cohort-dates"><span>' + e(t('courseCohortStart')) + ': ' +
       e(UI.formatDate(cohort.startedAt)) + '</span><span>' + e(t('courseCohortEnd')) + ': ' +
       e(cohort.endedAt ? UI.formatDate(cohort.endedAt) : '—') + '</span>' +
-      '<span>' + e(t('courseCohortApplicants')) + ': ' + paidStudents.length + '</span></div>' +
+      '<span>' + e(t('courseCohortApplicants')) + ': ' + acceptedStudents.length + '</span></div>' +
       (cohort.active || expanded
-        ? renderCourseCohortSubscriptions(paidStudents)
+        ? renderCourseCohortSubscriptions(acceptedStudents)
         : '') + '</section>';
   }
 
@@ -5970,10 +5973,6 @@
     courseRegistrationRequestForm();
   });
 
-  Admin.on('workshop-add', function () {
-    workshopForm(null);
-  });
-
   Admin.on('workshop-edit', function (el) {
     var workshop = AdminData.workshops().filter(function (item) {
       return String(item.id) === el.getAttribute('data-id');
@@ -6028,8 +6027,81 @@
       size: 'sm',
       body: '<div class="workshop-qr-preview"><img src="' + e(workshop.qrImage) + '" alt="' + e(t('workshopShowQr')) + '">' +
         '<p class="tiny muted">' + e(workshop.attendanceOpen ? t('workshopAttendanceIsOpen') : t('workshopAttendanceIsClosed')) + '</p>' +
+        '<p class="tiny muted">' + e(t('workshopScanInstructions')) + '</p>' +
         '<a class="btn btn-soft btn-sm" href="' + e(workshop.qrImage) + '" download="workshop-' + e(workshop.id) + '-qr.png">' +
         UI.icon('download', 14) + e(t('workshopDownloadQr')) + '</a></div>'
+    });
+  });
+
+  function renderCourseWorkshopQr(workshop, modal) {
+    var statusKey = workshop.attendanceOpen
+      ? 'workshopAttendanceIsOpen'
+      : 'workshopAttendanceIsClosed';
+    var attendanceAction = workshop.attendanceOpen
+      ? 'workshopQrCloseAttendance'
+      : 'workshopQrOpenAttendance';
+    modal.body.innerHTML =
+      '<div class="workshop-qr-preview"><img src="' + e(workshop.qrImage) +
+      '" alt="' + e(t('workshopShowQr')) + '">' +
+      '<p class="tiny muted">' + e(t(statusKey)) + '</p>' +
+      '<p class="tiny muted">' + e(t('workshopScanInstructions')) + '</p>' +
+      '<div class="course-table-row-actions">' +
+      '<button type="button" class="btn btn-soft btn-sm" data-course-workshop-attendance>' +
+      UI.icon(workshop.attendanceOpen ? 'x' : 'check', 14) + e(t(attendanceAction)) + '</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm" data-course-workshop-regenerate>' +
+      UI.icon('refresh-cw', 14) + e(t('workshopQrRegenerate')) + '</button>' +
+      '<a class="btn btn-ghost btn-sm" href="' + e(workshop.qrImage) +
+      '" download="workshop-' + e(workshop.id) + '-qr.png">' +
+      UI.icon('download', 14) + e(t('workshopDownloadQr')) + '</a></div></div>';
+  }
+
+  Admin.on('course-workshop-qr', function (el) {
+    var courseId = el.getAttribute('data-id');
+    var modal = UI.modal({
+      title: el.closest('tr') && el.closest('tr').querySelector('.cc-b b')
+        ? el.closest('tr').querySelector('.cc-b b').textContent
+        : t('workshopShowQr'),
+      size: 'sm',
+      body: '<p class="tiny muted">' + e(t('workshopQrPreparing')) + '</p>'
+    });
+    var workshop = null;
+    modal.body.addEventListener('click', function (event) {
+      var attendanceButton = event.target.closest('[data-course-workshop-attendance]');
+      var regenerateButton = event.target.closest('[data-course-workshop-regenerate]');
+      if (attendanceButton) {
+        attendanceButton.disabled = true;
+        sendWorkshopRequest(
+          SITE.u('workshopAttendanceStatus', workshop.id),
+          { open: !workshop.attendanceOpen }
+        ).then(function (data) {
+          workshop.attendanceOpen = data.attendanceOpen;
+          AdminData.updateWorkshop(workshop);
+          renderCourseWorkshopQr(workshop, modal);
+        }).catch(function (error) {
+          attendanceButton.disabled = false;
+          UI.toast(error.message || t('saveError'), 'error');
+        });
+      } else if (regenerateButton) {
+        if (!window.confirm(t('workshopQrRegenerateConfirm'))) return;
+        regenerateButton.disabled = true;
+        sendWorkshopRequest(SITE.u('workshopRegenerateQr', workshop.id)).then(function (data) {
+          workshop = data.workshop;
+          AdminData.updateWorkshop(workshop);
+          renderCourseWorkshopQr(workshop, modal);
+          UI.toast(t('workshopQrRegenerated'), 'success');
+        }).catch(function (error) {
+          regenerateButton.disabled = false;
+          UI.toast(error.message || t('saveError'), 'error');
+        });
+      }
+    });
+    sendWorkshopRequest(SITE.u('courseWorkshopQr', courseId)).then(function (data) {
+      workshop = data.workshop;
+      AdminData.updateWorkshop(workshop);
+      renderCourseWorkshopQr(workshop, modal);
+    }).catch(function (error) {
+      modal.body.innerHTML = '<p class="form-error">' +
+        e(error.message || t('workshopQrError')) + '</p>';
     });
   });
 

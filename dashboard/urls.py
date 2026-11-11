@@ -35,6 +35,7 @@ urlpatterns = [
     path('panel/certificates/<str:certificate_key>/status/', views.certificate_set_active, name='certificate-status'),
     path('panel/course-lessons/save/', views.course_lesson_save, name='course-lesson-save'),
     path('panel/workshops/save/', views.workshop_save, name='workshop-save'),
+    path('panel/courses/<int:pk>/workshop-qr/', views.course_workshop_qr, name='course-workshop-qr'),
     path('panel/course-registration-requests/save/', views.course_registration_request_save, name='course-registration-request-save'),
     path('panel/course-registration-requests/<int:pk>/update/', views.course_registration_request_update, name='course-registration-request-update'),
     path('panel/course-registration-requests/<int:pk>/confirm/', views.course_registration_request_confirm, name='course-registration-request-confirm'),

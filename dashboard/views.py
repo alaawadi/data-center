@@ -8,7 +8,7 @@ import re
 import secrets
 import unicodedata
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
 from pathlib import Path, PurePosixPath
 from tempfile import SpooledTemporaryFile
@@ -56,6 +56,7 @@ from courses.models import (
     CourseSection,
     CourseStatus,
     CourseType,
+    InPersonCourseKind,
     InPersonWorkshop,
     Lesson,
     LessonType,
@@ -2166,6 +2167,7 @@ def _workshop_data(workshop):
     qr_image = 'data:image/png;base64,' + base64.b64encode(image.getvalue()).decode('ascii')
     return {
         'id': workshop.pk,
+        'courseId': workshop.course_id,
         'title': workshop.title,
         'titleEnglish': workshop.title_en,
         'trainerName': workshop.trainer_name,
@@ -2182,6 +2184,71 @@ def _workshop_data(workshop):
         if hasattr(workshop, 'attendees_count')
         else workshop.attendances.count(),
     }
+
+
+@require_POST
+def course_workshop_qr(request, pk):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+    try:
+        with transaction.atomic():
+            course = Course.objects.select_for_update().select_related('owner').get(pk=pk)
+            if (
+                course.course_type != CourseType.IN_PERSON
+                or course.in_person_kind != InPersonCourseKind.WORKSHOP
+            ):
+                return _admin_api_error('رمز الحضور متاح للورشات الوجاهية فقط.', 400)
+
+            raw_duration = (course.duration or '').translate(
+                str.maketrans('٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹', '01234567890123456789')
+            )
+            duration_match = re.search(r'\d+(?:[.,]\d+)?', raw_duration)
+            try:
+                if duration_match is None:
+                    raise InvalidOperation
+                duration_minutes = int(
+                    (Decimal(duration_match.group().replace(',', '.')) * 60).quantize(
+                        Decimal('1'), rounding=ROUND_HALF_UP
+                    )
+                )
+            except InvalidOperation:
+                return _admin_api_error('حدد مدة الورشة بالساعات قبل إنشاء رمز الحضور.', 400)
+            if not 1 <= duration_minutes <= 1440:
+                return _admin_api_error('مدة الورشة يجب أن تكون بين دقيقة و24 ساعة.', 400)
+
+            trainer_name_en = (
+                course.owner.trainer_name_en or course.owner.full_name_en
+            )
+            workshop = InPersonWorkshop.objects.select_for_update().filter(
+                course=course,
+            ).first()
+            if workshop is None:
+                workshop = InPersonWorkshop.objects.create(
+                    course=course,
+                    title=course.title,
+                    title_en=course.title_en,
+                    trainer_name=course.owner.display_name,
+                    trainer_name_en=trainer_name_en,
+                    description=course.summary or course.content,
+                    starts_at=timezone.now(),
+                    duration_minutes=duration_minutes,
+                )
+            else:
+                workshop.title = course.title
+                workshop.title_en = course.title_en
+                workshop.trainer_name = course.owner.display_name
+                workshop.trainer_name_en = trainer_name_en
+                workshop.description = course.summary or course.content
+                workshop.description_en = ''
+                workshop.duration_minutes = duration_minutes
+                workshop.save(update_fields=[
+                    'title', 'title_en', 'trainer_name', 'trainer_name_en',
+                    'description', 'description_en', 'duration_minutes', 'updated_at',
+                ])
+    except Course.DoesNotExist:
+        return _admin_api_error('الورشة غير موجودة.', 404)
+    return JsonResponse({'ok': True, 'workshop': _workshop_data(workshop)})
 
 
 @require_POST
@@ -2420,7 +2487,7 @@ def workshop_attendance_scan(request):
                     'trainer_name': workshop.trainer_name,
                     'trainer_name_en': workshop.trainer_name_en,
                     'student_name': request.user.display_name,
-                    'attended_on': timezone.localtime(workshop.starts_at).date(),
+                    'attended_on': timezone.localdate(),
                     'duration_minutes': workshop.duration_minutes,
                 },
             )

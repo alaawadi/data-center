@@ -61,6 +61,7 @@
       trainerCourseStudents: "{% url 'portfolio:trainer-course-students' course_slug='__ID__' %}",
       courseLessonSave: "{% url 'dashboard:course-lesson-save' %}",
       workshopSave: "{% url 'dashboard:workshop-save' %}",
+      courseWorkshopQr: "{% url 'dashboard:course-workshop-qr' pk=0 %}".replace('/0/workshop-qr/', '/__ID__/workshop-qr/'),
       courseRegistrationRequestSave: "{% url 'dashboard:course-registration-request-save' %}",
       courseRegistrationRequestUpdate: "{% url 'dashboard:course-registration-request-update' pk=0 %}".replace('/0/update/', '/__ID__/update/'),
       courseRegistrationRequestConfirm: "{% url 'dashboard:course-registration-request-confirm' pk=0 %}".replace('/0/confirm/', '/__ID__/confirm/'),
