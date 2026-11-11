@@ -2408,6 +2408,20 @@ class StudentPersistenceTests(TestCase):
         self.student.refresh_from_db()
         self.assertEqual(self.student.phone, '12345')
 
+    def test_admin_can_update_student_to_phone_with_country_prefix(self):
+        response = self.post_json(self.payload(
+            id=str(self.student.pk),
+            name=self.student.full_name,
+            handle=self.student.handle,
+            phone='+12345',
+            email=self.student.email,
+            password='',
+        ))
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.student.refresh_from_db()
+        self.assertEqual(self.student.phone, '+12345')
+
     def test_password_is_required_when_creating_student(self):
         payload = self.payload(phone='0591011005')
         payload.pop('password')
@@ -3619,6 +3633,27 @@ class TrainerPersistenceTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         trainer.refresh_from_db()
         self.assertEqual(trainer.phone, '12345678901234567890')
+
+    def test_admin_can_update_trainer_to_phone_with_country_prefix(self):
+        response = self.post_json(self.save_url, self.trainer_payload(
+            name='مدرب اختبار',
+            phone='1234567890',
+        ))
+        self.assertEqual(response.status_code, 201, response.content)
+        trainer = User.objects.get(phone='1234567890')
+
+        update = self.trainer_payload(
+            id=str(trainer.pk),
+            name=trainer.full_name,
+            handle=trainer.handle,
+            phone='+1234567890',
+            password='',
+        )
+        response = self.post_json(self.save_url, update)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        trainer.refresh_from_db()
+        self.assertEqual(trainer.phone, '+1234567890')
 
     def test_trainer_form_fields_are_optional_and_handle_is_generated_on_create(self):
         payload = self.trainer_payload(

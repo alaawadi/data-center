@@ -14,8 +14,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 phone_validator = RegexValidator(
-    regex=r'^(?:[0-9]+|\+[1-9][0-9]{6,14})$',
-    message='أدخل رقم جوال مكوّناً من أرقام أو رقم دولي بصيغة + ورمز الدولة والرقم.',
+    regex=r'^\+?[0-9]+$',
+    message='أدخل رقم جوال مكوّناً من أرقام، ويمكن أن يبدأ بـ +.',
 )
 
 
