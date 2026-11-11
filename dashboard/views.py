@@ -88,7 +88,7 @@ from users.models import (
     validate_english_three_part_name,
 )
 
-PHONE_RE = re.compile(r'^[0-9]{10}$')
+PHONE_RE = re.compile(r'^[0-9]+$')
 AVATAR_RE = re.compile(r'^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$')
 AVATAR_TYPES = {'png': 'png', 'jpeg': 'jpg', 'webp': 'webp'}
 MAX_AVATAR_BYTES = 4 * 1024 * 1024
@@ -2558,7 +2558,7 @@ def trainer_save(request):
     elif handle and User.objects.filter(handle=handle).exclude(pk=trainer.pk).exists():
         errors['handle'] = 'هذا المعرّف مستخدم بالفعل.'
     if not PHONE_RE.fullmatch(phone):
-        errors['phone'] = 'رقم الجوال يجب أن يتكوّن من 10 أرقام.'
+        errors['phone'] = 'رقم الجوال يجب أن يحتوي على أرقام فقط.'
     elif User.objects.filter(phone=phone).exclude(pk=trainer.pk).exists():
         errors['phone'] = 'رقم الجوال مستخدم بالفعل.'
     if 'whatsapp' in payload and whatsapp and not re.fullmatch(r'\+?[0-9]{1,12}', whatsapp):
@@ -2733,7 +2733,7 @@ def student_save(request):
     elif handle and User.objects.filter(handle=handle).exclude(pk=student.pk).exists():
         errors['handle'] = 'هذا المعرّف مستخدم بالفعل.'
     if not PHONE_RE.fullmatch(phone):
-        errors['phone'] = 'رقم الجوال يجب أن يتكوّن من 10 أرقام.'
+        errors['phone'] = 'رقم الجوال يجب أن يحتوي على أرقام فقط.'
     elif User.objects.filter(phone=phone).exclude(pk=student.pk).exists():
         errors['phone'] = 'رقم الجوال مستخدم بالفعل.'
     if len(email) > 254:

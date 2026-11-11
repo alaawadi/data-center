@@ -14,8 +14,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 phone_validator = RegexValidator(
-    regex=r'^(?:[0-9]{10}|\+[1-9][0-9]{6,14})$',
-    message='أدخل رقم جوال محلياً من 10 أرقام أو دولياً بصيغة + ورمز الدولة والرقم.',
+    regex=r'^(?:[0-9]+|\+[1-9][0-9]{6,14})$',
+    message='أدخل رقم جوال مكوّناً من أرقام أو رقم دولي بصيغة + ورمز الدولة والرقم.',
 )
 
 
@@ -147,9 +147,7 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     """Platform user identified by phone number, with a single role."""
 
-    phone = models.CharField(
-        'رقم الجوال', max_length=16, unique=True, validators=[phone_validator]
-    )
+    phone = models.TextField('رقم الجوال', unique=True, validators=[phone_validator])
     full_name = models.CharField('الاسم الكامل', max_length=150, blank=True)
     full_name_ar = models.CharField(
         'الاسم الثلاثي بالعربية',

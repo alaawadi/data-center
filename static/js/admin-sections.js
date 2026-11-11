@@ -609,11 +609,11 @@
       },
       {
         k: 'phone', label: t('uPhone'), type: 'text', inputType: 'tel', required: true,
-        value: u ? u.phone : '', dir: 'ltr', maxLength: 10, inputMode: 'numeric',
+        value: u ? u.phone : '', dir: 'ltr', inputMode: 'numeric',
         autocomplete: 'off',
-        pattern: '[0-9]{10}', numericOnly: true,
+        pattern: '[0-9]+', numericOnly: true,
         validate: function (value) {
-          if (!/^[0-9]{10}$/.test(value)) return t('userPhoneInvalid');
+          if (!/^[0-9]+$/.test(value)) return t('userPhoneInvalid');
           if (isDuplicate('phone', value)) return t('userPhoneTaken');
           return '';
         }
@@ -1068,11 +1068,11 @@
       { k: 'email', label: t('uEmail'), type: 'text', value: tr ? tr.email : '', dir: 'ltr' },
       {
         k: 'phone', label: t('uPhone'), type: 'text', inputType: 'tel', required: true,
-        value: tr ? tr.phone : '', dir: 'ltr', maxLength: 10, inputMode: 'numeric',
+        value: tr ? tr.phone : '', dir: 'ltr', inputMode: 'numeric',
         autocomplete: 'off',
-        pattern: '[0-9]{10}', numericOnly: true,
+        pattern: '[0-9]+', numericOnly: true,
         validate: function (value) {
-          if (!/^[0-9]{10}$/.test(value)) return t('userPhoneInvalid');
+          if (!/^[0-9]+$/.test(value)) return t('userPhoneInvalid');
           if (isDuplicatePhone(value)) return t('userPhoneTaken');
           return '';
         }
