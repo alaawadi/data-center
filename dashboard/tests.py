@@ -4309,6 +4309,11 @@ class InPersonWorkshopTests(TestCase):
             in_person_kind=InPersonCourseKind.WORKSHOP,
             status=CourseStatus.PUBLISHED,
         )
+        previous_cohort = InPersonCourseCohort.objects.create(
+            course=course,
+            number=1,
+            ended_at=timezone.now(),
+        )
         project_section = CourseSection.objects.create(
             course=course,
             title='مشاريع الورشة',
@@ -4360,6 +4365,11 @@ class InPersonWorkshopTests(TestCase):
         )
 
         self.assertEqual(scan.status_code, 201, scan.content)
+        self.assertEqual(scan.json()['activeCourse']['id'], course.slug)
+        self.assertEqual(
+            scan.json()['activeCourse']['inPersonKind'],
+            InPersonCourseKind.WORKSHOP,
+        )
         self.assertEqual(
             scan.json()['certificateUrl'],
             reverse(
@@ -4379,6 +4389,15 @@ class InPersonWorkshopTests(TestCase):
             attendance__workshop=workshop,
             attendance__student=self.student,
         )
+        registration = CourseRegistrationRequest.objects.get(
+            course=course,
+            student=self.student,
+        )
+        self.assertEqual(registration.status, CourseRegistrationRequestStatus.ACCEPTED)
+        self.assertNotEqual(registration.cohort, previous_cohort)
+        self.assertEqual(registration.cohort.number, 2)
+        self.assertIsNone(registration.cohort.ended_at)
+        self.assertEqual(registration.course_price_amount, Decimal('0.00'))
         self.assertEqual(certificate.workshop_title, course.title)
         self.assertEqual(certificate.duration_minutes, 150)
         self.assertEqual(certificate.attended_on, timezone.localdate())
@@ -4418,6 +4437,15 @@ class InPersonWorkshopTests(TestCase):
             WorkshopCertificate.objects.filter(
                 attendance__workshop=workshop,
                 attendance__student=self.student,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            CourseRegistrationRequest.objects.filter(
+                course=course,
+                student=self.student,
+                cohort=registration.cohort,
+                status=CourseRegistrationRequestStatus.ACCEPTED,
             ).count(),
             1,
         )

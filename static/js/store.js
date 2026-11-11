@@ -553,6 +553,21 @@
       SERVER_MY_CERTS.push(certificate);
       return true;
     },
+    addWorkshopScan: function (certificate, activeCourse) {
+      function upsert(list, item) {
+        if (!Array.isArray(list) || !item || !item.id) return;
+        var index = list.findIndex(function (existing) {
+          return String(existing.id) === String(item.id);
+        });
+        if (index === -1) list.push(item);
+        else list[index] = item;
+      }
+
+      upsert(SERVER_MY_CERTS, certificate);
+      upsert(SERVER_PROFILE_CERTS, certificate);
+      upsert(SERVER_ACTIVE_COURSES, activeCourse);
+      document.dispatchEvent(new CustomEvent('portfolio:workshop-updated'));
+    },
     profileCerts: function () { return SERVER_PROFILE_CERTS; },
     /* دورات المدرب صاحب الحساب (منشورة + مسودّات) — null لغير المدرب */
     myCourses: function () { return SERVER_MY_COURSES; },
@@ -586,6 +601,21 @@
         hit = list.filter(function (x) { return x.pk != null && String(x.pk) === String(id); })[0];
       }
       return hit || null;
+    },
+    updateServerCourse: function (course) {
+      function upsert(list) {
+        if (!Array.isArray(list)) return;
+        var index = list.findIndex(function (item) {
+          return String(item.id) === String(course.id) ||
+            (item.pk != null && String(item.pk) === String(course.pk));
+        });
+        if (index === -1) list.unshift(course);
+        else list[index] = course;
+      }
+
+      if (!course || !course.id) return;
+      upsert(SERVER_COURSES);
+      upsert(this.state.certificates);
     },
     upsert: function (name, obj) {
       var list = this.state[name];

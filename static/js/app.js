@@ -4301,6 +4301,10 @@
     else if (page === 'project') { mountChrome({}); renderProjectDetail(); }
   }, 60));
 
+  document.addEventListener('portfolio:workshop-updated', function () {
+    if (page === 'home') renderHome();
+  });
+
   window.addEventListener('pageshow', function (event) {
     if (!event.persisted) return;
     var host = document.getElementById('detailHost');

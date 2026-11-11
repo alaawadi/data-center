@@ -1930,6 +1930,10 @@ def course_save(request):
             'cover': course.cover.url if course.cover else '',
             'url': reverse('courses:detail', kwargs={'pk': course.slug}),
             'version': version.version_number if version else None,
+            'course': course.to_public_dict(
+                include_syllabus=False,
+                include_content=False,
+            ),
         }
     )
 

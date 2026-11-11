@@ -3164,6 +3164,15 @@
             console.warn('تعذر تحديث مفتاح سجل حذف الدورة.', error);
           }
         }
+        if (
+          isCourse &&
+          res.course &&
+          document.body.getAttribute('data-admin-dashboard-editor') === 'true' &&
+          window.Store &&
+          typeof window.Store.updateServerCourse === 'function'
+        ) {
+          window.Store.updateServerCourse(res.course);
+        }
         existing = true;
         if (isCourse && res.cover && p.cover === submittedCover) {
           p.cover = res.cover;

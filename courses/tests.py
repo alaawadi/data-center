@@ -1370,6 +1370,24 @@ class CoursePermissionsTests(TestCase):
         course = Course.objects.get(owner=self.trainer)
         self.assertEqual(course.period, '12 لقاءات')
 
+    def test_course_save_returns_public_course_data_for_live_dashboard_updates(self):
+        response = self._post(
+            _payload(
+                status='draft',
+                courseType=CourseType.IN_PERSON,
+                inPersonKind=InPersonCourseKind.WORKSHOP,
+                trainerId=self.trainer.pk,
+            ),
+            self.admin,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        course_data = response.json()['course']
+        self.assertEqual(course_data['id'], response.json()['id'])
+        self.assertEqual(course_data['courseType'], CourseType.IN_PERSON)
+        self.assertEqual(course_data['inPersonKind'], InPersonCourseKind.WORKSHOP)
+        self.assertEqual(course_data['status'], CourseStatus.DRAFT)
+
     def test_only_owner_can_delete(self):
         course = Course.objects.create(owner=self.trainer, title='دوريتي')
         res = self.client.post(

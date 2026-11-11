@@ -75,6 +75,9 @@
           throw new Error(data.message || text('تعذر تسجيل الحضور.', 'Could not record attendance.'));
         }
         stopCamera();
+        if (window.Store && Store.addWorkshopScan) {
+          Store.addWorkshopScan(data.certificate, data.activeCourse);
+        }
         if (!data.certificateUrl) {
           throw new Error(text(
             'تم تسجيل الحضور لكن تعذر فتح الشهادة.',

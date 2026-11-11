@@ -2438,6 +2438,57 @@ def workshop_regenerate_qr(request, pk):
     })
 
 
+def _register_workshop_student_in_active_cohort(student, course):
+    course = Course.objects.select_for_update().get(pk=course.pk)
+    cohort = start_next_inperson_cohort(course)
+    current_registration = CourseRegistrationRequest.objects.select_for_update().filter(
+        course=course,
+        student=student,
+        cohort=cohort,
+        status=CourseRegistrationRequestStatus.ACCEPTED,
+    ).first()
+    if current_registration:
+        return current_registration
+
+    unassigned_registration = CourseRegistrationRequest.objects.select_for_update().filter(
+        course=course,
+        student=student,
+        cohort__isnull=True,
+        status=CourseRegistrationRequestStatus.ACCEPTED,
+    ).first()
+    if unassigned_registration:
+        unassigned_registration.cohort = cohort
+        unassigned_registration.save(update_fields=['cohort'])
+        return unassigned_registration
+
+    pending_registration = CourseRegistrationRequest.objects.select_for_update().filter(
+        course=course,
+        student=student,
+        cohort=cohort,
+        status__in=(
+            CourseRegistrationRequestStatus.NEW,
+            CourseRegistrationRequestStatus.CONTACTED,
+        ),
+    ).order_by('-created_at', '-pk').first()
+    if pending_registration:
+        pending_registration.status = CourseRegistrationRequestStatus.ACCEPTED
+        pending_registration.save(update_fields=['status'])
+        return pending_registration
+
+    student_phone = _normalized_inperson_student_phone(student.phone) or student.phone
+    return CourseRegistrationRequest.objects.create(
+        course=course,
+        cohort=cohort,
+        student=student,
+        course_price_amount=Decimal('0.00'),
+        full_name=student.display_name[:200],
+        phone=student_phone if len(student_phone) <= 13 else '',
+        address='',
+        specialty='',
+        status=CourseRegistrationRequestStatus.ACCEPTED,
+    )
+
+
 @require_POST
 def workshop_delete(request, pk):
     denied = _admin_api_user(request)
@@ -2470,11 +2521,24 @@ def workshop_attendance_scan(request):
 
     try:
         with transaction.atomic():
+            workshop_course_id = InPersonWorkshop.objects.filter(
+                qr_token=token,
+            ).values_list('course_id', flat=True).first()
+            course = None
+            if workshop_course_id is not None:
+                course = Course.objects.select_for_update().filter(
+                    pk=workshop_course_id,
+                ).first()
             workshop = InPersonWorkshop.objects.select_for_update().filter(qr_token=token).first()
             if workshop is None:
                 return _admin_api_error('رمز الورشة غير صالح أو تم تجديده.', 400)
             if not workshop.attendance_open:
                 return _admin_api_error('التسجيل مغلق لهذه الورشة حالياً.', 409)
+            if workshop.course_id and course and course.pk == workshop.course_id:
+                _register_workshop_student_in_active_cohort(
+                    request.user,
+                    course,
+                )
             attendance, created = WorkshopAttendance.objects.get_or_create(
                 workshop=workshop,
                 student=request.user,
@@ -2505,6 +2569,18 @@ def workshop_attendance_scan(request):
                         lesson.section.course,
                         lesson,
                     )
+            if course and workshop.course_id == course.pk:
+                active_course = course.to_public_dict(
+                    include_syllabus=False,
+                    include_content=False,
+                )
+            else:
+                active_course = certificate.to_public_dict()
+                active_course.update({
+                    'courseType': CourseType.IN_PERSON,
+                    'inPersonKind': 'workshop',
+                    'duration': f'{certificate.duration_hours} ساعة',
+                })
     except IntegrityError:
         attendance = WorkshopAttendance.objects.get(
             workshop__qr_token=token,
@@ -2517,6 +2593,7 @@ def workshop_attendance_scan(request):
         'alreadyRegistered': not created,
         'message': 'تم تسجيل حضورك وإصدار شهادتك.' if created else 'حضورك مسجل مسبقاً.',
         'certificate': certificate.to_public_dict(),
+        'activeCourse': active_course,
         'certificateUrl': reverse(
             'courses:certificate',
             kwargs={'pk': f'workshop-{certificate.pk}'},
