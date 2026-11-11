@@ -4395,6 +4395,81 @@ class InPersonWorkshopTests(TestCase):
             ).count(),
             1,
         )
+        completed_lesson = self.post_json(
+            reverse('courses:progress'),
+            {
+                'id': course.slug,
+                'lesson': project_lesson.pk,
+                'done': True,
+            },
+        )
+        self.assertEqual(completed_lesson.status_code, 200, completed_lesson.content)
+        completion_data = completed_lesson.json()
+        self.assertTrue(completion_data['newlyCompleted'])
+        self.assertEqual(
+            completion_data['certificateUrl'],
+            reverse(
+                'courses:certificate',
+                kwargs={'pk': f'workshop-{certificate.pk}'},
+            ),
+        )
+        self.assertTrue(completion_data['certificate']['workshop'])
+        self.assertEqual(
+            WorkshopCertificate.objects.filter(
+                attendance__workshop=workshop,
+                attendance__student=self.student,
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            CourseCertificate.objects.filter(
+                student=self.student,
+                course=course,
+            ).exists()
+        )
+        repeated_scan = self.post_json(
+            self.scan_url,
+            {'token': str(workshop.qr_token)},
+        )
+        self.assertEqual(repeated_scan.status_code, 200, repeated_scan.content)
+        self.assertTrue(repeated_scan.json()['alreadyRegistered'])
+        self.assertEqual(
+            WorkshopCertificate.objects.filter(
+                attendance__workshop=workshop,
+                attendance__student=self.student,
+            ).count(),
+            1,
+        )
+        self.assertEqual(
+            Project.objects.filter(
+                owner=self.student,
+                source_lesson=project_lesson,
+            ).count(),
+            1,
+        )
+        repeated_completion = self.post_json(
+            reverse('courses:progress'),
+            {
+                'id': course.slug,
+                'lesson': project_lesson.pk,
+                'done': True,
+            },
+        )
+        self.assertFalse(repeated_completion.json()['newlyCompleted'])
+        self.assertEqual(
+            Project.objects.filter(
+                owner=self.student,
+                source_lesson=project_lesson,
+            ).count(),
+            1,
+        )
+        playlist = self.client.get(
+            reverse('courses:playlist', kwargs={'pk': course.slug})
+        )
+        self.assertEqual(
+            playlist.context['progress_json']['certificateUrl'],
+            completion_data['certificateUrl'],
+        )
         profile = self.client.get(reverse('accounts:profile', args=[self.student.handle]))
         self.assertEqual(profile.status_code, 200)
         self.assertTrue(any(

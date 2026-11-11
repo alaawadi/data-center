@@ -11,6 +11,7 @@
   var trainerMode = false;
   var trainerWhatsapp = '';
   var serverProgress = null;      /* {done: [lesson ids], complete: bool} من السيرفر */
+  var completionCertificateUrl = '';
   var idKeyMap = {};              /* معرّف الدرس في قاعدة البيانات ← المفتاح الموضعي */
   var completeFlag = false;       /* أنهى الدورة (تُظهر شارة الشهادة وتمنع تكرار التهنئة) */
   var quizStatus = {};            /* حالة محاولات الكويز لكل درس (id → {...}) */
@@ -82,7 +83,9 @@
     return 'https://www.youtube.com/embed/' + id + '?' + q;
   }
 
-  function certUrl() { return SITE.u('certificate', courseId); }
+  function certUrl() {
+    return completionCertificateUrl || SITE.u('certificate', courseId);
+  }
 
   /* زر الشهادة — يظهر أسفل صندوق التقدّم بعد إتمام كل دروس الدورة */
   function certBtnHTML() {
@@ -950,8 +953,9 @@
     }
   }
 
-  function celebrate() {
+  function celebrate(certificateUrl) {
     if (trainerMode || completeFlag || !completionEligible()) return;
+    if (certificateUrl) completionCertificateUrl = certificateUrl;
     completeFlag = true;
     progress._complete = 1;
     saveProgress();
@@ -1106,8 +1110,12 @@
           var pid2 = idOf(pkey2);
           if (pid2 != null && serverProgress.done.indexOf(pid2) === -1) serverProgress.done.push(pid2);
         }
-        if (res.newlyCompleted) celebrate();
-        else if (res.complete) { completeFlag = true; syncCertBtn(); }
+        if (res.newlyCompleted) celebrate(res.certificateUrl);
+        else if (res.complete) {
+          if (res.certificateUrl) completionCertificateUrl = res.certificateUrl;
+          completeFlag = true;
+          syncCertBtn();
+        }
         UI.toast(t('quizPassedToast'), 'success');
       } else {
         UI.toast(t('quizFailToast'), 'info');
@@ -1171,8 +1179,12 @@
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (!res || !res.ok) return;
-        if (res.newlyCompleted) celebrate();
-        else if (res.complete) { completeFlag = true; syncCertBtn(); }
+        if (res.newlyCompleted) celebrate(res.certificateUrl);
+        else if (res.complete) {
+          if (res.certificateUrl) completionCertificateUrl = res.certificateUrl;
+          completeFlag = true;
+          syncCertBtn();
+        }
         if (res.projectCreated) UI.toast(t('plProjectAdded'), 'success');
         if (res.project) {
           var flagKey = key != null ? key : idOf(currentKey);
@@ -1362,6 +1374,7 @@
     serverProgress = trainerMode ? null : readServerProgress();
     quizStatus = readQuizStatus() || {};
     if (serverProgress) {
+      completionCertificateUrl = serverProgress.certificateUrl || '';
       (serverProgress.done || []).forEach(function (id) {
         var k = idKeyMap[String(id)];
         if (k) progress[k] = 1;

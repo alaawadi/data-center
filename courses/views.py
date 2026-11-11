@@ -865,10 +865,24 @@ class PlaylistView(TemplateView):
             progress = active_course_progress(
                 CourseProgress.objects.filter(student=self.request.user, course=course)
             ).first()
-            context['progress_json'] = {
+            progress_data = {
                 'done': list(progress.completed_ids or []) if progress else [],
                 'complete': bool(progress and progress.completed and course.is_complete),
             }
+            if (
+                course.course_type == CourseType.IN_PERSON
+                and course.in_person_kind == InPersonCourseKind.WORKSHOP
+            ):
+                workshop_certificate = WorkshopCertificate.objects.filter(
+                    attendance__workshop__course=course,
+                    attendance__student=self.request.user,
+                ).only('pk').first()
+                if workshop_certificate:
+                    progress_data['certificateUrl'] = reverse(
+                        'courses:certificate',
+                        kwargs={'pk': f'workshop-{workshop_certificate.pk}'},
+                    )
+            context['progress_json'] = progress_data
         if self.request.user.is_authenticated:
             # حالة محاولات الكويز (لصفحة المشاهدة): لكل درس اختبار محاولات سابقة
             quizzes = list(Quiz.objects.filter(
@@ -2108,6 +2122,15 @@ def _copy_media_file(source_field, target_field, filename):
 
 
 def _ensure_project_for_lesson(user, course, lesson):
+    with transaction.atomic():
+        User.objects.select_for_update().only('pk').get(pk=user.pk)
+        existing = Project.objects.filter(owner=user, source_lesson=lesson).first()
+        if existing is not None:
+            return existing, False
+        return _create_project_for_lesson(user, course, lesson)
+
+
+def _create_project_for_lesson(user, course, lesson):
     """مشروع الطالب التلقائي لدرس من نوع «مشروع» (مرة واحدة لكل درس).
 
     إن كان الدرس مرتبطاً بمشروع للمدرب، تُنسخ بياناته كاملة إلى مشروع الطالب:
@@ -2115,10 +2138,6 @@ def _ensure_project_for_lesson(user, course, lesson):
     — بنسخ مستقلة من الملفات على القرص حتى لا يتأثّر أصل المدرب بأي تعديل.
     وإلا يُبنى من وصف الدرس.
     """
-    existing = Project.objects.filter(owner=user, source_lesson=lesson).first()
-    if existing is not None:
-        return existing, False
-
     source = lesson.linked_project
     if source is not None:
         title = (source.title or lesson.title)[:200]
@@ -2206,8 +2225,32 @@ def _apply_lesson_completion(user, course, lesson, done):
     progress.save()
 
     certificate = None
+    certificate_url = ''
     if newly_completed:
-        certificate, _ = CourseCertificate.objects.get_or_create(student=user, course=course)
+        workshop_certificate = None
+        if (
+            course.course_type == CourseType.IN_PERSON
+            and course.in_person_kind == InPersonCourseKind.WORKSHOP
+        ):
+            workshop_certificate = WorkshopCertificate.objects.filter(
+                attendance__workshop__course=course,
+                attendance__student=user,
+            ).first()
+        if workshop_certificate:
+            certificate = workshop_certificate
+            certificate_url = reverse(
+                'courses:certificate',
+                kwargs={'pk': f'workshop-{workshop_certificate.pk}'},
+            )
+        else:
+            certificate, _ = CourseCertificate.objects.get_or_create(
+                student=user,
+                course=course,
+            )
+            certificate_url = reverse(
+                'courses:certificate',
+                kwargs={'pk': course.slug},
+            )
 
     project = None
     project_created = False
@@ -2224,6 +2267,7 @@ def _apply_lesson_completion(user, course, lesson, done):
         'complete': complete,
         'newlyCompleted': newly_completed,
         'certificate': certificate.to_public_dict() if certificate else None,
+        'certificateUrl': certificate_url,
         'project': project.to_public_dict() if project else None,
         'projectCreated': project_created,
     }
