@@ -3017,7 +3017,7 @@
       : (c.studentNameArabic || (SERVER_PROFILE && SERVER_PROFILE.fullNameArabic) || c.studentName || '');
     var shareUrl = location.origin + SITE.u('certificate', e(c.certificateId || c.id));
     var backDest = c.workshop
-      ? SITE.u('portfolio')
+      ? (c.courseUrl || SITE.u('portfolio'))
       : SITE.u('course', e(c.courseId || c.id));
     var trainerAvatar = (c.owner && c.owner.avatar) || c.trainerAvatar || '';
     trainerAvatar = c.trainerAvatar || trainerAvatar;
@@ -3098,9 +3098,10 @@
       '<div class="cd-price"><b>' + e(t('certPageStatusValid')) + '</b><span>' + e(t('certPageKicker')) + '</span></div>' +
       '<button class="cd-btn cd-btn-buy" type="button" data-act="print-cert">' + UI.icon('download', 16) + e(t('certPagePrint')) + '</button>' +
       '<button class="cd-btn cd-btn-share" type="button" data-act="share" data-url="' + e(shareUrl) + '">' + UI.icon('share-2', 16) + e(t('shareCta')) + '</button>' +
-      (!c.workshop
-        ? '<a class="cd-btn cd-btn-edit" href="' + backDest + '">' + UI.icon('arrow-right', 15) + e(isInPersonWorkshop ? 'العودة للورشة' : t('certPageBack')) + '</a>'
-        : '') +
+      '<a class="cd-btn cd-btn-edit" href="' + e(backDest) + '">' +
+      UI.icon('arrow-right', 15) +
+      e(c.workshop ? t('certPageBackToWorkshop') : (isInPersonWorkshop ? t('certPageBackToWorkshop') : t('certPageBack'))) +
+      '</a>' +
       '<ul class="cd-includes">' +
       '<li>' + UI.icon('award', 15) + '<span>' + e(t('ucCert')) + '</span></li>' +
       '<li>' + UI.icon('calendar', 15) + '<span>' + e(t('certPageIssued')) + ': <b>' + e(issued) + '</b></span></li>' +

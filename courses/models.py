@@ -1230,6 +1230,10 @@ class WorkshopCertificate(models.Model):
                 'accounts:profile',
                 kwargs={'handle': trainer.handle},
             ) if trainer else '',
+            'courseUrl': reverse(
+                'courses:detail',
+                kwargs={'pk': workshop.course.slug},
+            ) if workshop.course_id else '',
             'studentName': self.student_name,
             'studentNameArabic': student.full_name_ar,
             'studentNameEnglish': student.full_name_en,

@@ -4398,6 +4398,21 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(registration.cohort.number, 2)
         self.assertIsNone(registration.cohort.ended_at)
         self.assertEqual(registration.course_price_amount, Decimal('0.00'))
+        self.client.force_login(self.admin)
+        admin_dashboard = self.client.get(reverse('dashboard:home'))
+        visible_registration = next(
+            item for item in admin_dashboard.context['course_registration_requests_json']
+            if item['id'] == str(registration.pk)
+        )
+        self.assertEqual(visible_registration['studentId'], str(self.student.pk))
+        self.assertEqual(visible_registration['cohortId'], str(registration.cohort_id))
+        self.assertEqual(visible_registration['status'], CourseRegistrationRequestStatus.ACCEPTED)
+        active_cohort = next(
+            item for item in admin_dashboard.context['admin_inperson_cohorts_json']
+            if item['id'] == str(registration.cohort_id)
+        )
+        self.assertTrue(active_cohort['active'])
+        self.client.force_login(self.student)
         self.assertEqual(certificate.workshop_title, course.title)
         self.assertEqual(certificate.duration_minutes, 150)
         self.assertEqual(certificate.attended_on, timezone.localdate())

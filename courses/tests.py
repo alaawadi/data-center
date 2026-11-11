@@ -4365,6 +4365,10 @@ class EarnedCertificateDetailTests(TestCase):
         self.assertEqual(certificate_data['workshopDetails']['title'], workshop.title)
         self.assertEqual(certificate_data['workshopDetails']['location'], workshop.location)
         self.assertEqual(certificate_data['workshopDetails']['description'], workshop.description)
+        self.assertEqual(
+            certificate_data['courseUrl'],
+            reverse('courses:detail', kwargs={'pk': workshop_course.slug}),
+        )
         self.assertEqual(certificate_data['duration'], '1.5')
         self.assertEqual(certificate_data['workshopDetails']['duration'], '1.5')
         self.assertEqual(
