@@ -184,6 +184,13 @@ def _can_view(course, user):
         )
     if course.is_published:
         return True
+    if (
+        course.course_type == CourseType.IN_PERSON
+        and user.is_authenticated
+        and user.is_student
+        and _has_course_access(course, user)
+    ):
+        return True
     if not user.is_authenticated:
         return False
     return course.owner_id == user.pk or user.is_admin_role or user.is_staff
@@ -807,7 +814,7 @@ class PlaylistView(TemplateView):
     template_name = 'courses/playlist.html'
 
     @staticmethod
-    def _course_queryset():
+    def _course_queryset(include_unpublished=False):
         linked_projects = Project.objects.select_related(
             'owner', 'owner__profile'
         ).prefetch_related('tags', 'files')
@@ -815,14 +822,22 @@ class PlaylistView(TemplateView):
             Prefetch('linked_project', queryset=linked_projects),
             'quiz__questions',
         )
-        return _published_courses(include_syllabus=False).prefetch_related(
+        courses = (
+            Course.objects.select_related('owner', 'owner__profile')
+            if include_unpublished
+            else _published_courses(include_syllabus=False)
+        )
+        return courses.prefetch_related(
             Prefetch('sections__lessons', queryset=lessons)
         )
 
     def get(self, request, *args, **kwargs):
         course = _find_course(kwargs['pk'], self._course_queryset())
         if course is None:
-            course = _find_course(kwargs['pk'], self._course_queryset())
+            course = _find_course(
+                kwargs['pk'],
+                self._course_queryset(include_unpublished=True),
+            )
         if course is not None and not _can_view(course, request.user):
             course = None
         if course is None:

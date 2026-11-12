@@ -4407,6 +4407,23 @@ class InPersonWorkshopTests(TestCase):
         self.assertEqual(visible_registration['studentId'], str(self.student.pk))
         self.assertEqual(visible_registration['cohortId'], str(registration.cohort_id))
         self.assertEqual(visible_registration['status'], CourseRegistrationRequestStatus.ACCEPTED)
+        admin_workshop = next(
+            item for item in admin_dashboard.context['admin_workshops_json']
+            if item['id'] == workshop.pk
+        )
+        self.assertEqual(admin_workshop['attendeesCount'], 1)
+        attendee_list = self.client.get(
+            reverse('dashboard:workshop-attendees', args=[workshop.pk])
+        )
+        self.assertEqual(attendee_list.status_code, 200, attendee_list.content)
+        self.assertEqual(attendee_list.json()['attendees'], [{
+            'name': self.student.display_name,
+            'handle': self.student.handle,
+            'attendedAt': WorkshopAttendance.objects.get(
+                workshop=workshop,
+                student=self.student,
+            ).attended_at.isoformat(),
+        }])
         active_cohort = next(
             item for item in admin_dashboard.context['admin_inperson_cohorts_json']
             if item['id'] == str(registration.cohort_id)
@@ -4476,6 +4493,13 @@ class InPersonWorkshopTests(TestCase):
         )
         self.assertEqual(repeated_scan.status_code, 200, repeated_scan.content)
         self.assertTrue(repeated_scan.json()['alreadyRegistered'])
+        self.assertEqual(
+            WorkshopAttendance.objects.filter(
+                workshop=workshop,
+                student=self.student,
+            ).count(),
+            1,
+        )
         self.assertEqual(
             WorkshopCertificate.objects.filter(
                 attendance__workshop=workshop,

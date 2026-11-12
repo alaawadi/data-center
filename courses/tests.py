@@ -2692,6 +2692,67 @@ class CourseProgressTests(TestCase):
         response = self._mark(self.lessons[0])
         self.assertEqual(response.status_code, 200)
 
+    def test_registered_student_keeps_inactive_workshop_and_lessons_accessible(self):
+        self.course.course_type = CourseType.IN_PERSON
+        self.course.in_person_kind = InPersonCourseKind.WORKSHOP
+        self.course.save(update_fields=['course_type', 'in_person_kind'])
+        cohort = InPersonCourseCohort.objects.create(
+            course=self.course,
+            number=1,
+        )
+        CourseRegistrationRequest.objects.create(
+            course=self.course,
+            cohort=cohort,
+            student=self.student,
+            full_name=self.student.full_name,
+            phone=self.student.phone,
+            address='غزة',
+            specialty='شبكات',
+            status=CourseRegistrationRequestStatus.ACCEPTED,
+        )
+        admin = User.objects.create_user(
+            phone='059777001',
+            password='pass1234',
+            full_name='مدير النظام',
+            role=UserRole.ADMIN,
+        )
+        self.client.force_login(admin)
+        deactivate_response = self.client.post(
+            reverse('dashboard:course-status', kwargs={'pk': self.course.pk}),
+            data=json.dumps({'active': False}),
+            content_type='application/json',
+        )
+        self.assertEqual(deactivate_response.status_code, 200, deactivate_response.content)
+        cohort.refresh_from_db()
+        self.course.refresh_from_db()
+        self.assertEqual(self.course.status, CourseStatus.DRAFT)
+        self.assertIsNotNone(cohort.ended_at)
+        self.client.force_login(self.student)
+
+        detail_response = self.client.get(
+            reverse('courses:detail', kwargs={'pk': self.course.slug})
+        )
+        playlist_response = self.client.get(self.playlist_url)
+        progress_response = self._mark(self.lessons[0])
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertTrue(detail_response.context['is_course_student_enrolled'])
+        self.assertEqual(playlist_response.status_code, 200)
+        self.assertEqual(
+            playlist_response.context['courses_json'][0]['syllabus'][0]['lessons'][0]['id'],
+            self.lessons[0].pk,
+        )
+        self.assertEqual(progress_response.status_code, 200, progress_response.content)
+
+        self.client.force_login(self.other_student)
+        self.assertEqual(
+            self.client.get(
+                reverse('courses:detail', kwargs={'pk': self.course.slug})
+            ).status_code,
+            404,
+        )
+        self.assertEqual(self.client.get(self.playlist_url).status_code, 404)
+
     def test_expired_online_subscription_hides_course_and_blocks_learning(self):
         self.course.price = '₪150'
         self.course.save(update_fields=['price'])

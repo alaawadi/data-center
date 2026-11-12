@@ -1,6 +1,7 @@
 """Views for the personal portfolio hub (index.html)."""
 from django.http import JsonResponse
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
 from django.views.decorators.http import require_GET
 from django.views.generic import TemplateView
 
@@ -158,7 +159,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
                     CourseProgress.objects.filter(
                         student=user,
                         completed=False,
-                        course__status=CourseStatus.PUBLISHED,
+                    ).filter(
+                        Q(course__status=CourseStatus.PUBLISHED)
+                        | Q(course__course_type=CourseType.IN_PERSON)
                     )
                 ).select_related(
                     'course', 'course__owner', 'course__owner__profile'
@@ -170,7 +173,6 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 active_course_ids = {course.pk for course in active_courses}
                 accepted_inperson_courses = Course.objects.filter(
                     course_type=CourseType.IN_PERSON,
-                    status=CourseStatus.PUBLISHED,
                     registration_requests__student=user,
                     registration_requests__status=CourseRegistrationRequestStatus.ACCEPTED,
                 ).select_related(

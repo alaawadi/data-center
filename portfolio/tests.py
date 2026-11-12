@@ -182,7 +182,7 @@ class TrainerPortfolioTests(TestCase):
         course = Course.objects.create(
             owner=self.trainer,
             title='دورة وجاهية لشعبة منتهية',
-            status=CourseStatus.PUBLISHED,
+            status=CourseStatus.DRAFT,
             course_type=CourseType.IN_PERSON,
         )
         cohort = InPersonCourseCohort.objects.create(
