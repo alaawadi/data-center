@@ -28,12 +28,16 @@ from django.views.generic import FormView, TemplateView, UpdateView
 
 from core.context_processors import get_platform_settings
 from courses.models import StudentReferral, StudentReferralLink
-from .forms import LoginForm, ProfileEditForm, SignupForm, SocialLinkFormSet
+from .forms import (
+    LoginForm,
+    ProfileEditForm,
+    SignupForm,
+    SocialLinkFormSet,
+)
 from .models import (
     FreelancerCategory,
     Profile,
     ProfileSkill,
-    SignupRateLimit,
     SignupVerification,
     StudentSetupLink,
     Skill,
@@ -307,11 +311,8 @@ def check_profile_whatsapp_ajax(request):
     })
 
 
-SIGNUP_SESSION_KEY = 'signup_verification_id'
-
-
 class SignupView(FormView):
-    """Create an active student account that can sign in immediately."""
+    """Create an active student account without email verification."""
 
     template_name = 'users/signup.html'
     form_class = SignupForm
@@ -335,49 +336,37 @@ class SignupView(FormView):
 
     def form_valid(self, form):
         data = form.cleaned_data
-        ip_key = client_ip(self.request) or 'unknown'
-        with transaction.atomic():
-            quota, _ = SignupRateLimit.objects.get_or_create(ip_key=ip_key)
-            quota = SignupRateLimit.objects.select_for_update().get(pk=quota.pk)
-            now = timezone.now()
-            cutoff = now.timestamp() - 24 * 60 * 60
-            timestamps = [
-                timestamp for timestamp in quota.signup_timestamps
-                if isinstance(timestamp, (int, float)) and timestamp > cutoff
-            ]
-            if len(timestamps) >= 3:
-                form.add_error(
-                    None,
-                    'تم الوصول إلى الحد الأقصى لإنشاء 3 حسابات خلال 24 ساعة من هذا الاتصال. حاول لاحقاً.',
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    phone=data['phone'],
+                    password=data['password1'],
+                    full_name=data['full_name'],
+                    email=data['email'],
+                    role=UserRole.STUDENT,
+                    is_active=True,
                 )
-                return self.render_to_response(self.get_context_data(form=form), status=429)
-            try:
-                with transaction.atomic():
-                    user = User.objects.create_user(
-                        phone=data['phone'],
-                        password=data['password1'],
-                        full_name=data['full_name'],
-                        email=data['email'],
-                        role=UserRole.STUDENT,
-                        is_active=True,
+                referral_code = self.request.session.get(
+                    'student_course_referral_code'
+                )
+                if referral_code:
+                    referral_link = (
+                        StudentReferralLink.objects.filter(code=referral_code)
+                        .exclude(referrer=user)
+                        .first()
                     )
-                    referral_code = self.request.session.get('student_course_referral_code')
-                    if referral_code:
-                        referral_link = (
-                            StudentReferralLink.objects.filter(code=referral_code)
-                            .exclude(referrer=user)
-                            .first()
+                    if referral_link:
+                        StudentReferral.objects.create(
+                            link=referral_link,
+                            referred_user=user,
                         )
-                        if referral_link:
-                            StudentReferral.objects.create(
-                                link=referral_link,
-                                referred_user=user,
-                            )
-            except IntegrityError:
-                form.add_error(None, 'رقم الجوال مستخدم بالفعل. تحقق من البيانات وحاول مرة أخرى.')
-                return self.form_invalid(form)
-            quota.signup_timestamps = timestamps + [now.timestamp()]
-            quota.save(update_fields=['signup_timestamps'])
+        except IntegrityError:
+            form.add_error(
+                None,
+                'رقم الهاتف أو البريد الإلكتروني مستخدم بالفعل. تحقق من البيانات وحاول مرة أخرى.',
+            )
+            return self.form_invalid(form)
+
         messages.success(
             self.request,
             'تم إنشاء حسابك وتفعيله بنجاح. يمكنك تسجيل الدخول الآن.',
@@ -386,12 +375,15 @@ class SignupView(FormView):
 
 
 @require_http_methods(['GET', 'POST'])
-def verify_signup_disabled(request):
-    """Close the legacy OTP endpoint so it cannot activate old sign-up sessions."""
-    pending_id = request.session.pop(SIGNUP_SESSION_KEY, None)
+def verify_signup(request):
+    pending_id = request.session.pop('signup_verification_id', None)
+    request.session.pop('signup_verification_ip', None)
     if pending_id:
         SignupVerification.objects.filter(pk=pending_id).delete()
-    messages.info(request, 'لم يعد التسجيل يتطلب رمزاً. أكمل التسجيل من النموذج، ثم انتظر تفعيل الحساب من الإدارة.')
+    messages.info(
+        request,
+        'تم إيقاف تفعيل البريد مؤقتاً. أنشئ حسابك مباشرة من صفحة التسجيل.',
+    )
     return redirect('users:signup')
 
 

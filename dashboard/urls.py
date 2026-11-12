@@ -19,6 +19,7 @@ urlpatterns = [
     path('panel/display-order/', views.admin_display_order, name='display-order'),
     path('panel/trainers/save/', views.trainer_save, name='trainer-save'),
     path('panel/students/save/', views.student_save, name='student-save'),
+    path('panel/students/delete/', views.student_delete, name='student-delete'),
     path('panel/trainers/<str:pk>/status/', views.trainer_set_active, name='trainer-status'),
     path('panel/trainers/<str:pk>/content-permission/', views.trainer_set_content_permission, name='trainer-content-permission'),
     path('panel/students/<str:pk>/status/', views.student_set_active, name='student-status'),

@@ -801,6 +801,45 @@
   Admin.on('user-sessions', function (el) {
     openStudentSessions(Store.find('users', el.getAttribute('data-id')));
   });
+  function deleteStudents(ids) {
+    if (!ids.length) return;
+    var users = ids.map(function (id) {
+      var normalizedId = String(id).replace(/^db-user-/, '');
+      return Store.collection('users').filter(function (user) {
+        return String(user.databaseId || user.id).replace(/^db-user-/, '') === normalizedId;
+      })[0];
+    });
+    if (users.some(function (user) { return !user || !user.databaseId; })) {
+      UI.toast(t('saveError'), 'error');
+      return;
+    }
+
+    UI.confirm(t('confirmDelete')).then(function (confirmed) {
+      if (!confirmed) return;
+      fetch(SITE.u('studentDelete'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.CSRF_TOKEN || ''
+        },
+        body: JSON.stringify({
+          ids: users.map(function (user) { return user.databaseId; })
+        })
+      }).then(function (response) {
+        return response.json().then(function (data) {
+          if (!response.ok || !data.ok) throw new Error(data.message || t('saveError'));
+          users.forEach(function (user) { Store.remove('users', user.id); });
+          AdminData.logActivity('delete', 'users', String(users.length));
+          Admin.ts('users').sel = {};
+          UI.toast(t('deleted'), 'success');
+          Admin.renderAll();
+        });
+      }).catch(function (error) {
+        UI.toast(error.message || t('saveError'), 'error');
+      });
+    });
+  }
   Admin.on('student-referral-stats-visibility', function (el) {
     var user = Store.find('users', el.getAttribute('data-id'));
     if (!user || !user.databaseId) return;
@@ -831,9 +870,7 @@
     var id = el.getAttribute('data-id');
     var u = Store.find('users', id);
     if (!u) return;
-    var admins = Store.collection('users').filter(function (x) { return x.role === 'admin'; });
-    if (u.role === 'admin' && admins.length <= 1) { UI.toast(t('guardOwner'), 'error'); return; }
-    delItem('users', id, 'users', u.name);
+    deleteStudents([u.databaseId || u.id]);
   });
   Admin.on('user-toggle', function (el) {
     var u = Store.find('users', el.getAttribute('data-id'));
@@ -955,10 +992,7 @@
   Admin.on('user-bulk-activate', function () { bulkSetStudentStatus('active'); });
   Admin.on('user-bulk-suspend', function () { bulkSetStudentStatus('suspended'); });
   Admin.on('user-bulk-del', function () {
-    var ids = Admin.selIds('users');
-    var admins = Store.collection('users').filter(function (x) { return x.role === 'admin'; });
-    if (admins.length <= 1 && ids.indexOf('usr_1') >= 0) { UI.toast(t('guardOwner'), 'error'); return; }
-    bulkDel('users', 'users', 'users');
+    deleteStudents(Admin.selIds('users'));
   });
 
   Admin.register('trainers', {

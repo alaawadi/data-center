@@ -156,9 +156,34 @@
     if (phoneInput) phoneInput.addEventListener('input', syncSignupPhoneMaxLength);
     if (countryCodeInput) countryCodeInput.addEventListener('change', syncSignupPhoneMaxLength);
     var emailInput = document.getElementById('suEmail');
+    var emailHint = document.getElementById('suEmailHint');
     var pwInput = document.getElementById('suPassword');
     var pw2Input = document.getElementById('suPassword2');
     mountStrength(pwInput);
+
+    function checkEmailLive() {
+      if (!emailInput || !emailHint) return true;
+      var email = emailInput.value.trim();
+      if (!email) {
+        emailInput.removeAttribute('aria-invalid');
+        emailHint.textContent = 'سيُستخدم للتواصل بشأن حسابك';
+        emailHint.classList.remove('error', 'ok');
+        return true;
+      }
+
+      var isValid = email.length <= 254 &&
+        validEmail(email) &&
+        !emailInput.validity.typeMismatch;
+      emailInput.setAttribute('aria-invalid', isValid ? 'false' : 'true');
+      emailHint.textContent = isValid
+        ? 'البريد الإلكتروني صحيح ✓'
+        : 'أدخل بريداً إلكترونياً صحيحاً مثل name@example.com';
+      emailHint.classList.toggle('error', !isValid);
+      emailHint.classList.toggle('ok', isValid);
+      return isValid;
+    }
+
+    if (emailInput) emailInput.addEventListener('input', checkEmailLive);
 
     var pw2Hint = document.getElementById('suPassword2Hint');
     function checkPasswordMatch() {
@@ -335,7 +360,7 @@
       if (words > 3) { ev.preventDefault(); checkNameLive(); toast('الاسم الكامل يجب ألا يزيد عن ثلاث كلمات', 'error'); if (nameInput) nameInput.focus(); return; }
       if (!phone) { ev.preventDefault(); checkPhoneLive(); toast('رقم الجوال غير صحيح', 'error'); if (phoneInput) phoneInput.focus(); return; }
       if (phoneTaken) { ev.preventDefault(); toast('هذا الرقم مستخدم بالفعل', 'error'); if (phoneInput) phoneInput.focus(); return; }
-      if (!validEmail(email)) { ev.preventDefault(); toast('أدخل بريداً إلكترونياً صحيحاً', 'error'); if (emailInput) emailInput.focus(); return; }
+      if (!email || !checkEmailLive()) { ev.preventDefault(); toast('أدخل بريداً إلكترونياً صحيحاً', 'error'); if (emailInput) emailInput.focus(); return; }
       if (!validPassword(pw)) { ev.preventDefault(); toast('كلمة المرور يجب ألا تقل عن 8 أحرف', 'error'); if (pwInput) pwInput.focus(); return; }
       if (strengthOf(pw) < 2) { ev.preventDefault(); toast('كلمة المرور ضعيفة — أضف أرقاماً ورموزاً', 'error'); if (pwInput) pwInput.focus(); return; }
       if (!checkPasswordMatch() || pw !== pw2) { ev.preventDefault(); toast('كلمتا المرور غير متطابقتين', 'error'); if (pw2Input) pw2Input.focus(); return; }

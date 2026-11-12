@@ -48,8 +48,8 @@
 
         <div class="field">
           <label class="label" for="suEmail">البريد الإلكتروني <span class="req">*</span></label>
-          <input class="input" id="suEmail" name="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com" value="{{ form.email.value|default:'' }}" required>
-          {% if form.email.errors %}<span class="hint error">{{ form.email.errors.0 }}</span>{% else %}<span class="hint" id="suEmailHint">سيُستخدم للتواصل بشأن حسابك</span>{% endif %}
+          <input class="input" id="suEmail" name="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="name@example.com" value="{{ form.email.value|default:'' }}" aria-describedby="suEmailHint"{% if form.email.errors %} aria-invalid="true"{% endif %} required>
+          <span class="hint{% if form.email.errors %} error{% endif %}" id="suEmailHint" aria-live="polite">{% if form.email.errors %}{{ form.email.errors.0 }}{% else %}سيُستخدم للتواصل بشأن حسابك{% endif %}</span>
         </div>
 
         <div class="field">

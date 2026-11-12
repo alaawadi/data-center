@@ -2994,6 +2994,49 @@ def student_save(request):
 
 
 @require_POST
+def student_delete(request):
+    denied = _admin_api_user(request)
+    if denied:
+        return denied
+
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return _admin_api_error('البيانات المرسلة غير صالحة.', 400)
+    if not isinstance(payload, dict) or not isinstance(payload.get('ids'), list):
+        return _admin_api_error('قائمة الطلاب المراد حذفهم غير صالحة.', 400)
+
+    raw_ids = payload['ids']
+    if not raw_ids or any(
+        isinstance(student_id, bool)
+        or not isinstance(student_id, (str, int))
+        or not str(student_id).isdecimal()
+        or len(str(student_id)) > 19
+        or int(student_id) < 1
+        or int(student_id) > 9223372036854775807
+        for student_id in raw_ids
+    ):
+        return _admin_api_error('قائمة الطلاب المراد حذفهم غير صالحة.', 400)
+
+    student_ids = [int(student_id) for student_id in raw_ids]
+    if len(set(student_ids)) != len(student_ids):
+        return _admin_api_error('قائمة الطلاب المراد حذفهم غير صالحة.', 400)
+
+    with transaction.atomic():
+        students = list(
+            User.objects.select_for_update().filter(
+                pk__in=student_ids,
+                role=UserRole.STUDENT,
+            )
+        )
+        if len(students) != len(student_ids):
+            return _admin_api_error('تعذر العثور على جميع الطلاب المحددين.', 404)
+        User.objects.filter(pk__in=student_ids, role=UserRole.STUDENT).delete()
+
+    return JsonResponse({'ok': True, 'deleted': len(student_ids)})
+
+
+@require_POST
 def trainer_set_active(request, pk):
     denied = _admin_api_user(request)
     if denied:

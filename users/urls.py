@@ -11,7 +11,7 @@ urlpatterns = [
     path('signup/', views.SignupView.as_view(), name='signup'),
     path('terms/', views.TermsView.as_view(), name='terms'),
     path('privacy/', views.PrivacyView.as_view(), name='privacy'),
-    path('signup/verify/', views.verify_signup_disabled, name='verify-signup'),
+    path('signup/verify/', views.verify_signup, name='verify-signup'),
     path('phone-available/', views.check_phone_ajax, name='phone-check'),
     path(
         'profile/whatsapp-available/',

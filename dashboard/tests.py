@@ -2110,6 +2110,93 @@ class AdminStudentActivationTests(TestCase):
         self.assertTrue(student.is_active)
 
 
+class AdminStudentDeletionTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            phone='0591000023',
+            password='admin-password',
+            full_name='مدير النظام',
+            role=UserRole.ADMIN,
+        )
+        self.student = User.objects.create_user(
+            phone='0591000024',
+            password='student-password',
+            full_name='طالب للحذف',
+            role=UserRole.STUDENT,
+        )
+        self.url = reverse('dashboard:student-delete')
+
+    def test_admin_can_delete_multiple_student_accounts(self):
+        another_student = User.objects.create_user(
+            phone='0591000025',
+            password='student-password',
+            full_name='طالب آخر للحذف',
+            role=UserRole.STUDENT,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'ids': [self.student.pk, another_student.pk]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {'ok': True, 'deleted': 2})
+        self.assertFalse(
+            User.objects.filter(pk__in=[self.student.pk, another_student.pk]).exists()
+        )
+
+    def test_delete_rejects_non_students_without_deleting_them(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'ids': [self.admin.pk]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+
+    def test_mixed_student_and_non_student_ids_do_not_partially_delete(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'ids': [self.student.pk, self.admin.pk]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(User.objects.filter(pk=self.student.pk).exists())
+        self.assertTrue(User.objects.filter(pk=self.admin.pk).exists())
+
+    def test_non_admin_cannot_delete_students(self):
+        self.client.force_login(self.student)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'ids': [self.student.pk]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(User.objects.filter(pk=self.student.pk).exists())
+
+    def test_delete_rejects_invalid_id_lists(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            self.url,
+            data=json.dumps({'ids': [self.student.pk, self.student.pk]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(User.objects.filter(pk=self.student.pk).exists())
+
+
 class AdminReferralPointsResetTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_user(

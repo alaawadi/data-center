@@ -1,6 +1,8 @@
 """Authentication, registration and profile forms."""
 import re
 
+import dns.exception
+import dns.resolver
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm
@@ -120,6 +122,80 @@ EMAIL_WIDGET_ATTRS = {
     'spellcheck': 'false',
 }
 
+DISPOSABLE_EMAIL_DOMAINS = frozenset({
+    '10minutemail.com',
+    '10minutemail.net',
+    'burnermail.io',
+    'cool.fr.nf',
+    'dispostable.com',
+    'emailfake.com',
+    'emailondeck.com',
+    'fakeinbox.com',
+    'fakemail.net',
+    'getairmail.com',
+    'getnada.com',
+    'guerrillamail.com',
+    'guerrillamail.biz',
+    'guerrillamail.de',
+    'guerrillamail.info',
+    'grr.la',
+    'jetable.fr.nf',
+    'maildrop.cc',
+    'mailinator.com',
+    'mailnesia.com',
+    'mintemail.com',
+    'mohmal.com',
+    'mytemp.email',
+    'sharklasers.com',
+    'temp-mail.org',
+    'tempail.com',
+    'tempmail.com',
+    'tempmail.net',
+    'tempmailo.com',
+    'tempinbox.com',
+    'throwawaymail.com',
+    'trashmail.com',
+    'yopmail.com',
+    'yopmail.fr',
+    'yopmail.net',
+})
+
+EMAIL_DOMAIN_LABEL_RE = re.compile(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\Z')
+EMAIL_DOMAIN_TLD_RE = re.compile(r'(?:[a-z]{2,}|xn--[a-z0-9-]{2,})\Z')
+
+
+class EmailDomainCheckUnavailable(Exception):
+    """Raised when DNS cannot determine whether an email domain is reachable."""
+
+
+def email_domain_has_mail_service(domain):
+    resolver = dns.resolver.Resolver()
+    resolver.timeout = 1
+    resolver.lifetime = 3
+    try:
+        mx_records = resolver.resolve(domain, 'MX')
+    except dns.resolver.NXDOMAIN:
+        return False
+    except dns.resolver.NoAnswer:
+        for record_type in ('A', 'AAAA'):
+            try:
+                resolver.resolve(domain, record_type)
+                return True
+            except dns.resolver.NoAnswer:
+                continue
+            except dns.resolver.NXDOMAIN:
+                return False
+            except (dns.resolver.NoNameservers, dns.exception.Timeout) as exc:
+                raise EmailDomainCheckUnavailable from exc
+        return False
+    except (dns.resolver.NoNameservers, dns.exception.Timeout) as exc:
+        raise EmailDomainCheckUnavailable from exc
+
+    return bool(mx_records) and not any(
+        str(record.exchange) == '.' for record in mx_records
+    )
+
+
 PASSWORD_WIDGET_ATTRS = {
     'class': 'input',
     'id': 'suPassword',
@@ -151,7 +227,7 @@ class FullNameWordsMixin:
 
 
 class SignupForm(FullNameWordsMixin, forms.Form):
-    """Self sign-up data for an immediately active student account."""
+    """Validate student sign-up details and require a mail-capable email domain."""
 
     full_name = forms.CharField(
         label='الاسم الكامل', max_length=150, widget=forms.TextInput(attrs=FULL_NAME_WIDGET_ATTRS)
@@ -204,6 +280,39 @@ class SignupForm(FullNameWordsMixin, forms.Form):
 
     def clean_email(self):
         email = (self.cleaned_data.get('email') or '').strip().lower()
+        domain = email.rsplit('@', 1)[-1]
+        try:
+            ascii_domain = domain.encode('idna').decode('ascii')
+        except UnicodeError:
+            ascii_domain = ''
+        domain_labels = ascii_domain.split('.')
+        if (
+            len(ascii_domain) > 253
+            or len(domain_labels) < 2
+            or not all(EMAIL_DOMAIN_LABEL_RE.fullmatch(label) for label in domain_labels)
+            or not EMAIL_DOMAIN_TLD_RE.fullmatch(domain_labels[-1])
+        ):
+            raise forms.ValidationError(
+                'نطاق مزود البريد غير صحيح. أدخل بريدًا بنطاق كامل مثل name@example.com.'
+            )
+        if any(
+            ascii_domain == disposable_domain
+            or ascii_domain.endswith(f'.{disposable_domain}')
+            for disposable_domain in DISPOSABLE_EMAIL_DOMAINS
+        ):
+            raise forms.ValidationError(
+                'لا يمكن التسجيل ببريد مؤقت. استخدم بريدًا دائمًا من مزود موثوق.'
+            )
+        try:
+            domain_has_mail_service = email_domain_has_mail_service(ascii_domain)
+        except EmailDomainCheckUnavailable:
+            raise forms.ValidationError(
+                'تعذر التحقق من نطاق البريد حاليًا. حاول مرة أخرى بعد قليل.'
+            ) from None
+        if not domain_has_mail_service:
+            raise forms.ValidationError(
+                'نطاق البريد غير موجود أو لا يستقبل رسائل. استخدم بريدًا من مزود يعمل.'
+            )
         if User.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError('هذا البريد الإلكتروني مستخدم بالفعل.')
         return email

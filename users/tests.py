@@ -1,15 +1,22 @@
 import hashlib
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
-from django.contrib.auth.hashers import make_password
+from dns.resolver import NXDOMAIN
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.cache import cache
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
-from .forms import COUNTRY_CALLING_CODES, COUNTRY_CALLING_CODE_CHOICES, ProfileEditForm
+from .forms import (
+    COUNTRY_CALLING_CODES,
+    COUNTRY_CALLING_CODE_CHOICES,
+    EmailDomainCheckUnavailable,
+    ProfileEditForm,
+    email_domain_has_mail_service,
+)
 from .models import (
     DEFAULT_STUDENT_CATEGORY_NAME,
     DeviceSession,
@@ -17,12 +24,12 @@ from .models import (
     FreelancerCategory,
     LoginAttempt,
     Profile,
+    SignupRateLimit,
     SignupVerification,
     StudentSetupLink,
     User,
     UserRole,
 )
-from .models import SignupRateLimit
 
 PHONE = '0591000010'
 PASSWORD = 'Demo#2026'
@@ -389,12 +396,18 @@ class LegalPageTests(TestCase):
 
 
 class SignupStepOneTests(TestCase):
-    """Create active student accounts that can sign in immediately."""
+    """Create student accounts immediately without an account-creation quota."""
 
     def setUp(self):
         cache.clear()
         self.client = Client()
         self.url = reverse('users:signup')
+        self.domain_check_patch = patch(
+            'users.forms.email_domain_has_mail_service',
+            return_value=True,
+        )
+        self.domain_check_patch.start()
+        self.addCleanup(self.domain_check_patch.stop)
 
     def _signup_data(self, number):
         phone = f'05910000{number:02d}'
@@ -404,11 +417,24 @@ class SignupStepOneTests(TestCase):
             'email': f'user{number}@example.com',
         }
 
+    def _start_signup(self, data):
+        response = self.client.post(self.url, data)
+        self.assertRedirects(response, reverse('users:login'))
+        self.assertTrue(User.objects.filter(phone=data.get('phone', SIGNUP_DATA['phone'])).exists())
+        self.assertFalse(SignupVerification.objects.exists())
+        self.assertEqual(len(mail.outbox), 0)
+        return response
+
+    def _complete_signup(self, data):
+        return self._start_signup(data)
+
     def test_signup_page_includes_all_country_calling_codes(self):
         response = self.client.get(self.url)
         choices = COUNTRY_CALLING_CODE_CHOICES
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="suEmailHint"')
+        self.assertContains(response, 'aria-describedby="suEmailHint"')
         self.assertContains(response, 'id="suCountryCode"')
         self.assertContains(response, 'class="country-code-search"')
         self.assertContains(response, 'ابحث برقم مقدمة الدولة')
@@ -420,38 +446,8 @@ class SignupStepOneTests(TestCase):
                 self.assertTrue(all(0x1F1E6 <= ord(letter) <= 0x1F1FF for letter in label[:2]))
         self.assertGreater(len(response.context['form'].fields['country_code'].choices), 200)
 
-    def test_only_three_accounts_can_be_created_per_ip_in_rolling_24_hours(self):
-        for number in range(41, 44):
-            response = self.client.post(self.url, self._signup_data(number))
-            self.assertEqual(response.status_code, 302)
-
-        response = self.client.post(self.url, self._signup_data(44))
-
-        self.assertEqual(response.status_code, 429)
-        self.assertContains(response, 'الحد الأقصى لإنشاء 3 حسابات', status_code=429)
-        self.assertEqual(User.objects.filter(role=UserRole.STUDENT).count(), 3)
-        quota = SignupRateLimit.objects.get(ip_key='127.0.0.1')
-        self.assertEqual(len(quota.signup_timestamps), 3)
-
-    def test_signup_quota_expires_each_registration_after_24_hours(self):
-        for number in range(41, 44):
-            response = self.client.post(self.url, self._signup_data(number))
-            self.assertEqual(response.status_code, 302)
-
-        quota = SignupRateLimit.objects.get(ip_key='127.0.0.1')
-        quota.signup_timestamps[0] = timezone.now().timestamp() - 24 * 60 * 60 - 1
-        quota.save(update_fields=['signup_timestamps'])
-
-        response = self.client.post(self.url, self._signup_data(44))
-
-        self.assertEqual(response.status_code, 302)
-        quota.refresh_from_db()
-        self.assertEqual(len(quota.signup_timestamps), 3)
-
-    def test_valid_signup_creates_active_account_and_allows_login_without_email_or_code(self):
-        response = self.client.post(self.url, SIGNUP_DATA)
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse('users:login'))
+    def test_signup_creates_active_account_immediately_without_email(self):
+        self._start_signup(SIGNUP_DATA)
         user = User.objects.get(phone=SIGNUP_DATA['phone'])
         self.assertEqual(user.email, SIGNUP_DATA['email'])
         self.assertEqual(user.full_name, SIGNUP_DATA['full_name'])
@@ -466,9 +462,7 @@ class SignupStepOneTests(TestCase):
         )
         self.assertTrue(user.is_active)
         self.assertTrue(user.check_password(SIGNUP_DATA['password1']))
-        self.assertEqual(len(mail.outbox), 0)
-        self.assertNotIn('signup_verification_id', self.client.session)
-        self.assertFalse(SignupVerification.objects.exists())
+        self.assertFalse(SignupRateLimit.objects.exists())
 
         login_response = self.client.post(reverse('users:login'), {
             'username': SIGNUP_DATA['phone'],
@@ -479,6 +473,15 @@ class SignupStepOneTests(TestCase):
         self.assertEqual(login_response.wsgi_request.user.pk, user.pk)
         self.assertEqual(DeviceSession.objects.filter(user=user).count(), 1)
 
+    def test_more_than_three_accounts_can_be_created_from_one_ip(self):
+        for number in range(41, 46):
+            with self.subTest(number=number):
+                response = self._complete_signup(self._signup_data(number))
+                self.assertEqual(response.status_code, 302)
+
+        self.assertEqual(User.objects.filter(role=UserRole.STUDENT).count(), 5)
+        self.assertFalse(SignupRateLimit.objects.exists())
+
     def test_signup_accepts_international_country_prefix_and_phone_login(self):
         response = self.client.post(self.url, {
             **SIGNUP_DATA,
@@ -486,7 +489,7 @@ class SignupStepOneTests(TestCase):
             'phone': '2025550198',
         })
 
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('users:login'))
         user = User.objects.get(phone='+12025550198')
         login_response = self.client.post(reverse('users:login'), {
             'username': user.phone,
@@ -502,7 +505,7 @@ class SignupStepOneTests(TestCase):
             'phone': '0591000042',
         })
 
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('users:login'))
         self.assertTrue(User.objects.filter(phone='+970591000042').exists())
 
     def test_signup_accepts_nine_digit_local_phone_with_country_code(self):
@@ -512,7 +515,7 @@ class SignupStepOneTests(TestCase):
             'phone': '591000042',
         })
 
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('users:login'))
         self.assertTrue(User.objects.filter(phone='+970591000042').exists())
 
     def test_signup_with_palestinian_prefix_rejects_existing_legacy_number(self):
@@ -556,7 +559,7 @@ class SignupStepOneTests(TestCase):
             'password1': password,
             'password2': password,
         })
-        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('users:login'))
 
         user = User.objects.get(phone='0591000041')
         self.assertTrue(user.check_password(password))
@@ -571,45 +574,109 @@ class SignupStepOneTests(TestCase):
         User.objects.create(phone=SIGNUP_DATA['phone'])
         response = self.client.post(self.url, SIGNUP_DATA)
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(SignupVerification.objects.exists())
         self.assertFalse(User.objects.filter(email=SIGNUP_DATA['email']).exists())
 
     def test_duplicate_email_rejected(self):
         User.objects.create(phone='0591000099', email=SIGNUP_DATA['email'])
         response = self.client.post(self.url, SIGNUP_DATA)
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(SignupVerification.objects.exists())
 
     def test_full_name_needs_two_to_three_words(self):
         for bad in ('Test', 'One Two Three Four'):
             response = self.client.post(self.url, {**SIGNUP_DATA, 'full_name': bad})
             self.assertEqual(response.status_code, 200)
-        self.assertFalse(SignupVerification.objects.exists())
+        self.assertFalse(User.objects.filter(email=SIGNUP_DATA['email']).exists())
 
     def test_invalid_email_rejected(self):
         response = self.client.post(self.url, {**SIGNUP_DATA, 'email': 'not-an-email'})
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(SignupVerification.objects.exists())
+        self.assertFalse(User.objects.filter(email=SIGNUP_DATA['email']).exists())
 
+    def test_email_without_fully_qualified_provider_domain_is_rejected(self):
+        email = 'person@hjhjg'
 
-    def test_legacy_verification_endpoint_cannot_create_an_account(self):
+        response = self.client.post(self.url, {**SIGNUP_DATA, 'email': email})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['form'].has_error('email'))
+        self.assertFalse(User.objects.filter(email=email).exists())
+
+    def test_nonexistent_email_domain_is_rejected(self):
+        email = 'jdhsfjk@kdsj.lksd'
+        with patch('users.forms.email_domain_has_mail_service', return_value=False):
+            response = self.client.post(self.url, {**SIGNUP_DATA, 'email': email})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['form'].has_error('email'))
+        self.assertFalse(User.objects.filter(email=email).exists())
+
+    def test_dns_lookup_rejects_nonexistent_provider_domain(self):
+        with patch('users.forms.dns.resolver.Resolver') as resolver_factory:
+            resolver_factory.return_value.resolve.side_effect = NXDOMAIN
+
+            self.assertFalse(email_domain_has_mail_service('kdsj.lksd'))
+
+    def test_temporary_dns_failure_does_not_accept_email_domain(self):
+        with patch(
+            'users.forms.email_domain_has_mail_service',
+            side_effect=EmailDomainCheckUnavailable,
+        ):
+            response = self.client.post(
+                self.url,
+                {**SIGNUP_DATA, 'email': 'person@gmail.com'},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['form'].has_error('email'))
+        self.assertFalse(User.objects.filter(email='person@gmail.com').exists())
+
+    def test_disposable_email_provider_is_rejected(self):
+        for email in ('person@YOPMAIL.COM', 'person@sub.mailinator.com'):
+            with self.subTest(email=email):
+                response = self.client.post(
+                    self.url,
+                    {**SIGNUP_DATA, 'email': email},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'لا يمكن التسجيل ببريد مؤقت')
+                self.assertFalse(User.objects.filter(email__iexact=email).exists())
+
+    def test_common_permanent_email_providers_are_accepted(self):
+        for number, email in enumerate(
+            ('person@gmail.com', 'person@outlook.com', 'person@proton.me'),
+            start=1,
+        ):
+            with self.subTest(email=email):
+                response = self.client.post(
+                    self.url,
+                    {
+                        **SIGNUP_DATA,
+                        'phone': f'05910000{number + 60:02d}',
+                        'email': email,
+                    },
+                )
+                self.assertRedirects(response, reverse('users:login'))
+                self.assertTrue(User.objects.filter(email=email).exists())
+
+    def test_legacy_verification_url_does_not_send_or_require_a_code(self):
         pending = SignupVerification.objects.create(
             phone=SIGNUP_DATA['phone'],
             full_name=SIGNUP_DATA['full_name'],
             email=SIGNUP_DATA['email'],
-            password_hash=make_password(SIGNUP_DATA['password1']),
-            code_hash=make_password('123456'),
+            password_hash='unused',
+            code_hash='unused',
         )
         session = self.client.session
         session['signup_verification_id'] = pending.pk
+        session['signup_verification_ip'] = '127.0.0.1'
         session.save()
 
-        response = self.client.post(reverse('users:verify-signup'), {'code': '123456'})
+        response = self.client.get(reverse('users:verify-signup'))
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, reverse('users:signup'))
-        self.assertFalse(User.objects.filter(phone=SIGNUP_DATA['phone']).exists())
-        self.assertFalse(SignupVerification.objects.filter(pk=pending.pk).exists())
+        self.assertRedirects(response, self.url)
+        self.assertFalse(SignupVerification.objects.exists())
+        self.assertNotIn('signup_verification_id', self.client.session)
+        self.assertEqual(len(mail.outbox), 0)
 
 
 class ProfileVerificationTests(TestCase):
